@@ -1,0 +1,4 @@
+{
+    "editor.formatOnSave": true,
+    "jupyter.notebookFileRoot": "${workspaceFolder}/backend"
+}
