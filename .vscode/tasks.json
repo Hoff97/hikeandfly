@@ -1,0 +1,19 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "npm",
+            "script": "start",
+            "path": "frontend",
+            "problemMatcher": [],
+            "label": "npm: start - frontend",
+            "detail": "react-scripts start"
+        },
+        {
+            "type": "shell",
+            "label": "Run backend",
+            "command": "cd backend && ${command:python.interpreterPath} -m flask --app src.server run",
+            "problemMatcher": []
+        }
+    ]
+}

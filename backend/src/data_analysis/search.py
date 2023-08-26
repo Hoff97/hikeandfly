@@ -85,7 +85,7 @@ def update_one_neighbor(
 ):
     if not neighbor.reachable:
         return
-    distance = (neighbor.distance + 1) * config.grid.cell_size
+    distance = (neighbor.distance + config.grid.cell_size)
     height = neighbor.height - config.glide_ratio * config.grid.cell_size
 
     reachable = config.grid.heights[ix[0], ix[1]] < height
