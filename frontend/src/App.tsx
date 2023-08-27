@@ -10,7 +10,7 @@ import {
     Tooltip,
     useMapEvents
 } from "react-leaflet";
-import { LatLng, LatLngBounds } from "leaflet";
+import { LatLng, LatLngBounds, PathOptions } from "leaflet";
 
 interface GridTile {
     index: number[];
@@ -56,7 +56,7 @@ function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState })
 
     return (
         <Rectangle bounds={bounds} pathOptions={blackOptions}>
-            <Tooltip>
+            <Tooltip direction='top'>
                 AGL: {Math.round(node.agl)}m<br />
                 Height: {Math.round(node.height)}m<br />
                 Distance: {Math.round(node.distance / 100) / 10}km
@@ -104,7 +104,13 @@ function Grid({ grid }: { grid: GridState }) {
         new LatLng(grid.response.lat[1], grid.response.lon[1])
     );
 
-    const redOptions = { color: 'red' };
+    const pathOptions: PathOptions = {
+        color: 'black',
+        weight: 4,
+        dashArray: [5],
+        lineCap: 'round',
+        lineJoin: 'round'
+    };
 
     return <>
         <ImageOverlay
@@ -113,7 +119,7 @@ function Grid({ grid }: { grid: GridState }) {
             opacity={0.4}>
         </ImageOverlay>
         {path !== undefined ? (
-            <Polyline pathOptions={redOptions} positions={path} />
+            <Polyline pathOptions={pathOptions} positions={path} />
         ) : <></>}
         {node !== undefined ? (
             <CurrentNodeDisplay node={node} grid={grid} />
