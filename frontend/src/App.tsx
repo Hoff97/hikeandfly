@@ -41,7 +41,7 @@ function getSearchParams(lat: number, lon: number) {
     return new URLSearchParams({
         "lat": lat.toString(),
         "lon": lon.toString(),
-        "cell_size": "30",
+        "cell_size": "50",
     });
 }
 
