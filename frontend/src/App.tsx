@@ -1,10 +1,11 @@
 import { useState } from "react";
 import "./App.css";
 import {
+    ImageOverlay,
     MapContainer,
-    Rectangle,
+    Polyline,
+    SVGOverlay,
     TileLayer,
-    Tooltip,
     useMapEvents
 } from "react-leaflet";
 import { LatLng, LatLngBounds } from "leaflet";
@@ -23,110 +24,120 @@ interface GridTile {
 interface ConeSearchResponse {
     nodes: GridTile[];
     cell_size: number;
+    lat: number[];
+    lon: number[];
+    grid_shape: number[];
     angular_resolution: number[];
 }
 
-interface GridMarkerProps {
-    tile: GridTile;
-    angular_resolution: number[];
-    cell_size: number;
+interface GridState {
+    response: ConeSearchResponse;
+    startPosition: LatLng;
+    grid: GridTile[][];
 }
 
-function lerp(a: number[], b: number[], m: number) {
-    if (m > 1) {
-        return b;
-    }
-    let result = [];
-    for (let i = 0; i < a.length; i++) {
-        result.push(Math.floor((b[i] - a[i]) * m + a[i]));
-    }
-    return result;
+function getSearchParams(lat: number, lon: number) {
+    return new URLSearchParams({
+        "lat": lat.toString(),
+        "lon": lon.toString(),
+        "cell_size": "30",
+    });
 }
 
-function lerpMulti(steps: number[][], fractions: number[], m: number) {
-    let j = fractions.length - 2;
-    for (let i = 0; i < fractions.length - 1; i++) {
-        if (m >= fractions[i] && m < fractions[i + 1]) {
-            j = i;
-            break;
+function Grid({ grid }: { grid: GridState }) {
+    const [path, setPath] = useState<LatLng[] | undefined>();
+
+    useMapEvents({
+        mousemove(ev) {
+            if (ev.latlng.lat >= grid.response.lat[0] && ev.latlng.lat <= grid.response.lat[1] && ev.latlng.lng >= grid.response.lon[0]
+                && ev.latlng.lng <= grid.response.lon[1]) {
+                const latIx = Math.floor((ev.latlng.lat - grid.response.lat[0]) / (grid.response.lat[1] - grid.response.lat[0]) * grid.response.grid_shape[0]);
+                const lonIx = Math.floor((ev.latlng.lng - grid.response.lon[0]) / (grid.response.lon[1] - grid.response.lon[0]) * grid.response.grid_shape[1]);
+
+                if (grid.grid[latIx] !== undefined && grid.grid[latIx][lonIx] !== undefined) {
+                    const node = grid.grid[latIx][lonIx];
+                    let current = node;
+                    let path = [];
+                    while (current.ref !== null) {
+                        path.push(new LatLng(current.lat, current.lon, current.height));
+                        current = grid.grid[current.ref[0]][current.ref[1]];
+                    }
+                    path.push(new LatLng(current.lat, current.lon, current.height));
+                    setPath(path);
+                }
+            }
         }
-    }
+    });
 
-    return lerp(steps[j], steps[j + 1], (m - fractions[j]) / (fractions[j + 1] - fractions[j]));
-}
+    let imageUrl = new URL("http://localhost:3000/agl_image");
+    imageUrl.search = getSearchParams(grid.startPosition.lat, grid.startPosition.lng).toString();
 
-function GridMarker({ tile, angular_resolution, cell_size }: GridMarkerProps) {
     const bounds = new LatLngBounds(
-        new LatLng(tile.lat - angular_resolution[0] / 2, tile.lon - angular_resolution[1] / 2),
-        new LatLng(tile.lat + angular_resolution[0] / 2, tile.lon + angular_resolution[1] / 2)
+        new LatLng(grid.response.lat[0], grid.response.lon[0]),
+        new LatLng(grid.response.lat[1], grid.response.lon[1])
     );
 
-    const col = lerpMulti([[255, 0, 0], [180, 190, 0], [0, 150, 255]], [0, 0.5, 1], Math.min(tile.agl / 1200, 1));
-    const color = `rgb(${col[0]},${col[1]},${col[2]})`;
+    const redOptions = { color: 'red' };
 
-    const colors = { fillColor: color, fillOpacity: 0.4, stroke: true, weight: cell_size / 50 * 0.1, color: color };
-
-    const mouseover = () => {
-        //TODO: Show path
-    };
-
-    const mouseout = () => {
-        //TODO: Hide path
-    };
-
-    return (
-        <Rectangle bounds={bounds} pathOptions={colors} eventHandlers={{ mouseover: mouseover, mouseout: mouseout }}>
-            <Tooltip>
-                Height: {Math.round(tile.height)}m<br />
-                AGL: {Math.round(tile.agl)}m<br />
-                Distance: {Math.round(tile.distance / 100) / 10}km
-            </Tooltip>
-        </Rectangle>
-    )
+    return <>
+        <ImageOverlay
+            url={imageUrl.toString()}
+            bounds={bounds}
+            opacity={0.4}>
+        </ImageOverlay>
+        {path !== undefined ? (
+            <Polyline pathOptions={redOptions} positions={path} />
+        ) : <></>}
+    </>
 }
 
-function Grid({ grid }: { grid: ConeSearchResponse }) {
-    return (<>
-        {grid.nodes.map((node) => (
-            <GridMarker tile={node} angular_resolution={grid.angular_resolution} key={node.index.toString()} cell_size={grid.cell_size}></GridMarker>
-        ))}
-    </>);
+function setupGrid(cone: ConeSearchResponse): GridTile[][] {
+    const grid = new Array(cone.grid_shape[0]);
+    for (let node of cone.nodes) {
+        if (grid[node.index[0]] === undefined) {
+            grid[node.index[0]] = new Array(cone.grid_shape[1]);
+        }
+
+        grid[node.index[0]][node.index[1]] = node;
+    }
+    return grid;
 }
 
-function LocationMarker() {
-    const [cone, setCone] = useState<ConeSearchResponse | undefined>();
+function SearchComponent() {
+    const [grid, setGrid] = useState<GridState | undefined>();
 
-    const map = useMapEvents({
+    useMapEvents({
         async click(e) {
             let url = new URL("http://localhost:3000/flight_cone");
-            url.search = new URLSearchParams({
-                "lat": e.latlng.lat.toString(),
-                "lon": e.latlng.lng.toString(),
-                "cell_size": "50",
-            }).toString();
+            url.search = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
 
             let response = await fetch(url);
             let cone: ConeSearchResponse = await response.json();
 
             console.log(cone);
-            setCone(cone);
+            const grid = setupGrid(cone)
+            setGrid({
+                grid: grid,
+                response: cone,
+                startPosition: e.latlng
+            });
         },
-    })
+    });
 
-    return cone === undefined ? <></> : (<>
-        <Grid grid={cone}></Grid>
+    return grid === undefined ? <></> : (<>
+        <Grid grid={grid}></Grid>
     </>);
 }
 
 function App() {
     return (
         <div className="App">
-            <MapContainer center={[47.264786047651256, 11.40106201171875]} zoom={13} scrollWheelZoom={true}>
+            <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
                 />
-                <LocationMarker></LocationMarker>
+                <SearchComponent></SearchComponent>
             </MapContainer>
         </div>
     );

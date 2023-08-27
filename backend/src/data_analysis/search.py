@@ -85,7 +85,7 @@ def update_one_neighbor(
 ):
     if not neighbor.reachable:
         return
-    distance = (neighbor.distance + config.grid.cell_size)
+    distance = neighbor.distance + config.grid.cell_size
     height = neighbor.height - config.glide_ratio * config.grid.cell_size
 
     reachable = config.grid.heights[ix[0], ix[1]] < height
@@ -342,7 +342,9 @@ def search(start: GridIndex, height: float, config: SearchConfig):
 
     while len(state.queue) > 0:
         if i % 500 == 0:
-            _logger.info("Explored %d, queue size %d",len(state.explored), len(state.queue))
+            _logger.info(
+                "Explored %d, queue size %d", len(state.explored), len(state.queue)
+            )
         first = state.queue.pop()
         state.explored[first.key] = first.item
 
@@ -359,6 +361,55 @@ def search(start: GridIndex, height: float, config: SearchConfig):
     return state
 
 
+def reindex(state: SearchState, grid: HeightGrid):
+    node_ixs = np.array(
+        [grid_ix for grid_ix, node in state.explored.items() if node.reachable]
+    )
+
+    mins = [int(x) for x in np.min(node_ixs, axis=0)]
+    maxs = [int(x) for x in np.max(node_ixs, axis=0)]
+
+    new_explored = {
+        (grid_ix[0] - mins[0], grid_ix[1] - mins[1]): Node(
+            node.height,
+            [node.ix[0] - mins[0], node.ix[1] - mins[1]],
+            [node.ref[0] - mins[0], node.ref[1] - mins[1]]
+            if node.ref is not None
+            else None,
+            node.distance,
+            node.reachable,
+        )
+        for grid_ix, node in state.explored.items()
+        if node.reachable
+    }
+    new_state = SearchState(
+        new_explored,
+        state.queue,
+        state.intersection_checks[mins[0] : maxs[0] + 1, mins[1] : maxs[1] + 1],
+    )
+
+    old_shape = grid.heights.shape
+
+    new_grid = HeightGrid(
+        grid.heights[mins[0] : maxs[0] + 1, mins[1] : maxs[1] + 1],
+        grid.cell_size,
+        (
+            grid.latitudes[0]
+            + (grid.latitudes[1] - grid.latitudes[0]) / old_shape[0] * mins[0],
+            grid.latitudes[0]
+            + (grid.latitudes[1] - grid.latitudes[0]) / old_shape[0] * maxs[0],
+        ),
+        (
+            grid.longitudes[0]
+            + (grid.longitudes[1] - grid.longitudes[0]) / old_shape[1] * mins[1],
+            grid.longitudes[0]
+            + (grid.longitudes[1] - grid.longitudes[0]) / old_shape[1] * maxs[1],
+        ),
+    )
+
+    return new_state, new_grid
+
+
 def search_from_point(
     latitude: float,
     longitude: float,
@@ -370,9 +421,9 @@ def search_from_point(
 
     # This is technically not true for areas where the ground height is < 0,
     # but who goes paragliding there.
-    max_distance = height/glide_ratio
+    max_distance = height / glide_ratio
 
-    grid = get_height_data_around_point(latitude, longitude, max_distance+1)
+    grid = get_height_data_around_point(latitude, longitude, max_distance + 1)
 
     if cell_size < grid.cell_size:
         _logger.warn("Requested grid cell size too small")
@@ -382,6 +433,8 @@ def search_from_point(
     start_ix = (grid.heights.shape[0] // 2, grid.heights.shape[0] // 2)
 
     state = search(start_ix, height, SearchConfig(grid, glide_ratio))
+
+    state, grid = reindex(state, grid)
 
     return state, grid
 

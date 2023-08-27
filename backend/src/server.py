@@ -1,11 +1,10 @@
+from functools import lru_cache
 from io import BytesIO
 from flask import Flask, request, send_file
 from matplotlib import pyplot as plt
 import numpy as np
-from src.data_analysis.height_data import ARC_SECOND_IN_DEGREE, meter_in_arcseconds
 from PIL import Image
 from src.data_analysis.search import search_from_point
-from skimage.io import imsave
 
 app = Flask(__name__)
 
@@ -15,17 +14,39 @@ def hello_world():
     return "Hike & Fly tool"
 
 
-@app.route("/flight_cone")
-def get_flight_cone():
+memoized_search = lru_cache(maxsize=128)(search_from_point)
+
+
+def search_from_request():
     lat = request.args.get("lat", type=float)
     lon = request.args.get("lon", type=float)
+
+    lat = round(lat, 4)
+    lon = round(lon, 4)
+
     cell_size = request.args.get("cell_size", default=200.0, type=float)
     glide_number = request.args.get("glide_number", default=8.0, type=float)
     additional_height = request.args.get("additional_height", default=10.0, type=float)
 
-    state, grid = search_from_point(
+    state, grid = memoized_search(
         lat, lon, cell_size, 1 / glide_number, additional_height
     )
+
+    heights = np.zeros_like(grid.heights)
+    heights[:] = np.nan
+
+    for (a, b), node in state.explored.items():
+        if node.reachable:
+            heights[a, b] = node.height
+        else:
+            heights[a, b] = np.nan
+
+    return state, grid, heights
+
+
+@app.route("/flight_cone")
+def get_flight_cone():
+    state, grid, _ = search_from_request()
 
     lats, lons = grid.get_coordinates_for_indices()
     resolution = grid.get_angular_resolution()
@@ -34,6 +55,9 @@ def get_flight_cone():
         "nodes": [],
         "cell_size": grid.cell_size,
         "angular_resolution": resolution,
+        "lat": grid.latitudes,
+        "lon": grid.longitudes,
+        "grid_shape": (grid.heights.shape[0], grid.heights.shape[1]),
     }
 
     for grid_ix, node in state.explored.items():
@@ -53,10 +77,6 @@ def get_flight_cone():
             )
 
     return response
-
-
-def lerp(a: np.ndarray, b: np.ndarray, m: float):
-    return (b - a) * np.clip(m, 0, 1) + a
 
 
 def lerpMulti(steps: np.ndarray, fractions: np.ndarray, m: float):
@@ -88,43 +108,6 @@ def lerpMulti(steps: np.ndarray, fractions: np.ndarray, m: float):
     return result
 
 
-@app.route("/height_image")
-def get_height_image():
-    lat = request.args.get("lat", type=float)
-    lon = request.args.get("lon", type=float)
-    cell_size = request.args.get("cell_size", default=200.0, type=float)
-    glide_number = request.args.get("glide_number", default=8.0, type=float)
-    additional_height = request.args.get("additional_height", default=10.0, type=float)
-
-    state, grid = search_from_point(
-        lat, lon, cell_size, 1 / glide_number, additional_height
-    )
-
-    heights = np.zeros_like(grid.heights)
-    heights[:] = np.nan
-
-    for (a, b), node in state.explored.items():
-        if node.reachable:
-            heights[a, b] = node.height
-        else:
-            heights[a, b] = np.nan
-
-    colors = np.array([[255.0, 0, 0], [180, 190, 0], [0, 150, 255]]) / 255
-    fractions = np.array([0, 0.5, 1])
-
-    image = lerpMulti(colors, fractions, (heights - hmin) / (hmax - hmin))
-    print(image.shape)
-
-    image = np.transpose(image, (1, 2, 0))
-    image = np.floor(image * 255).astype(np.uint8)
-
-    pil_img = Image.fromarray(image)
-
-    img_io = BytesIO()
-    pil_img.save(img_io, "png")
-    img_io.seek(0)
-    return send_file(img_io, mimetype="image/png")
-
 def crop_to_not_nan(arr: np.array):
     not_na = ~np.isnan(arr)
 
@@ -137,28 +120,38 @@ def crop_to_not_nan(arr: np.array):
     c_min = np.min(np.arange(arr.shape[0])[cols])
     c_max = np.max(np.arange(arr.shape[0])[cols])
 
-    return arr[c_min:c_max+1, r_min:r_max+1]
+    return arr[c_min : c_max + 1, r_min : r_max + 1]
+
+
+@app.route("/height_image")
+def get_height_image():
+    _, _, heights = search_from_request()
+
+    heights = heights[::-1]
+    heights = crop_to_not_nan(heights)
+
+    hmax = heights[~np.isnan(heights)].max()
+    hmin = heights[~np.isnan(heights)].min()
+
+    colors = np.array([[255.0, 0, 0], [180, 190, 0], [0, 150, 255]]) / 255
+    fractions = np.array([0, 0.5, 1])
+
+    image = lerpMulti(colors, fractions, (heights - hmin) / (hmax - hmin))
+
+    image = np.transpose(image, (1, 2, 0))
+    image = np.floor(image * 255).astype(np.uint8)
+
+    pil_img = Image.fromarray(image)
+
+    img_io = BytesIO()
+    pil_img.save(img_io, "png")
+    img_io.seek(0)
+    return send_file(img_io, mimetype="image/png")
+
 
 @app.route("/contour_image")
 def get_contour_image():
-    lat = request.args.get("lat", type=float)
-    lon = request.args.get("lon", type=float)
-    cell_size = request.args.get("cell_size", default=200.0, type=float)
-    glide_number = request.args.get("glide_number", default=8.0, type=float)
-    additional_height = request.args.get("additional_height", default=10.0, type=float)
-
-    state, grid = search_from_point(
-        lat, lon, cell_size, 1 / glide_number, additional_height
-    )
-
-    heights = np.zeros_like(grid.heights)
-    heights[:] = np.nan
-
-    for (a, b), node in state.explored.items():
-        if node.reachable:
-            heights[a, b] = node.height
-        else:
-            heights[a, b] = np.nan
+    _, grid, heights = search_from_request()
 
     agl = heights - grid.heights
     agl = crop_to_not_nan(agl)
@@ -175,29 +168,15 @@ def get_contour_image():
 
 @app.route("/agl_image")
 def get_agl_image():
-    lat = request.args.get("lat", type=float)
-    lon = request.args.get("lon", type=float)
-    cell_size = request.args.get("cell_size", default=200.0, type=float)
-    glide_number = request.args.get("glide_number", default=8.0, type=float)
-    additional_height = request.args.get("additional_height", default=10.0, type=float)
-
-    state, grid = search_from_point(
-        lat, lon, cell_size, 1 / glide_number, additional_height
-    )
-
-    heights = np.zeros_like(grid.heights)
-    heights[:] = np.nan
-
-    for (a, b), node in state.explored.items():
-        if node.reachable:
-            heights[a, b] = node.height
-        else:
-            heights[a, b] = np.nan
+    _, grid, heights = search_from_request()
 
     agl = heights - grid.heights
     agl = agl[::-1]
+    agl = crop_to_not_nan(agl)
 
-    colors = np.array([[255.0, 0, 0], [180, 190, 0], [0, 150, 255]]) / 255
+    colors = (
+        np.array([[255.0, 0, 0, 255], [180, 190, 0, 255], [0, 150, 255, 255]]) / 255
+    )
     fractions = np.array([0, 0.5, 1])
 
     image = lerpMulti(colors, fractions, agl / 1200)
