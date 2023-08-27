@@ -17,16 +17,21 @@ def hello_world():
 memoized_search = lru_cache(maxsize=128)(search_from_point)
 
 
-def search_from_request():
+def search_from_request(
+    lat: float,
+    lon: float,
+    cell_size: float,
+    glide_number: float,
+    additional_height: float,
+):
     lat = request.args.get("lat", type=float)
     lon = request.args.get("lon", type=float)
-
-    lat = round(lat, 4)
-    lon = round(lon, 4)
-
     cell_size = request.args.get("cell_size", default=200.0, type=float)
     glide_number = request.args.get("glide_number", default=8.0, type=float)
     additional_height = request.args.get("additional_height", default=10.0, type=float)
+
+    lat = round(lat, 4)
+    lon = round(lon, 4)
 
     state, grid = memoized_search(
         lat, lon, cell_size, 1 / glide_number, additional_height
@@ -159,16 +164,27 @@ def get_contour_image():
     X, Y = np.indices(agl.T.shape)
     fig, ax = plt.subplots(figsize=(20, 20))
     ax.contour(X, Y, agl.T, levels=30)
+    ax.axis("off")
 
     img_io = BytesIO()
-    plt.savefig(img_io, format="png")
+    plt.savefig(
+        img_io, format="png", bbox_inches="tight", transparent=True, pad_inches=0
+    )
     img_io.seek(0)
     return send_file(img_io, mimetype="image/png")
 
 
 @app.route("/agl_image")
 def get_agl_image():
-    _, grid, heights = search_from_request()
+    lat = request.args.get("lat", type=float)
+    lon = request.args.get("lon", type=float)
+    cell_size = request.args.get("cell_size", default=200.0, type=float)
+    glide_number = request.args.get("glide_number", default=8.0, type=float)
+    additional_height = request.args.get("additional_height", default=10.0, type=float)
+
+    _, grid, heights = search_from_request(
+        lat, lon, cell_size, glide_number, additional_height
+    )
 
     agl = heights - grid.heights
     agl = agl[::-1]
