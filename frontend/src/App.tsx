@@ -5,7 +5,6 @@ import {
     MapContainer,
     Polyline,
     Rectangle,
-    SVGOverlay,
     TileLayer,
     Tooltip,
     useMapEvents
@@ -99,6 +98,9 @@ function Grid({ grid }: { grid: GridState }) {
     let imageUrl = new URL("http://localhost:3000/agl_image");
     imageUrl.search = getSearchParams(grid.startPosition.lat, grid.startPosition.lng).toString();
 
+    let contourUrl = new URL("http://localhost:3000/contour_image");
+    contourUrl.search = getSearchParams(grid.startPosition.lat, grid.startPosition.lng).toString();
+
     const bounds = new LatLngBounds(
         new LatLng(grid.response.lat[0], grid.response.lon[0]),
         new LatLng(grid.response.lat[1], grid.response.lon[1])
@@ -117,6 +119,11 @@ function Grid({ grid }: { grid: GridState }) {
             url={imageUrl.toString()}
             bounds={bounds}
             opacity={0.4}>
+        </ImageOverlay>
+        <ImageOverlay
+            url={contourUrl.toString()}
+            bounds={bounds}
+            opacity={1.0}>
         </ImageOverlay>
         {path !== undefined ? (
             <Polyline pathOptions={pathOptions} positions={path} />
