@@ -4,8 +4,10 @@ import {
     ImageOverlay,
     MapContainer,
     Polyline,
+    Rectangle,
     SVGOverlay,
     TileLayer,
+    Tooltip,
     useMapEvents
 } from "react-leaflet";
 import { LatLng, LatLngBounds } from "leaflet";
@@ -44,8 +46,29 @@ function getSearchParams(lat: number, lon: number) {
     });
 }
 
+function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState }) {
+    const bounds = new LatLngBounds(
+        new LatLng(node.lat - grid.response.angular_resolution[0], node.lon - grid.response.angular_resolution[1]),
+        new LatLng(node.lat + grid.response.angular_resolution[0], node.lon + grid.response.angular_resolution[1])
+    );
+
+    const blackOptions = { color: 'white', weight: 0.0, opacity: 0.0, fill: true };
+
+    return (
+        <Rectangle bounds={bounds} pathOptions={blackOptions}>
+            <Tooltip>
+                AGL: {Math.round(node.agl)}m<br />
+                Height: {Math.round(node.height)}m<br />
+                Distance: {Math.round(node.distance / 100) / 10}km
+            </Tooltip>
+        </Rectangle>
+    );
+}
+
 function Grid({ grid }: { grid: GridState }) {
     const [path, setPath] = useState<LatLng[] | undefined>();
+    const [node, setNode] = useState<GridTile | undefined>();
+
 
     useMapEvents({
         mousemove(ev) {
@@ -64,6 +87,10 @@ function Grid({ grid }: { grid: GridState }) {
                     }
                     path.push(new LatLng(current.lat, current.lon, current.height));
                     setPath(path);
+                    setNode(node);
+                } else {
+                    setPath(undefined);
+                    setNode(undefined);
                 }
             }
         }
@@ -87,6 +114,9 @@ function Grid({ grid }: { grid: GridState }) {
         </ImageOverlay>
         {path !== undefined ? (
             <Polyline pathOptions={redOptions} positions={path} />
+        ) : <></>}
+        {node !== undefined ? (
+            <CurrentNodeDisplay node={node} grid={grid} />
         ) : <></>}
     </>
 }
