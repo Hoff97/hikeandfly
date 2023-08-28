@@ -11,6 +11,7 @@ import {
     useMapEvents
 } from "react-leaflet";
 import { LatLng, LatLngBounds, PathOptions } from "leaflet";
+import { Section, SectionCard, Slider } from "@blueprintjs/core";
 
 interface GridTile {
     index: number[];
@@ -38,11 +39,13 @@ interface GridState {
     grid: GridTile[][];
 }
 
-function getSearchParams(lat: number, lon: number) {
+function getSearchParams(lat: number, lon: number, settings: Settings) {
     return new URLSearchParams({
         "lat": lat.toString(),
         "lon": lon.toString(),
-        "cell_size": "50",
+        "cell_size": settings.gridSize.toString(),
+        "glide_number": settings.glideNumber.toString(),
+        "additional_height": settings.additionalHeight.toString()
     });
 }
 
@@ -172,14 +175,20 @@ function setupGrid(cone: ConeSearchResponse): GridTile[][] {
     return grid;
 }
 
-function SearchComponent({ setImageState }: { setImageState: (state: ImageState | undefined) => void }) {
+interface SearchComponentProps {
+    setImageState: (state: ImageState | undefined) => void;
+    settings: Settings;
+}
+
+function SearchComponent({ setImageState, settings }: SearchComponentProps) {
     const [grid, setGrid] = useState<GridState | undefined>();
 
     useMapEvents({
         async click(e) {
             setImageState(undefined);
+            setGrid(undefined);
             let url = new URL("http://localhost:3000/flight_cone");
-            url.search = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
+            url.search = getSearchParams(e.latlng.lat, e.latlng.lng, settings).toString();
 
             let response = await fetch(url);
             let cone: ConeSearchResponse = await response.json();
@@ -191,7 +200,7 @@ function SearchComponent({ setImageState }: { setImageState: (state: ImageState 
                 startPosition: e.latlng
             });
 
-            const searchParams = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
+            const searchParams = getSearchParams(e.latlng.lat, e.latlng.lng, settings).toString();
             let heightAglUrl = new URL("http://localhost:3000/agl_image");
             heightAglUrl.search = searchParams;
             let heightUrl = new URL("http://localhost:3000/height_image");
@@ -220,13 +229,67 @@ function SearchComponent({ setImageState }: { setImageState: (state: ImageState 
     </>);
 }
 
+interface Settings {
+    additionalHeight: number;
+    glideNumber: number;
+    gridSize: number;
+}
+
+function SettingsCard({ settings, setSettings }: { settings: Settings, setSettings: (settings: Settings) => void }) {
+    const setAdditionalHeight = (value: number) => {
+        setSettings({
+            ...settings,
+            additionalHeight: value,
+        });
+    }
+    const setGlideNumber = (value: number) => {
+        setSettings({
+            ...settings,
+            glideNumber: value,
+        });
+    }
+    const setGridSize = (value: number) => {
+        setSettings({
+            ...settings,
+            gridSize: value,
+        });
+    }
+
+    return (
+        <div className="settings">
+            <Section collapsible compact title="Settings" collapseProps={{ defaultIsOpen: false }}>
+                <SectionCard>
+                    Additional Height:
+                    <Slider initialValue={0} min={0} max={1000}
+                        onChange={setAdditionalHeight} value={settings.additionalHeight}
+                        labelStepSize={500} ></Slider>
+                    Glide number:
+                    <Slider initialValue={1} min={1} max={12}
+                        onChange={setGlideNumber} value={settings.glideNumber}
+                        labelStepSize={2} stepSize={0.5}></Slider>
+                    Grid size:
+                    <Slider initialValue={30} min={30} max={200}
+                        onChange={setGridSize} value={settings.gridSize}
+                        labelStepSize={50} stepSize={10}></Slider>
+                </SectionCard>
+            </Section>
+        </div>
+    );
+}
+
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
+    const [settings, setSettings] = useState<Settings>({
+        additionalHeight: 10,
+        glideNumber: 8,
+        gridSize: 50
+    })
 
     return (
         <div className="App">
+            <SettingsCard settings={settings} setSettings={setSettings}></SettingsCard>
             <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
-                <LayersControl position="topright">
+                <LayersControl position="bottomright">
                     <LayersControl.BaseLayer checked name="OpenTopoMap">
                         <TileLayer
                             attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
@@ -248,7 +311,7 @@ function App() {
                     {imageState !== undefined ? <ImageOverlays state={imageState}></ImageOverlays> : <></>}
 
                 </LayersControl>
-                <SearchComponent setImageState={setImageState}></SearchComponent>
+                <SearchComponent setImageState={setImageState} settings={settings}></SearchComponent>
             </MapContainer>
         </div>
     );
