@@ -36,9 +36,7 @@ class SearchConfig(NamedTuple):
 
 def get_neighbor_indices(ix: GridIndex, height_grid: np.ndarray) -> list[GridIndex]:
     x, y = ix
-    neighbors_indices = [
-        (x + o_x, y + o_y) for o_x, o_y in [(1, 0), (-1, 0), (0, 1), (0, -1)]
-    ]
+    neighbors_indices = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
     neighbors_indices = [
         (a, b)
         for (a, b) in neighbors_indices

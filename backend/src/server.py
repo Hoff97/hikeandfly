@@ -17,13 +17,7 @@ def hello_world():
 memoized_search = lru_cache(maxsize=128)(search_from_point)
 
 
-def search_from_request(
-    lat: float,
-    lon: float,
-    cell_size: float,
-    glide_number: float,
-    additional_height: float,
-):
+def search_from_request():
     lat = request.args.get("lat", type=float)
     lon = request.args.get("lon", type=float)
     cell_size = request.args.get("cell_size", default=200.0, type=float)
@@ -176,15 +170,8 @@ def get_contour_image():
 
 @app.route("/agl_image")
 def get_agl_image():
-    lat = request.args.get("lat", type=float)
-    lon = request.args.get("lon", type=float)
-    cell_size = request.args.get("cell_size", default=200.0, type=float)
-    glide_number = request.args.get("glide_number", default=8.0, type=float)
-    additional_height = request.args.get("additional_height", default=10.0, type=float)
 
-    _, grid, heights = search_from_request(
-        lat, lon, cell_size, glide_number, additional_height
-    )
+    _, grid, heights = search_from_request()
 
     agl = heights - grid.heights
     agl = agl[::-1]
