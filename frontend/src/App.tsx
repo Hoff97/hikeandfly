@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./App.css";
 import {
     ImageOverlay,
+    LayersControl,
     MapContainer,
     Polyline,
     Rectangle,
@@ -64,6 +65,33 @@ function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState })
     );
 }
 
+interface ImageState {
+    imageUrl: string;
+    contourUrl: string;
+    bounds: LatLngBounds;
+}
+
+function ImageOverlays({ state }: { state: ImageState }) {
+    return (
+        <>
+            <LayersControl.Overlay name="Height above ground" checked>
+                <ImageOverlay
+                    url={state.imageUrl.toString()}
+                    bounds={state.bounds}
+                    opacity={0.4}>
+                </ImageOverlay>
+            </LayersControl.Overlay>
+            <LayersControl.Overlay name="Contour lines">
+                <ImageOverlay
+                    url={state.contourUrl.toString()}
+                    bounds={state.bounds}
+                    opacity={0.4}>
+                </ImageOverlay>
+            </LayersControl.Overlay>
+        </>
+    );
+}
+
 function Grid({ grid }: { grid: GridState }) {
     const [path, setPath] = useState<LatLng[] | undefined>();
     const [node, setNode] = useState<GridTile | undefined>();
@@ -95,17 +123,6 @@ function Grid({ grid }: { grid: GridState }) {
         }
     });
 
-    let imageUrl = new URL("http://localhost:3000/agl_image");
-    imageUrl.search = getSearchParams(grid.startPosition.lat, grid.startPosition.lng).toString();
-
-    let contourUrl = new URL("http://localhost:3000/contour_image");
-    contourUrl.search = getSearchParams(grid.startPosition.lat, grid.startPosition.lng).toString();
-
-    const bounds = new LatLngBounds(
-        new LatLng(grid.response.lat[0], grid.response.lon[0]),
-        new LatLng(grid.response.lat[1], grid.response.lon[1])
-    );
-
     const pathOptions: PathOptions = {
         color: 'black',
         weight: 4,
@@ -115,16 +132,9 @@ function Grid({ grid }: { grid: GridState }) {
     };
 
     return <>
-        <ImageOverlay
-            url={imageUrl.toString()}
-            bounds={bounds}
-            opacity={0.4}>
-        </ImageOverlay>
-        <ImageOverlay
-            url={contourUrl.toString()}
-            bounds={bounds}
-            opacity={1.0}>
-        </ImageOverlay>
+        <LayersControl position="bottomleft">
+
+        </LayersControl>
         {path !== undefined ? (
             <Polyline pathOptions={pathOptions} positions={path} />
         ) : <></>}
@@ -146,24 +156,40 @@ function setupGrid(cone: ConeSearchResponse): GridTile[][] {
     return grid;
 }
 
-function SearchComponent() {
+function SearchComponent({ setImageState }: { setImageState: (state: ImageState | undefined) => void }) {
     const [grid, setGrid] = useState<GridState | undefined>();
 
     useMapEvents({
         async click(e) {
+            setImageState(undefined);
             let url = new URL("http://localhost:3000/flight_cone");
             url.search = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
 
             let response = await fetch(url);
             let cone: ConeSearchResponse = await response.json();
 
-            console.log(cone);
             const grid = setupGrid(cone)
             setGrid({
                 grid: grid,
                 response: cone,
                 startPosition: e.latlng
             });
+
+            let imageUrl = new URL("http://localhost:3000/agl_image");
+            imageUrl.search = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
+
+            let contourUrl = new URL("http://localhost:3000/contour_image");
+            contourUrl.search = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
+
+            const bounds = new LatLngBounds(
+                new LatLng(cone.lat[0], cone.lon[0]),
+                new LatLng(cone.lat[1], cone.lon[1])
+            );
+            setImageState({
+                imageUrl: imageUrl.toString(),
+                contourUrl: contourUrl.toString(),
+                bounds
+            })
         },
     });
 
@@ -173,14 +199,34 @@ function SearchComponent() {
 }
 
 function App() {
+    const [imageState, setImageState] = useState<ImageState | undefined>();
+
     return (
         <div className="App">
             <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
-                <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-                />
-                <SearchComponent></SearchComponent>
+                <LayersControl position="topright">
+                    <LayersControl.BaseLayer checked name="OpenTopoMap">
+                        <TileLayer
+                            attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
+                            url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+                        />
+                    </LayersControl.BaseLayer>
+                    <LayersControl.BaseLayer name="OpenStreetMap">
+                        <TileLayer
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                    </LayersControl.BaseLayer>
+                    <LayersControl.BaseLayer name="Satellite">
+                        <TileLayer
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                            url='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                        />
+                    </LayersControl.BaseLayer>
+                    {imageState !== undefined ? <ImageOverlays state={imageState}></ImageOverlays> : <></>}
+
+                </LayersControl>
+                <SearchComponent setImageState={setImageState}></SearchComponent>
             </MapContainer>
         </div>
     );
