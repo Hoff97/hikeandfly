@@ -51,9 +51,11 @@ def get_effective_glide_ratio(
     if rs <= 0:
         return EffectiveGlide(0, math.inf)
 
-    rest_speed = math.sqrt(trim_speed * trim_speed - side_wind * side_wind)
+    rest_speed = math.sqrt(rs)
 
     effective_speed = rest_speed + back_wind
+    if effective_speed <= 0:
+        return EffectiveGlide(0, math.inf)
 
     effective_glide_ratio = glide_ratio / (effective_speed / trim_speed)
 
@@ -144,25 +146,30 @@ def update_one_neighbor(
 ):
     if not neighbor.reachable:
         return
-    distance = neighbor.distance + config.grid.cell_size
 
-    effective_glide = get_effective_glide_ratio_from_to(config, ix, neighbor.ix)
+    ref = neighbor
+    if neighbor.ref is not None:
+        ref = state.explored[neighbor.ref]
+        intersecting, n_checks = is_line_intersecting(ref, ix, config)
+        state.intersection_checks[ix[0], ix[1]] += n_checks
+        if intersecting:
+            ref = neighbor
+
+    effective_glide = get_effective_glide_ratio_from_to(config, ix, ref.ix)
+    distance = l2_distance(ix, ref.ix) * config.grid.cell_size
+    height = ref.height - distance * effective_glide.glide_ratio
     if math.isinf(effective_glide.glide_ratio):
         # Not reachable
         return
 
-    height = neighbor.height - effective_glide.glide_ratio * config.grid.cell_size
-
     reachable = config.grid.heights[ix[0], ix[1]] < height
-
-    ref = get_straight_line_ref(ix, neighbor, state.explored)
 
     state.put_node(
         Node(
             height,
             ix,
-            ref.ix,
-            distance,
+            get_straight_line_ref(ix, ref, state.explored).ix,
+            distance + ref.distance,
             reachable,
             effective_glide.glide_ratio,
         ),
@@ -188,16 +195,16 @@ def ref_paths_intersection(
 
 
 def is_line_intersecting(to: Node, ix: GridIndex, config: SearchConfig):
+    effective_glide = get_effective_glide_ratio_from_to(config, ix, to.ix)
+    if math.isinf(effective_glide.glide_ratio):
+        return True, 0
+
     length = l2_distance(to.ix, ix)
 
     i_len = math.ceil(length)
     x, y = np.linspace(ix[0], to.ix[0], i_len), np.linspace(ix[1], to.ix[1], i_len)
 
     heights = config.grid.heights[x.astype(int), y.astype(int)]
-
-    effective_glide = get_effective_glide_ratio_from_to(config, ix, to.ix)
-    if math.isinf(effective_glide.glide_ratio):
-        return True
 
     real_heights = np.linspace(
         to.height - length * config.grid.cell_size * effective_glide.glide_ratio,
@@ -215,21 +222,25 @@ def update_two_with_different_references(
     config: SearchConfig,
     state: SearchState,
 ):
-    ref_1 = state.explored[neighbor_1.ref]
-    r1_intersecting, n_checks = is_line_intersecting(
-        state.explored[neighbor_1.ref], ix, config
-    )
-    state.intersection_checks[ix[0], ix[1]] += n_checks
-    if r1_intersecting:
-        ref_1 = neighbor_1
+    ref_1 = neighbor_1
+    if neighbor_1.ref is not None:
+        ref_1 = state.explored[neighbor_1.ref]
+        r1_intersecting, n_checks = is_line_intersecting(
+            state.explored[neighbor_1.ref], ix, config
+        )
+        state.intersection_checks[ix[0], ix[1]] += n_checks
+        if r1_intersecting:
+            ref_1 = neighbor_1
 
-    ref_2 = state.explored[neighbor_2.ref]
-    r2_intersecting, n_checks = is_line_intersecting(
-        state.explored[neighbor_2.ref], ix, config
-    )
-    state.intersection_checks[ix[0], ix[1]] += n_checks
-    if r2_intersecting:
-        ref_2 = neighbor_2
+    ref_2 = neighbor_2
+    if neighbor_2.ref is not None:
+        ref_2 = state.explored[neighbor_2.ref]
+        r2_intersecting, n_checks = is_line_intersecting(
+            state.explored[neighbor_2.ref], ix, config
+        )
+        state.intersection_checks[ix[0], ix[1]] += n_checks
+        if r2_intersecting:
+            ref_2 = neighbor_2
 
     effective_glide_1 = get_effective_glide_ratio_from_to(config, ix, ref_1.ix)
     distance_1 = l2_distance(ix, ref_1.ix) * config.grid.cell_size
