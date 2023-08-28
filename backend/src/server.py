@@ -203,7 +203,6 @@ def get_agl_image():
     fractions = np.array([0, 0.5, 1])
 
     image = lerpMulti(colors, fractions, agl / 1200)
-    print(image.shape)
 
     image = np.transpose(image, (1, 2, 0))
     image = np.floor(image * 255).astype(np.uint8)

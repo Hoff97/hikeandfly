@@ -105,6 +105,7 @@ def get_height_data_around_point(
         [load_hgt(lat, lon) for lon in range(lower_lon_i, upper_lon_i + 1)]
         for lat in range(lower_lat_i, upper_lat_i + 1)
     ]
+    files = files[::-1]
 
     data = np.concatenate([np.concatenate(xs, axis=1) for xs in files], axis=0)
     # Increasing X axis should mean increasing latitude
