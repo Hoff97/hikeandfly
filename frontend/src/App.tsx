@@ -66,7 +66,8 @@ function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState })
 }
 
 interface ImageState {
-    imageUrl: string;
+    heightAGLUrl: string;
+    heightUrl: string;
     contourUrl: string;
     bounds: LatLngBounds;
 }
@@ -76,9 +77,16 @@ function ImageOverlays({ state }: { state: ImageState }) {
         <>
             <LayersControl.Overlay name="Height above ground" checked>
                 <ImageOverlay
-                    url={state.imageUrl.toString()}
+                    url={state.heightAGLUrl.toString()}
                     bounds={state.bounds}
-                    opacity={0.4}>
+                    opacity={0.5}>
+                </ImageOverlay>
+            </LayersControl.Overlay>
+            <LayersControl.Overlay name="Height above see level">
+                <ImageOverlay
+                    url={state.heightUrl.toString()}
+                    bounds={state.bounds}
+                    opacity={0.5}>
                 </ImageOverlay>
             </LayersControl.Overlay>
             <LayersControl.Overlay name="Contour lines">
@@ -175,18 +183,21 @@ function SearchComponent({ setImageState }: { setImageState: (state: ImageState 
                 startPosition: e.latlng
             });
 
-            let imageUrl = new URL("http://localhost:3000/agl_image");
-            imageUrl.search = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
-
+            const searchParams = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
+            let heightAglUrl = new URL("http://localhost:3000/agl_image");
+            heightAglUrl.search = searchParams;
+            let heightUrl = new URL("http://localhost:3000/height_image");
+            heightUrl.search = searchParams;
             let contourUrl = new URL("http://localhost:3000/contour_image");
-            contourUrl.search = getSearchParams(e.latlng.lat, e.latlng.lng).toString();
+            contourUrl.search = searchParams;
 
             const bounds = new LatLngBounds(
                 new LatLng(cone.lat[0], cone.lon[0]),
                 new LatLng(cone.lat[1], cone.lon[1])
             );
             setImageState({
-                imageUrl: imageUrl.toString(),
+                heightAGLUrl: heightAglUrl.toString(),
+                heightUrl: heightUrl.toString(),
                 contourUrl: contourUrl.toString(),
                 bounds
             })

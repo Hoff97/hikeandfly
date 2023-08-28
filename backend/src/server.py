@@ -132,7 +132,9 @@ def get_height_image():
     hmax = heights[~np.isnan(heights)].max()
     hmin = heights[~np.isnan(heights)].min()
 
-    colors = np.array([[255.0, 0, 0], [180, 190, 0], [0, 150, 255]]) / 255
+    colors = (
+        np.array([[255.0, 0, 0, 255], [180, 190, 0, 255], [0, 150, 255, 255]]) / 255
+    )
     fractions = np.array([0, 0.5, 1])
 
     image = lerpMulti(colors, fractions, (heights - hmin) / (hmax - hmin))
@@ -170,7 +172,6 @@ def get_contour_image():
 
 @app.route("/agl_image")
 def get_agl_image():
-
     _, grid, heights = search_from_request()
 
     agl = heights - grid.heights
