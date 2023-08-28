@@ -68,7 +68,8 @@ function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState })
 interface ImageState {
     heightAGLUrl: string;
     heightUrl: string;
-    contourUrl: string;
+    aglContourUrl: string;
+    heightContourUrl: string;
     bounds: LatLngBounds;
 }
 
@@ -89,11 +90,18 @@ function ImageOverlays({ state }: { state: ImageState }) {
                     opacity={0.5}>
                 </ImageOverlay>
             </LayersControl.Overlay>
-            <LayersControl.Overlay name="Contour lines">
+            <LayersControl.Overlay name="AGL Contour lines">
                 <ImageOverlay
-                    url={state.contourUrl.toString()}
+                    url={state.aglContourUrl.toString()}
                     bounds={state.bounds}
                     opacity={0.4}>
+                </ImageOverlay>
+            </LayersControl.Overlay>
+            <LayersControl.Overlay name="Height Contour lines">
+                <ImageOverlay
+                    url={state.heightContourUrl.toString()}
+                    bounds={state.bounds}
+                    opacity={0.9}>
                 </ImageOverlay>
             </LayersControl.Overlay>
         </>
@@ -188,8 +196,10 @@ function SearchComponent({ setImageState }: { setImageState: (state: ImageState 
             heightAglUrl.search = searchParams;
             let heightUrl = new URL("http://localhost:3000/height_image");
             heightUrl.search = searchParams;
-            let contourUrl = new URL("http://localhost:3000/contour_image");
-            contourUrl.search = searchParams;
+            let aglContourUrl = new URL("http://localhost:3000/agl_contour_image");
+            aglContourUrl.search = searchParams;
+            let heightContourUrl = new URL("http://localhost:3000/height_contour_image");
+            heightContourUrl.search = searchParams;
 
             const bounds = new LatLngBounds(
                 new LatLng(cone.lat[0], cone.lon[0]),
@@ -198,7 +208,8 @@ function SearchComponent({ setImageState }: { setImageState: (state: ImageState 
             setImageState({
                 heightAGLUrl: heightAglUrl.toString(),
                 heightUrl: heightUrl.toString(),
-                contourUrl: contourUrl.toString(),
+                aglContourUrl: aglContourUrl.toString(),
+                heightContourUrl: heightContourUrl.toString(),
                 bounds
             })
         },

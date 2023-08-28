@@ -150,8 +150,8 @@ def get_height_image():
     return send_file(img_io, mimetype="image/png")
 
 
-@app.route("/contour_image")
-def get_contour_image():
+@app.route("/agl_contour_image")
+def get_agl_contour_image():
     _, grid, heights = search_from_request()
 
     agl = heights - grid.heights
@@ -160,6 +160,25 @@ def get_contour_image():
     X, Y = np.indices(agl.T.shape)
     fig, ax = plt.subplots(figsize=(20, 20))
     ax.contour(X, Y, agl.T, levels=30)
+    ax.axis("off")
+
+    img_io = BytesIO()
+    plt.savefig(
+        img_io, format="png", bbox_inches="tight", transparent=True, pad_inches=0
+    )
+    img_io.seek(0)
+    return send_file(img_io, mimetype="image/png")
+
+
+@app.route("/height_contour_image")
+def get_height_contour_image():
+    _, _, heights = search_from_request()
+
+    heights = crop_to_not_nan(heights)
+
+    X, Y = np.indices(heights.T.shape)
+    fig, ax = plt.subplots(figsize=(20, 20))
+    ax.contour(X, Y, heights.T, levels=30)
     ax.axis("off")
 
     img_io = BytesIO()
