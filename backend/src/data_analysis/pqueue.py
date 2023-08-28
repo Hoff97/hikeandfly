@@ -1,4 +1,5 @@
-from typing import Generic, TypeVar, NamedTuple
+import collections
+from typing import Generic, List, TypeVar, NamedTuple
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -66,7 +67,7 @@ class PriorityQueue(Generic[T, U]):
     def contains(self, key: U):
         return key in self.positions
 
-    def get(self, key: U):
+    def get(self, key: U) -> HeapNode:
         return self.heap[self.positions[key]]
 
     def all(self):
@@ -120,3 +121,52 @@ def _siftdown(heap: list[HeapNode[T, U]], pos: int, positions: dict[U, int]):
 
     heap[pos] = newitem
     positions[newitem.key] = pos
+
+
+class FakePriorityQueue(Generic[T, U]):
+    keys: collections.deque[U]
+    items: dict[U, (float, T)]
+
+    def __init__(self):
+        self.keys = collections.deque()
+        self.items = {}
+
+    def __len__(self):
+        return len(self.items)
+
+    def put(self, item: T, key: U, priority: float):
+        self.keys.append(key)
+        self.items[key] = (priority, item)
+
+    def update(self, key: U, item: T, priority: float):
+        self.items[key] = (priority, item)
+
+    def update_if_less(self, item: T, key: U, priority: float):
+        if self.contains(key):
+            old_item = self.get(key)
+            if old_item.priority > priority:
+                self.update(key, item, priority)
+        else:
+            self.put(item, key, priority)
+
+    def pop(self) -> HeapNode:
+        key = self.keys.popleft()
+        priority, item = self.items[key]
+
+        del self.items[key]
+
+        return HeapNode(priority, item, key)
+
+    def contains(self, key: U):
+        return key in self.items
+
+    def get(self, key: U) -> HeapNode:
+        priority, item = self.items[key]
+        return HeapNode(priority, item, key)
+
+    def all(self):
+        x = []
+        while len(self) > 0:
+            x.append(self.pop())
+
+        return x

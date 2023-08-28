@@ -149,6 +149,8 @@ def update_one_neighbor(
 
     ref = neighbor
     if neighbor.ref is not None:
+        # TODO: We might only need to call this when
+        # wind speed >= trim speed
         ref = state.explored[neighbor.ref]
         intersecting, n_checks = is_line_intersecting(ref, ix, config)
         state.intersection_checks[ix[0], ix[1]] += n_checks
@@ -348,7 +350,8 @@ def update_three_neighbors(
     elif len(reachable) == 3:
         reference_set = list(set(n.ref for n in reachable))
         if len(reference_set) == 3:
-            reachable.sort(key=lambda x: x.height)
+            reachable.sort(key=lambda x: x.distance)
+            # TODO: Figure out if we need to make all three calls
             update_one_neighbor(reachable[0], ix, config, state)
             update_one_neighbor(reachable[1], ix, config, state)
             update_one_neighbor(reachable[2], ix, config, state)
@@ -361,14 +364,12 @@ def update_three_neighbors(
             if len(ref_1) == 1:
                 two_shared = ref_2
                 one_shared = ref_1[0]
-            # if max(two_shared[0].height, two_shared[1].height) > one_shared.height:
-            #    update_two_neighbors(two_shared[0], two_shared[1], ix, config, state)
-            # else:
-            #    update_one_neighbor(one_shared, ix, config, state)
+            # TODO: Figure out if we need to make both calls
             update_two_neighbors(two_shared[0], two_shared[1], ix, config, state)
             update_one_neighbor(one_shared, ix, config, state)
         elif len(reference_set) == 1:
-            print("3 neighbors with one shared reference!")
+            # print("3 neighbors with one shared reference!")
+            pass
 
 
 def update_four_neighbors(
@@ -392,11 +393,14 @@ def update_four_neighbors(
             reachable.sort(key=lambda x: x.height)
             update_one_neighbor(reachable[0], ix, config, state)
         elif len(reference_set) == 3:
-            print("4 with 1 shared reference")
+            # print("4 with 1 shared reference")
+            pass
         elif len(reference_set) == 2:
-            print("4 with 2 shared references each")
+            # print("4 with 2 shared references each")
+            pass
         else:
-            print("4 with all shared references each")
+            # print("4 with all shared references each")
+            pass
 
 
 def update_node(
@@ -404,6 +408,8 @@ def update_node(
     config: SearchConfig,
     state: SearchState,
 ):
+    # TODO: Check if we already have the node with a
+    # given reference in the queue
     neighbors = get_neighbor_indices(ix, config.grid.heights)
     explored_neighbors = [
         neighbor for neighbor in neighbors if neighbor in state.explored
