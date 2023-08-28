@@ -37,7 +37,6 @@ class PriorityQueue(Generic[T, U]):
             _siftup(self.heap, position, self.positions)
         else:
             _siftdown(self.heap, position, self.positions)
-            pass
 
     def update_if_less(self, item: T, key: U, priority: float):
         if self.contains(key):
@@ -102,6 +101,7 @@ def _siftdown(heap: list[HeapNode[T, U]], pos: int, positions: dict[U, int]):
     newitem = heap[pos]
     # Bubble up the smaller child until hitting a leaf.
     childpos = 2 * pos + 1  # leftmost child position
+
     while childpos < endpos:
         # Set childpos to index of smaller child.
         rightpos = childpos + 1

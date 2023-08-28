@@ -1,5 +1,5 @@
 import logging
-from typing import NamedTuple, Optional
+from typing import Final, NamedTuple, Optional
 import numpy as np
 
 from .height_data import (
@@ -21,6 +21,7 @@ class Node(NamedTuple):
     ref: Optional[GridIndex]
     distance: float
     reachable: bool
+    effective_glide_ratio: float
 
 
 class SearchState(NamedTuple):
@@ -28,10 +29,51 @@ class SearchState(NamedTuple):
     queue: PriorityQueue[Node, GridIndex]
     intersection_checks: np.ndarray
 
+    def put_node(self, node: Node):
+        self.queue.update_if_less(node, node.ix, node.distance)
+
+
+class EffectiveGlide(NamedTuple):
+    speed: float
+    glide_ratio: float
+
+
+def get_effective_glide_ratio(
+    effective_wind_angle: float,
+    wind_speed: float,
+    trim_speed: float,
+    glide_ratio: float,
+):
+    side_wind = math.sin(effective_wind_angle) * wind_speed
+    back_wind = math.cos(effective_wind_angle) * wind_speed
+
+    rs = trim_speed * trim_speed - side_wind * side_wind
+    if rs <= 0:
+        return EffectiveGlide(0, math.inf)
+
+    rest_speed = math.sqrt(trim_speed * trim_speed - side_wind * side_wind)
+
+    effective_speed = rest_speed + back_wind
+
+    effective_glide_ratio = glide_ratio / (effective_speed / trim_speed)
+
+    return EffectiveGlide(effective_speed, effective_glide_ratio)
+
+
+class SearchQuery(NamedTuple):
+    glide_ratio: float
+    trim_speed: float
+    wind_direction: float
+    wind_speed: float
+    additional_height: float
+
 
 class SearchConfig(NamedTuple):
     grid: HeightGrid
     glide_ratio: float
+    trim_speed: float
+    wind_direction: float
+    wind_speed: float
 
 
 def get_neighbor_indices(ix: GridIndex, height_grid: np.ndarray) -> list[GridIndex]:
@@ -51,6 +93,25 @@ def l2_distance(a: GridIndex, b: GridIndex):
 
 def l2_diff(a: GridIndex, b: GridIndex):
     return (a[0] - b[0], a[1] - b[1])
+
+
+_PI_2: Final = math.pi / 2
+
+
+def get_effective_glide_ratio_from_to(
+    config: SearchConfig, start: GridIndex, end: GridIndex
+):
+    if config.wind_speed == 0:
+        return EffectiveGlide(config.trim_speed, config.glide_ratio)
+
+    diff = l2_diff(end, start)
+    angle = math.atan2(diff[0], diff[1])
+
+    effective_wind_angle = (-config.wind_direction + _PI_2) - angle
+
+    return get_effective_glide_ratio(
+        effective_wind_angle, config.wind_speed, config.trim_speed, config.glide_ratio
+    )
 
 
 def is_straight(a: tuple[int, int]):
@@ -84,20 +145,27 @@ def update_one_neighbor(
     if not neighbor.reachable:
         return
     distance = neighbor.distance + config.grid.cell_size
-    height = neighbor.height - config.glide_ratio * config.grid.cell_size
+
+    effective_glide = get_effective_glide_ratio_from_to(config, ix, neighbor.ix)
+    if math.isinf(effective_glide.glide_ratio):
+        # Not reachable
+        return
+
+    height = neighbor.height - effective_glide.glide_ratio * config.grid.cell_size
 
     reachable = config.grid.heights[ix[0], ix[1]] < height
 
-    state.queue.update_if_less(
+    ref = get_straight_line_ref(ix, neighbor, state.explored)
+
+    state.put_node(
         Node(
             height,
             ix,
-            get_straight_line_ref(ix, neighbor, state.explored).ix,
+            ref.ix,
             distance,
             reachable,
+            effective_glide.glide_ratio,
         ),
-        ix,
-        -height,
     )
 
 
@@ -126,8 +194,13 @@ def is_line_intersecting(to: Node, ix: GridIndex, config: SearchConfig):
     x, y = np.linspace(ix[0], to.ix[0], i_len), np.linspace(ix[1], to.ix[1], i_len)
 
     heights = config.grid.heights[x.astype(int), y.astype(int)]
+
+    effective_glide = get_effective_glide_ratio_from_to(config, ix, to.ix)
+    if math.isinf(effective_glide.glide_ratio):
+        return True
+
     real_heights = np.linspace(
-        to.height - length * config.grid.cell_size * config.glide_ratio,
+        to.height - length * config.grid.cell_size * effective_glide.glide_ratio,
         to.height,
         i_len,
     )
@@ -158,31 +231,38 @@ def update_two_with_different_references(
     if r2_intersecting:
         ref_2 = neighbor_2
 
+    effective_glide_1 = get_effective_glide_ratio_from_to(config, ix, ref_1.ix)
     distance_1 = l2_distance(ix, ref_1.ix) * config.grid.cell_size
-    height_1 = ref_1.height - distance_1 * config.glide_ratio
+    height_1 = ref_1.height - distance_1 * effective_glide_1.glide_ratio
 
+    effective_glide_2 = get_effective_glide_ratio_from_to(config, ix, ref_2.ix)
     distance_2 = l2_distance(ix, ref_2.ix) * config.grid.cell_size
-    height_2 = ref_2.height - distance_2 * config.glide_ratio
+    height_2 = ref_2.height - distance_2 * effective_glide_2.glide_ratio
 
     ref = ref_1
     height = height_1
     distance = distance_1
-    if height_2 > height_1:
+    effective_glide = effective_glide_1
+    if math.isinf(effective_glide_1.glide_ratio) or height_2 > height_1:
         ref = ref_2
         height = height_2
         distance = distance_2
+        effective_glide = effective_glide_2
+
+    if math.isinf(effective_glide.glide_ratio):
+        return
+
     reachable = config.grid.heights[ix[0], ix[1]] < height
 
-    state.queue.update_if_less(
+    state.put_node(
         Node(
             height,
             ix,
             ref.ix,
             distance + ref.distance,
             reachable,
+            effective_glide.glide_ratio,
         ),
-        ix,
-        -height,
     )
 
 
@@ -199,23 +279,30 @@ def update_two_neighbors(
         )
         if ref_path_intersection is not None:
             distance = l2_distance(ix, ref_path_intersection) * config.grid.cell_size
+
+            effective_glide = get_effective_glide_ratio_from_to(
+                config, ix, ref_path_intersection
+            )
+
+            if math.isinf(effective_glide.glide_ratio):
+                return
+
             height = (
                 state.explored[ref_path_intersection].height
-                - distance * config.glide_ratio
+                - distance * effective_glide.glide_ratio
             )
 
             reachable = config.grid.heights[ix[0], ix[1]] < height
 
-            state.queue.update_if_less(
+            state.put_node(
                 Node(
                     height,
                     ix,
                     ref_path_intersection,
                     distance + state.explored[ref_path_intersection].distance,
                     reachable,
+                    effective_glide.glide_ratio,
                 ),
-                ix,
-                -height,
             )
         else:
             update_two_with_different_references(
@@ -252,6 +339,8 @@ def update_three_neighbors(
         if len(reference_set) == 3:
             reachable.sort(key=lambda x: x.height)
             update_one_neighbor(reachable[0], ix, config, state)
+            update_one_neighbor(reachable[1], ix, config, state)
+            update_one_neighbor(reachable[2], ix, config, state)
         elif len(reference_set) == 2:
             ref_1 = [r for r in reachable if r.ref == reference_set[0]]
             ref_2 = [r for r in reachable if r.ref == reference_set[1]]
@@ -261,10 +350,12 @@ def update_three_neighbors(
             if len(ref_1) == 1:
                 two_shared = ref_2
                 one_shared = ref_1[0]
-            if max(two_shared[0].height, two_shared[1].height) > one_shared.height:
-                update_two_neighbors(two_shared[0], two_shared[1], ix, config, state)
-            else:
-                update_one_neighbor(one_shared, ix, config, state)
+            # if max(two_shared[0].height, two_shared[1].height) > one_shared.height:
+            #    update_two_neighbors(two_shared[0], two_shared[1], ix, config, state)
+            # else:
+            #    update_one_neighbor(one_shared, ix, config, state)
+            update_two_neighbors(two_shared[0], two_shared[1], ix, config, state)
+            update_one_neighbor(one_shared, ix, config, state)
         elif len(reference_set) == 1:
             print("3 neighbors with one shared reference!")
 
@@ -279,16 +370,8 @@ def update_four_neighbors(
         state.explored[n] for n in explored_neighbors if state.explored[n].reachable
     ]
     if len(reachable) == 0:
-        state.queue.update_if_less(
-            Node(
-                0,
-                ix,
-                None,
-                0.0,
-                False,
-            ),
-            ix,
-            -0.0,
+        state.put_node(
+            Node(0, ix, None, 0.0, False, 0),
         )
     elif len(reachable) < 4:
         update_three_neighbors(explored_neighbors, ix, config, state)
@@ -334,7 +417,7 @@ def search(start: GridIndex, height: float, config: SearchConfig):
     state = SearchState(
         {}, PriorityQueue(), np.zeros_like(config.grid.heights, dtype=np.int64)
     )
-    state.queue.put(Node(height, start, None, 0.0, True), start, -height)
+    state.put_node(Node(height, start, None, 0.0, True, config.glide_ratio))
 
     i = 0
 
@@ -376,6 +459,7 @@ def reindex(state: SearchState, grid: HeightGrid):
             else None,
             node.distance,
             node.reachable,
+            node.effective_glide_ratio,
         )
         for grid_ix, node in state.explored.items()
         if node.reachable
@@ -412,15 +496,19 @@ def search_from_point(
     latitude: float,
     longitude: float,
     cell_size: float,
-    glide_ratio: float,
-    additional_height: float = 10.0,
+    query: SearchQuery,
 ):
-    height = get_height_at_point(latitude, longitude) + additional_height
+    height = get_height_at_point(latitude, longitude) + query.additional_height
+
+    max_glide_ratio = query.glide_ratio / (
+        (query.wind_speed + query.trim_speed) / (query.trim_speed)
+    )
 
     # This is technically not true for areas where the ground height is < 0,
     # but who goes paragliding there.
-    max_distance = height / glide_ratio
+    max_distance = height / max_glide_ratio
 
+    # TODO: We could be smart here and consider the wind direction
     grid = get_height_data_around_point(latitude, longitude, max_distance + 1)
 
     if cell_size < grid.cell_size:
@@ -430,7 +518,17 @@ def search_from_point(
 
     start_ix = (grid.heights.shape[0] // 2, grid.heights.shape[0] // 2)
 
-    state = search(start_ix, height, SearchConfig(grid, glide_ratio))
+    state = search(
+        start_ix,
+        height,
+        SearchConfig(
+            grid,
+            query.glide_ratio,
+            query.trim_speed,
+            query.wind_direction,
+            query.wind_speed,
+        ),
+    )
 
     state, grid = reindex(state, grid)
 

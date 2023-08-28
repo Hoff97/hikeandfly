@@ -45,7 +45,10 @@ function getSearchParams(lat: number, lon: number, settings: Settings) {
         "lon": lon.toString(),
         "cell_size": settings.gridSize.toString(),
         "glide_number": settings.glideNumber.toString(),
-        "additional_height": settings.additionalHeight.toString()
+        "additional_height": settings.additionalHeight.toString(),
+        "wind_speed": settings.windSpeed.toString(),
+        "trim_speed": settings.trimSpeed.toString(),
+        "wind_direction": settings.windDirection.toString()
     });
 }
 
@@ -233,6 +236,9 @@ interface Settings {
     additionalHeight: number;
     glideNumber: number;
     gridSize: number;
+    trimSpeed: number;
+    windSpeed: number;
+    windDirection: number;
 }
 
 function SettingsCard({ settings, setSettings }: { settings: Settings, setSettings: (settings: Settings) => void }) {
@@ -254,6 +260,24 @@ function SettingsCard({ settings, setSettings }: { settings: Settings, setSettin
             gridSize: value,
         });
     }
+    const setTrimSpeed = (value: number) => {
+        setSettings({
+            ...settings,
+            trimSpeed: value,
+        });
+    }
+    const setWindSpeed = (value: number) => {
+        setSettings({
+            ...settings,
+            windSpeed: value,
+        });
+    }
+    const setWindDirection = (value: number) => {
+        setSettings({
+            ...settings,
+            windDirection: value,
+        });
+    }
 
     return (
         <div className="settings">
@@ -271,6 +295,18 @@ function SettingsCard({ settings, setSettings }: { settings: Settings, setSettin
                     <Slider initialValue={30} min={30} max={200}
                         onChange={setGridSize} value={settings.gridSize}
                         labelStepSize={50} stepSize={10}></Slider>
+                    Trim speed:
+                    <Slider initialValue={25} min={25} max={45}
+                        onChange={setTrimSpeed} value={settings.trimSpeed}
+                        labelStepSize={5} stepSize={1}></Slider>
+                    Wind speed:
+                    <Slider initialValue={0} min={0} max={50}
+                        onChange={setWindSpeed} value={settings.windSpeed}
+                        labelStepSize={10} stepSize={5}></Slider>
+                    Wind direction:
+                    <Slider initialValue={0} min={0} max={360}
+                        onChange={setWindDirection} value={settings.windDirection}
+                        labelStepSize={90} stepSize={15}></Slider>
                 </SectionCard>
             </Section>
         </div>
@@ -282,7 +318,10 @@ function App() {
     const [settings, setSettings] = useState<Settings>({
         additionalHeight: 10,
         glideNumber: 8,
-        gridSize: 50
+        gridSize: 50,
+        trimSpeed: 38,
+        windSpeed: 0,
+        windDirection: 0
     })
 
     return (

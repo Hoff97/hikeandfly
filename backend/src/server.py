@@ -1,10 +1,11 @@
 from functools import lru_cache
 from io import BytesIO
+import math
 from flask import Flask, request, send_file
 from matplotlib import pyplot as plt
 import numpy as np
 from PIL import Image
-from src.data_analysis.search import search_from_point
+from src.data_analysis.search import SearchQuery, search_from_point
 
 app = Flask(__name__)
 
@@ -23,12 +24,24 @@ def search_from_request():
     cell_size = request.args.get("cell_size", default=200.0, type=float)
     glide_number = request.args.get("glide_number", default=8.0, type=float)
     additional_height = request.args.get("additional_height", default=10.0, type=float)
+    wind_speed = request.args.get("wind_speed", default=0.0, type=float)
+    wind_direction = request.args.get("wind_direction", default=0.0, type=float)
+    trim_speed = request.args.get("trim_speed", default=38.0, type=float)
 
     lat = round(lat, 4)
     lon = round(lon, 4)
 
     state, grid = memoized_search(
-        lat, lon, cell_size, 1 / glide_number, additional_height
+        lat,
+        lon,
+        cell_size,
+        SearchQuery(
+            1 / glide_number,
+            trim_speed,
+            wind_direction / 180 * math.pi,
+            wind_speed,
+            additional_height,
+        ),
     )
 
     heights = np.zeros_like(grid.heights)
