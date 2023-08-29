@@ -1,6 +1,8 @@
 import { useState } from "react";
 import "./App.css";
 import {
+    Circle,
+    CircleMarker,
     ImageOverlay,
     LayersControl,
     MapContainer,
@@ -8,6 +10,7 @@ import {
     Rectangle,
     TileLayer,
     Tooltip,
+    useMap,
     useMapEvents
 } from "react-leaflet";
 import { LatLng, LatLngBounds, PathOptions } from "leaflet";
@@ -53,21 +56,18 @@ function getSearchParams(lat: number, lon: number, settings: Settings) {
 }
 
 function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState }) {
-    const bounds = new LatLngBounds(
-        new LatLng(node.lat - grid.response.angular_resolution[0], node.lon - grid.response.angular_resolution[1]),
-        new LatLng(node.lat + grid.response.angular_resolution[0], node.lon + grid.response.angular_resolution[1])
-    );
+    const map = useMap();
 
-    const blackOptions = { color: 'white', weight: 0.0, opacity: 0.0, fill: true };
+    const blackOptions = { color: 'black', weight: 1.0, opacity: 1.0, fillColor: "white", fillOpacity: 0.5 };
 
     return (
-        <Rectangle bounds={bounds} pathOptions={blackOptions}>
+        <CircleMarker center={new LatLng(node.lat, node.lon)} radius={map.getZoom() / 12 * 5} pathOptions={blackOptions}>
             <Tooltip direction='top'>
                 AGL: {Math.round(node.agl)}m<br />
                 Height: {Math.round(node.height)}m<br />
                 Distance: {Math.round(node.distance / 100) / 10}km
             </Tooltip>
-        </Rectangle>
+        </CircleMarker>
     );
 }
 
@@ -86,14 +86,16 @@ function ImageOverlays({ state }: { state: ImageState }) {
                 <ImageOverlay
                     url={state.heightAGLUrl.toString()}
                     bounds={state.bounds}
-                    opacity={0.5}>
+                    opacity={0.5}
+                    className="gridImage">
                 </ImageOverlay>
             </LayersControl.Overlay>
             <LayersControl.Overlay name="Height above see level">
                 <ImageOverlay
                     url={state.heightUrl.toString()}
                     bounds={state.bounds}
-                    opacity={0.5}>
+                    opacity={0.5}
+                    className="gridImage">
                 </ImageOverlay>
             </LayersControl.Overlay>
             <LayersControl.Overlay name="AGL Contour lines">

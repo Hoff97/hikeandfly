@@ -13,3 +13,10 @@
     width: 300px;
     z-index: 500;
 }
+
+img.gridImage {
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: pixelated;
+    -ms-interpolation-mode: nearest-neighbor;
+}
