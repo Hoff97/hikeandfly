@@ -143,15 +143,22 @@ def update_one_neighbor(
     ix: GridIndex,
     config: SearchConfig,
     state: SearchState,
+    do_intersection_check=False,
 ):
     if not neighbor.reachable:
         return
 
     ref = neighbor
-    if neighbor.ref is not None:
+    if neighbor.ref is not None and (
+        config.wind_speed >= config.trim_speed or do_intersection_check
+    ):
         # TODO: We might only need to call this when
         # wind speed >= trim speed
         ref = state.explored[neighbor.ref]
+
+        if state.queue.contains(ix) and state.queue.get(ix).item.ref == ref.ix:
+            return
+
         intersecting, n_checks = is_line_intersecting(ref, ix, config)
         state.intersection_checks[ix[0], ix[1]] += n_checks
         if intersecting:
@@ -170,6 +177,8 @@ def update_one_neighbor(
         Node(
             height,
             ix,
+            # TODO: get_straight_line_ref + is_line_intersecting dont play well together
+            # this causes a bug in some weird edge cases
             get_straight_line_ref(ix, ref, state.explored).ix,
             distance + ref.distance,
             reachable,
@@ -224,59 +233,8 @@ def update_two_with_different_references(
     config: SearchConfig,
     state: SearchState,
 ):
-    ref_1 = neighbor_1
-    if neighbor_1.ref is not None:
-        ref_1 = state.explored[neighbor_1.ref]
-        r1_intersecting, n_checks = is_line_intersecting(
-            state.explored[neighbor_1.ref], ix, config
-        )
-        state.intersection_checks[ix[0], ix[1]] += n_checks
-        if r1_intersecting:
-            ref_1 = neighbor_1
-
-    ref_2 = neighbor_2
-    if neighbor_2.ref is not None:
-        ref_2 = state.explored[neighbor_2.ref]
-        r2_intersecting, n_checks = is_line_intersecting(
-            state.explored[neighbor_2.ref], ix, config
-        )
-        state.intersection_checks[ix[0], ix[1]] += n_checks
-        if r2_intersecting:
-            ref_2 = neighbor_2
-
-    effective_glide_1 = get_effective_glide_ratio_from_to(config, ix, ref_1.ix)
-    distance_1 = l2_distance(ix, ref_1.ix) * config.grid.cell_size
-    height_1 = ref_1.height - distance_1 * effective_glide_1.glide_ratio
-
-    effective_glide_2 = get_effective_glide_ratio_from_to(config, ix, ref_2.ix)
-    distance_2 = l2_distance(ix, ref_2.ix) * config.grid.cell_size
-    height_2 = ref_2.height - distance_2 * effective_glide_2.glide_ratio
-
-    ref = ref_1
-    height = height_1
-    distance = distance_1
-    effective_glide = effective_glide_1
-    if math.isinf(effective_glide_1.glide_ratio) or height_2 > height_1:
-        ref = ref_2
-        height = height_2
-        distance = distance_2
-        effective_glide = effective_glide_2
-
-    if math.isinf(effective_glide.glide_ratio):
-        return
-
-    reachable = config.grid.heights[ix[0], ix[1]] < height
-
-    state.put_node(
-        Node(
-            height,
-            ix,
-            ref.ix,
-            distance + ref.distance,
-            reachable,
-            effective_glide.glide_ratio,
-        ),
-    )
+    update_one_neighbor(neighbor_1, ix, config, state, do_intersection_check=True)
+    update_one_neighbor(neighbor_2, ix, config, state, do_intersection_check=True)
 
 
 def update_two_neighbors(
@@ -291,6 +249,12 @@ def update_two_neighbors(
             neighbor_1.ix, neighbor_1.ref, neighbor_2.ix, neighbor_2.ref
         )
         if ref_path_intersection is not None:
+            if (
+                state.queue.contains(ix)
+                and state.queue.get(ix).item.ref == ref_path_intersection
+            ):
+                return
+
             distance = l2_distance(ix, ref_path_intersection) * config.grid.cell_size
 
             effective_glide = get_effective_glide_ratio_from_to(
