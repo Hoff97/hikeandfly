@@ -61,7 +61,7 @@ function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState })
     const blackOptions = { color: 'black', weight: 1.0, opacity: 1.0, fillColor: "white", fillOpacity: 0.5 };
 
     return (
-        <CircleMarker center={new LatLng(node.lat, node.lon)} radius={map.getZoom() / 12 * 5} pathOptions={blackOptions}>
+        <CircleMarker center={new LatLng(node.lat, node.lon)} radius={map.getZoom() / 12 * 10} pathOptions={blackOptions}>
             <Tooltip direction='top'>
                 AGL: {Math.round(node.agl)}m<br />
                 Height: {Math.round(node.height)}m<br />
