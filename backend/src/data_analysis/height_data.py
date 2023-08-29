@@ -9,6 +9,7 @@ from scipy import ndimage
 
 _logger = logging.getLogger(__name__)
 
+
 @lru_cache(maxsize=10)
 def load_hgt(latitude: int, longitude: int) -> np.ndarray:
     # TODO: S & W!
@@ -55,8 +56,8 @@ class HeightGrid(NamedTuple):
 
     def get_angular_resolution(self):
         return (
-            (self.latitudes[1]-self.latitudes[0])/self.heights.shape[0],
-            (self.longitudes[1]-self.longitudes[0])/self.heights.shape[1]
+            (self.latitudes[1] - self.latitudes[0]) / self.heights.shape[0],
+            (self.longitudes[1] - self.longitudes[0]) / self.heights.shape[1],
         )
 
     def get_coordinates_for_indices(self):
@@ -68,6 +69,7 @@ class HeightGrid(NamedTuple):
         )
 
         return lats, lons
+
 
 def get_height_at_point(latitude: float, longitude: float):
     lat_i = math.floor(latitude)
@@ -83,11 +85,34 @@ def get_height_at_point(latitude: float, longitude: float):
 
     return data[lat_ix, lon_ix]
 
+
+def smooth_outliers(data, inlier_mask):
+    window = np.lib.stride_tricks.sliding_window_view(
+        np.pad(
+            data,
+            2,
+            "constant",
+        ),
+        (5, 5),
+        (0, 1),
+    ).reshape((data.shape[0], data.shape[1], -1))
+    inlier_window = np.lib.stride_tricks.sliding_window_view(
+        np.pad(inlier_mask, 2, "constant", constant_values=False), (5, 5), (0, 1)
+    ).reshape((data.shape[0], data.shape[1], -1))
+    smoothed_values = np.sum(window * inlier_window, axis=2) / np.sum(
+        inlier_window, axis=2
+    )
+    data[~inlier_mask] = smoothed_values[~inlier_mask]
+    return data
+
+
 def get_height_data_around_point(
     latitude: float, longitude: float, distance_m: float = 15000
 ) -> HeightGrid:
     distance_degree_lat = distance_m * ARC_SECOND_IN_DEGREE / ARC_SECOND_IN_M_EQUATOR
-    distance_degree_lon = meter_in_arcseconds(latitude) * distance_m * ARC_SECOND_IN_DEGREE
+    distance_degree_lon = (
+        meter_in_arcseconds(latitude) * distance_m * ARC_SECOND_IN_DEGREE
+    )
 
     lower_latitude = latitude - distance_degree_lat
     upper_latitude = latitude + distance_degree_lat
@@ -122,19 +147,29 @@ def get_height_data_around_point(
 
     result_data = data[lower_lat_ix:upper_lat_ix, lower_lon_ix:upper_lon_ix]
 
-    # TODO: Better outlier handling here
-    result_data[result_data < -1000] = 0
+    inliers = result_data >= -1000
+    smooth_outliers(result_data, inliers)
     result_data = result_data.astype(float)
 
-    lat_resolution_degree = (upper_latitude-lower_latitude)/result_data.shape[0]
-    lon_resolution_degree = (upper_longitude-lower_longitude)/result_data.shape[1]
+    lat_resolution_degree = (upper_latitude - lower_latitude) / result_data.shape[0]
+    lon_resolution_degree = (upper_longitude - lower_longitude) / result_data.shape[1]
 
-    lat_resolution_meters = lat_resolution_degree / ARC_SECOND_IN_DEGREE * ARC_SECOND_IN_M_EQUATOR
-    lon_resolution_meters = lon_resolution_degree / ARC_SECOND_IN_DEGREE * arcsecond_in_meters(latitude)
+    lat_resolution_meters = (
+        lat_resolution_degree / ARC_SECOND_IN_DEGREE * ARC_SECOND_IN_M_EQUATOR
+    )
+    lon_resolution_meters = (
+        lon_resolution_degree / ARC_SECOND_IN_DEGREE * arcsecond_in_meters(latitude)
+    )
 
     max_resolution = max(lat_resolution_meters, lon_resolution_meters)
 
-    result_data = ndimage.interpolation.zoom(result_data, (lat_resolution_meters/max_resolution, lon_resolution_meters/max_resolution))
+    result_data = ndimage.interpolation.zoom(
+        result_data,
+        (
+            lat_resolution_meters / max_resolution,
+            lon_resolution_meters / max_resolution,
+        ),
+    )
 
     return HeightGrid(
         result_data,
