@@ -19,3 +19,5 @@ mv M33/*.hgt ./
 mv L31/*.hgt ./
 mv L32/*.hgt ./
 mv L33/*.hgt ./
+
+rm M32.zip M33.zip L31.zip L32.zip L33.zip
