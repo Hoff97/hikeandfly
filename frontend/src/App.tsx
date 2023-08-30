@@ -192,7 +192,7 @@ function SearchComponent({ setImageState, settings }: SearchComponentProps) {
         async click(e) {
             setImageState(undefined);
             setGrid(undefined);
-            let url = new URL("http://localhost:3000/flight_cone");
+            let url = new URL(window.location.origin + "/flight_cone");
             url.search = getSearchParams(e.latlng.lat, e.latlng.lng, settings).toString();
 
             let response = await fetch(url);
@@ -206,13 +206,13 @@ function SearchComponent({ setImageState, settings }: SearchComponentProps) {
             });
 
             const searchParams = getSearchParams(e.latlng.lat, e.latlng.lng, settings).toString();
-            let heightAglUrl = new URL("http://localhost:3000/agl_image");
+            let heightAglUrl = new URL(window.location.origin + "/agl_image");
             heightAglUrl.search = searchParams;
-            let heightUrl = new URL("http://localhost:3000/height_image");
+            let heightUrl = new URL(window.location.origin + "/height_image");
             heightUrl.search = searchParams;
-            let aglContourUrl = new URL("http://localhost:3000/agl_contour_image");
+            let aglContourUrl = new URL(window.location.origin + "/agl_contour_image");
             aglContourUrl.search = searchParams;
-            let heightContourUrl = new URL("http://localhost:3000/height_contour_image");
+            let heightContourUrl = new URL(window.location.origin + "/height_contour_image");
             heightContourUrl.search = searchParams;
 
             const bounds = new LatLngBounds(
