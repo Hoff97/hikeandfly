@@ -1,5 +1,6 @@
 from functools import lru_cache
 from io import BytesIO
+import logging
 import math
 from flask import Flask, request, send_file
 from matplotlib import pyplot as plt
@@ -9,11 +10,7 @@ from src.data_analysis.search import SearchQuery, search_from_point
 
 app = Flask(__name__)
 
-
-@app.route("/")
-def hello_world():
-    return "Hike & Fly tool"
-
+_logger = logging.getLogger(__name__)
 
 memoized_search = lru_cache(maxsize=128)(search_from_point)
 
@@ -43,6 +40,8 @@ def search_from_request():
             additional_height,
         ),
     )
+
+    _logger.info(memoized_search.cache_info())
 
     heights = np.zeros_like(grid.heights)
     heights[:] = np.nan

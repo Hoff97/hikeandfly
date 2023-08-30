@@ -494,6 +494,7 @@ def search_from_point(
 
     if cell_size < grid.cell_size:
         _logger.warn("Requested grid cell size too small")
+        cell_size = grid.cell_size
 
     grid = grid.downsample(grid.cell_size / cell_size)
 
