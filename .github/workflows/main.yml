@@ -21,7 +21,6 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
-          context: .
           push: true
           tags: hoff97/hikeandfly:latest
           cache-from: type=registry,ref=hoff97/hikeandfly:latest
