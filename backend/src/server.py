@@ -24,6 +24,8 @@ def search_from_request():
     wind_speed = request.args.get("wind_speed", default=0.0, type=float)
     wind_direction = request.args.get("wind_direction", default=0.0, type=float)
     trim_speed = request.args.get("trim_speed", default=38.0, type=float)
+    safety_margin = request.args.get("safety_margin", default=0.0, type=float)
+    start_distance = request.args.get("start_distance", default=0.0, type=float)
 
     lat = round(lat, 4)
     lon = round(lon, 4)
@@ -38,6 +40,8 @@ def search_from_request():
             wind_direction / 180 * math.pi,
             wind_speed,
             additional_height,
+            safety_margin,
+            start_distance
         ),
     )
 

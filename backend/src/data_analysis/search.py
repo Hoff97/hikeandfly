@@ -68,6 +68,8 @@ class SearchQuery(NamedTuple):
     wind_direction: float
     wind_speed: float
     additional_height: float
+    safety_margin: float
+    start_distance: float
 
 
 class SearchConfig(NamedTuple):
@@ -76,6 +78,13 @@ class SearchConfig(NamedTuple):
     trim_speed: float
     wind_direction: float
     wind_speed: float
+    safety_margin: float
+    start_distance: float
+
+    def get_safety_margin_at_distance(self, distance: float):
+        if distance < self.start_distance:
+            return 0
+        return self.safety_margin
 
 
 def get_neighbor_indices(ix: GridIndex, height_grid: np.ndarray) -> list[GridIndex]:
@@ -171,7 +180,13 @@ def update_one_neighbor(
         # Not reachable
         return
 
-    reachable = config.grid.heights[ix[0], ix[1]] < height
+    total_distance = distance + ref.distance
+
+    reachable = (
+        config.grid.heights[ix[0], ix[1]]
+        + config.get_safety_margin_at_distance(total_distance)
+        < height
+    )
 
     state.put_node(
         Node(
@@ -180,7 +195,7 @@ def update_one_neighbor(
             # TODO: get_straight_line_ref + is_line_intersecting dont play well together
             # this causes a bug in some weird edge cases
             get_straight_line_ref(ix, ref, state.explored).ix,
-            distance + ref.distance,
+            total_distance,
             reachable,
             effective_glide.glide_ratio,
         ),
@@ -215,6 +230,12 @@ def is_line_intersecting(to: Node, ix: GridIndex, config: SearchConfig):
     i_len = math.ceil(length)
     x, y = np.linspace(ix[0], to.ix[0], i_len), np.linspace(ix[1], to.ix[1], i_len)
 
+    safety_margins = config.safety_margin
+    if to.distance < config.start_distance:
+        safety_margins = np.ones(i_len)*config.safety_margin
+        n_no_safety_margin = math.ceil(i_len*((config.start_distance - to.distance)/length))
+        safety_margins[:n_no_safety_margin] = 0
+
     heights = config.grid.heights[x.astype(int), y.astype(int)]
 
     real_heights = np.linspace(
@@ -223,7 +244,7 @@ def is_line_intersecting(to: Node, ix: GridIndex, config: SearchConfig):
         i_len,
     )
 
-    return np.any(real_heights < heights), i_len
+    return np.any(real_heights < heights + safety_margins), i_len
 
 
 def update_two_with_different_references(
@@ -269,14 +290,20 @@ def update_two_neighbors(
                 - distance * effective_glide.glide_ratio
             )
 
-            reachable = config.grid.heights[ix[0], ix[1]] < height
+            total_distance = distance + state.explored[ref_path_intersection].distance
+
+            reachable = (
+                config.grid.heights[ix[0], ix[1]]
+                + config.get_safety_margin_at_distance(total_distance)
+                < height
+            )
 
             state.put_node(
                 Node(
                     height,
                     ix,
                     ref_path_intersection,
-                    distance + state.explored[ref_path_intersection].distance,
+                    total_distance,
                     reachable,
                     effective_glide.glide_ratio,
                 ),
@@ -509,6 +536,8 @@ def search_from_point(
             query.trim_speed,
             query.wind_direction,
             query.wind_speed,
+            query.safety_margin,
+            query.start_distance
         ),
     )
 
