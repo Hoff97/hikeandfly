@@ -42,14 +42,16 @@ interface GridState {
 
 function getSearchParams(lat: number, lon: number, settings: Settings) {
     return new URLSearchParams({
-        lat: lat.toString(),
-        lon: lon.toString(),
-        cell_size: settings.gridSize.toString(),
-        glide_number: settings.glideNumber.toString(),
-        additional_height: settings.additionalHeight.toString(),
-        wind_speed: settings.windSpeed.toString(),
-        trim_speed: settings.trimSpeed.toString(),
-        wind_direction: settings.windDirection.toString(),
+        "lat": lat.toString(),
+        "lon": lon.toString(),
+        "cell_size": settings.gridSize.toString(),
+        "glide_number": settings.glideNumber.toString(),
+        "additional_height": settings.additionalHeight.toString(),
+        "wind_speed": settings.windSpeed.toString(),
+        "trim_speed": settings.trimSpeed.toString(),
+        "wind_direction": settings.windDirection.toString(),
+        "safety_margin": settings.safetyMargin.toString(),
+        "start_distance": settings.startDistance.toString(),
     });
 }
 
@@ -215,43 +217,34 @@ function setupGrid(cone: ConeSearchResponse): GridTile[][] {
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
     settings: Settings;
-    setSettings: (settings: Settings) => void;
-    grid: GridState | undefined,
-    setGrid: (grid: GridState | undefined) => void
+    grid: GridState | undefined;
+    setGrid: (grid: GridState | undefined) => void;
 }
 
-async function calculateGlideArea(
-    latlng: LatLng,
-    { setImageState, settings, setGrid }: SearchComponentProps,
-) {
+async function doSearchFromLocation(setImageState: (state: ImageState | undefined) => void, setGrid: (grid: GridState | undefined) => void, latLng: LatLng, settings: Settings,) {
     setImageState(undefined);
     setGrid(undefined);
     let url = new URL(window.location.origin + "/flight_cone");
-    url.search = getSearchParams(latlng.lat, latlng.lng, settings).toString();
+    url.search = getSearchParams(latLng.lat, latLng.lng, settings).toString();
 
     let response = await fetch(url);
     let cone: ConeSearchResponse = await response.json();
 
-    const grid = setupGrid(cone);
+    const grid = setupGrid(cone)
     setGrid({
         grid: grid,
         response: cone,
-        startPosition: latlng,
+        startPosition: latLng
     });
 
-    const searchParams = getSearchParams(
-        latlng.lat, latlng.lng,
-        settings
-    ).toString();
+    const searchParams = getSearchParams(latLng.lat, latLng.lng, settings).toString();
     let heightAglUrl = new URL(window.location.origin + "/agl_image");
     heightAglUrl.search = searchParams;
     let heightUrl = new URL(window.location.origin + "/height_image");
     heightUrl.search = searchParams;
     let aglContourUrl = new URL(window.location.origin + "/agl_contour_image");
     aglContourUrl.search = searchParams;
-    let heightContourUrl = new URL(
-        window.location.origin + "/height_contour_image"
-    );
+    let heightContourUrl = new URL(window.location.origin + "/height_contour_image");
     heightContourUrl.search = searchParams;
 
     const bounds = new LatLngBounds(
@@ -263,26 +256,23 @@ async function calculateGlideArea(
         heightUrl: heightUrl.toString(),
         aglContourUrl: aglContourUrl.toString(),
         heightContourUrl: heightContourUrl.toString(),
-        bounds,
+        bounds
     });
 }
 
-function SearchComponent(props: SearchComponentProps) {
+function SearchComponent({ setImageState, settings, grid, setGrid }: SearchComponentProps) {
+
     useMapEvents({
         async click(e) {
-            props.setSettings({
-                ...props.settings,
-                latLng: e.latlng,
-            });
-            calculateGlideArea(e.latlng, props);
+            await doSearchFromLocation(setImageState, setGrid, e.latlng, settings);
         },
     });
 
-    return props.grid === undefined ? (
+    return grid === undefined ? (
         <></>
     ) : (
         <>
-            <Grid grid={props.grid}></Grid>
+            <Grid grid={grid}></Grid>
         </>
     );
 }
@@ -294,18 +284,19 @@ interface Settings {
     trimSpeed: number;
     windSpeed: number;
     windDirection: number;
-    latLng: LatLng | undefined;
+    safetyMargin: number;
+    startDistance: number;
 }
 
-function SettingsCard({
-    settings,
-    setSettings,
-    searchComponentProps,
-}: {
+interface SettingsCardProps {
     settings: Settings;
     setSettings: (settings: Settings) => void;
-    searchComponentProps: SearchComponentProps,
-}) {
+    setImageState: (state: ImageState | undefined) => void;
+    setGrid: (grid: GridState | undefined) => void;
+    grid: GridState | undefined;
+}
+
+function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: SettingsCardProps) {
     const setAdditionalHeight = (value: number) => {
         setSettings({
             ...settings,
@@ -341,7 +332,25 @@ function SettingsCard({
             ...settings,
             windDirection: value,
         });
-    };
+    }
+    const setSafetyMargin = (value: number) => {
+        setSettings({
+            ...settings,
+            safetyMargin: value,
+        });
+    }
+    const setStartDistance = (value: number) => {
+        setSettings({
+            ...settings,
+            startDistance: value,
+        });
+    }
+
+    function rerun() {
+        if (grid !== undefined) {
+            doSearchFromLocation(setImageState, setGrid, grid.startPosition, settings);
+        }
+    }
 
     return (
         <div className="settings">
@@ -402,19 +411,18 @@ function SettingsCard({
                         stepSize={5}
                     ></Slider>
                     Wind direction:
-                    <Slider
-                        initialValue={0}
-                        min={0}
-                        max={360}
-                        onChange={setWindDirection}
-                        value={settings.windDirection}
-                        labelStepSize={90}
-                        stepSize={15}
-                    ></Slider>
-                    {settings.latLng === undefined ?
-                        <></> :
-                        <Button onClick={() => calculateGlideArea(settings.latLng as LatLng, searchComponentProps)} icon="refresh" />
-                    }
+                    <Slider initialValue={0} min={0} max={360}
+                        onChange={setWindDirection} value={settings.windDirection}
+                        labelStepSize={90} stepSize={15}></Slider>
+                    Safety margin:
+                    <Slider initialValue={0} min={0} max={500}
+                        onChange={setSafetyMargin} value={settings.safetyMargin}
+                        labelStepSize={100} stepSize={10}></Slider>
+                    Start distance:
+                    <Slider initialValue={0} min={0} max={1000}
+                        onChange={setStartDistance} value={settings.startDistance}
+                        labelStepSize={200} stepSize={20}></Slider>
+                    {grid !== undefined ? <Button text="Rerun from current location" onClick={rerun} /> : <></>}
                 </SectionCard>
             </Section>
         </div>
@@ -430,23 +438,15 @@ function App() {
         trimSpeed: 38,
         windSpeed: 0,
         windDirection: 0,
-        latLng: undefined
+        safetyMargin: 0,
+        startDistance: 0
     });
-
     const [grid, setGrid] = useState<GridState | undefined>();
 
     return (
         <div className="App">
-            <SettingsCard
-                settings={settings}
-                setSettings={setSettings}
-                searchComponentProps={{ setImageState, settings, setGrid, grid, setSettings }}
-            ></SettingsCard>
-            <MapContainer
-                center={[47.67844930525105, 11.905059814453125]}
-                zoom={13}
-                scrollWheelZoom={true}
-            >
+            <SettingsCard settings={settings} setSettings={setSettings} grid={grid} setGrid={setGrid} setImageState={setImageState}></SettingsCard>
+            <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
                 <LayersControl position="bottomright">
                     <LayersControl.BaseLayer checked name="OpenTopoMap">
                         <TileLayer
@@ -472,13 +472,7 @@ function App() {
                         <></>
                     )}
                 </LayersControl>
-                <SearchComponent
-                    setImageState={setImageState}
-                    settings={settings}
-                    grid={grid}
-                    setGrid={setGrid}
-                    setSettings={setSettings}
-                ></SearchComponent>
+                <SearchComponent setImageState={setImageState} settings={settings} grid={grid} setGrid={setGrid}></SearchComponent>
             </MapContainer>
         </div>
     );

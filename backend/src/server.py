@@ -30,6 +30,8 @@ def search_from_request(
     wind_speed: float = 0.0,
     wind_direction: float = 0.0,
     trim_speed: float = 0.0,
+    safety_margin: float = 0.0,
+    start_distance: float = 0.0,
 ):
     lat = round(lat, 4)
     lon = round(lon, 4)
@@ -44,6 +46,8 @@ def search_from_request(
             wind_direction / 180 * math.pi,
             wind_speed,
             additional_height,
+            safety_margin,
+            start_distance,
         ),
     )
 
@@ -71,6 +75,8 @@ def get_flight_cone(
     wind_speed: float = 0.0,
     wind_direction: float = 0.0,
     trim_speed: float = 0.0,
+    safety_margin: float = 0.0,
+    start_distance: float = 0.0,
 ):
     state, grid, _ = search_from_request(
         lat,
@@ -81,6 +87,8 @@ def get_flight_cone(
         wind_speed,
         wind_direction,
         trim_speed,
+        safety_margin,
+        start_distance,
     )
 
     lats, lons = grid.get_coordinates_for_indices()
@@ -172,6 +180,8 @@ def get_height_image(
     wind_speed: float = 0.0,
     wind_direction: float = 0.0,
     trim_speed: float = 0.0,
+    safety_margin: float = 0.0,
+    start_distance: float = 0.0,
 ):
     _, _, heights = search_from_request(
         lat,
@@ -182,6 +192,8 @@ def get_height_image(
         wind_speed,
         wind_direction,
         trim_speed,
+        safety_margin,
+        start_distance,
     )
 
     heights = heights[::-1]
@@ -222,6 +234,8 @@ def get_agl_contour_image(
     wind_speed: float = 0.0,
     wind_direction: float = 0.0,
     trim_speed: float = 0.0,
+    safety_margin: float = 0.0,
+    start_distance: float = 0.0,
 ):
     _, grid, heights = search_from_request(
         lat,
@@ -232,6 +246,8 @@ def get_agl_contour_image(
         wind_speed,
         wind_direction,
         trim_speed,
+        safety_margin,
+        start_distance,
     )
 
     agl = heights - grid.heights
@@ -264,6 +280,8 @@ def get_height_contour_image(
     wind_speed: float = 0.0,
     wind_direction: float = 0.0,
     trim_speed: float = 0.0,
+    safety_margin: float = 0.0,
+    start_distance: float = 0.0,
 ):
     _, _, heights = search_from_request(
         lat,
@@ -274,6 +292,8 @@ def get_height_contour_image(
         wind_speed,
         wind_direction,
         trim_speed,
+        safety_margin,
+        start_distance,
     )
 
     heights = crop_to_not_nan(heights)
@@ -305,6 +325,8 @@ def get_agl_image(
     wind_speed: float = 0.0,
     wind_direction: float = 0.0,
     trim_speed: float = 0.0,
+    safety_margin: float = 0.0,
+    start_distance: float = 0.0,
 ):
     _, grid, heights = search_from_request(
         lat,
@@ -315,6 +337,8 @@ def get_agl_image(
         wind_speed,
         wind_direction,
         trim_speed,
+        safety_margin,
+        start_distance,
     )
 
     agl = heights - grid.heights
