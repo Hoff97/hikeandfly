@@ -35,6 +35,7 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSHKEY }}
+          debug: true
           script: |
             # Stop running container
             docker stop hoff97hikeandfly
