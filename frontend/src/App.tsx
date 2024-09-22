@@ -415,13 +415,13 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
                         onChange={setWindDirection} value={settings.windDirection}
                         labelStepSize={90} stepSize={15}></Slider>
                     Safety margin:
-                    <Slider initialValue={0} min={0} max={500}
+                    <Slider initialValue={0} min={0} max={200}
                         onChange={setSafetyMargin} value={settings.safetyMargin}
-                        labelStepSize={100} stepSize={10}></Slider>
+                        labelStepSize={40} stepSize={10}></Slider>
                     Start distance:
-                    <Slider initialValue={0} min={0} max={1000}
+                    <Slider initialValue={0} min={0} max={300}
                         onChange={setStartDistance} value={settings.startDistance}
-                        labelStepSize={200} stepSize={20}></Slider>
+                        labelStepSize={50} stepSize={10}></Slider>
                     {grid !== undefined ? <Button text="Rerun from current location" onClick={rerun} /> : <></>}
                 </SectionCard>
             </Section>

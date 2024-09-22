@@ -38,8 +38,9 @@ jobs:
           script: |
             # Stop running container
             docker stop hoff97hikeandfly
-            # Remove old container
+            # Remove old container and image, pull new image
             docker rm hoff97hikeandfly
+            docker image rm hoff97/hikeandfly
             docker pull hoff97/hikeandfly:latest
             # Run a new container from a new image
             docker run -d \
