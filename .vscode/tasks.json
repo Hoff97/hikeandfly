@@ -12,7 +12,7 @@
         {
             "type": "shell",
             "label": "Run backend",
-            "command": "cd backend && ${command:python.interpreterPath} -m flask --app src.server run",
+            "command": "cd backend && fastapi dev src/server.py",
             "problemMatcher": []
         }
     ]

@@ -35,9 +35,10 @@ interface ConeSearchResponse {
 }
 
 interface GridState {
-    response: ConeSearchResponse;
-    startPosition: LatLng;
-    grid: GridTile[][];
+    loading: boolean;
+    response: ConeSearchResponse | undefined;
+    startPosition: LatLng | undefined;
+    grid: GridTile[][] | undefined;
 }
 
 function getSearchParams(lat: number, lon: number, settings: Settings) {
@@ -138,6 +139,9 @@ function Grid({ grid }: { grid: GridState }) {
 
     useMapEvents({
         mousemove(ev) {
+            if (grid.response === undefined || grid.grid === undefined)
+                return
+
             if (
                 ev.latlng.lat >= grid.response.lat[0] &&
                 ev.latlng.lat <= grid.response.lat[1] &&
@@ -218,12 +222,17 @@ interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
     settings: Settings;
     grid: GridState | undefined;
-    setGrid: (grid: GridState | undefined) => void;
+    setGrid: (grid: GridState) => void;
 }
 
-async function doSearchFromLocation(setImageState: (state: ImageState | undefined) => void, setGrid: (grid: GridState | undefined) => void, latLng: LatLng, settings: Settings,) {
+async function doSearchFromLocation(setImageState: (state: ImageState | undefined) => void, setGrid: (grid: GridState) => void, latLng: LatLng, settings: Settings,) {
     setImageState(undefined);
-    setGrid(undefined);
+    setGrid({
+        loading: true,
+        grid: undefined,
+        response: undefined,
+        startPosition: undefined
+    });
     let url = new URL(window.location.origin + "/flight_cone");
     url.search = getSearchParams(latLng.lat, latLng.lng, settings).toString();
 
@@ -232,6 +241,7 @@ async function doSearchFromLocation(setImageState: (state: ImageState | undefine
 
     const grid = setupGrid(cone)
     setGrid({
+        loading: false,
         grid: grid,
         response: cone,
         startPosition: latLng
@@ -258,10 +268,20 @@ async function doSearchFromLocation(setImageState: (state: ImageState | undefine
         heightContourUrl: heightContourUrl.toString(),
         bounds
     });
+
+    updateSearchParams(latLng, settings);
+}
+
+function updateSearchParams(latLng: LatLng, settings: Settings) {
+    const searchParams = getSearchParams(latLng.lat, latLng.lng, settings);
+
+    const url = new URL(window.location.origin);
+    url.search = searchParams.toString();
+
+    window.history.replaceState({}, "", url);
 }
 
 function SearchComponent({ setImageState, settings, grid, setGrid }: SearchComponentProps) {
-
     useMapEvents({
         async click(e) {
             await doSearchFromLocation(setImageState, setGrid, e.latlng, settings);
@@ -292,7 +312,7 @@ interface SettingsCardProps {
     settings: Settings;
     setSettings: (settings: Settings) => void;
     setImageState: (state: ImageState | undefined) => void;
-    setGrid: (grid: GridState | undefined) => void;
+    setGrid: (grid: GridState) => void;
     grid: GridState | undefined;
 }
 
@@ -347,7 +367,7 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
     }
 
     function rerun() {
-        if (grid !== undefined) {
+        if (grid !== undefined && grid.startPosition !== undefined) {
             doSearchFromLocation(setImageState, setGrid, grid.startPosition, settings);
         }
     }
@@ -431,17 +451,31 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
 
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
+
+    const urlParams = new URLSearchParams(window.location.search);
+
     const [settings, setSettings] = useState<Settings>({
-        additionalHeight: 10,
-        glideNumber: 8,
-        gridSize: 50,
-        trimSpeed: 38,
-        windSpeed: 0,
-        windDirection: 0,
-        safetyMargin: 0,
-        startDistance: 0
+        additionalHeight: +(urlParams.get('additional_height') || 10),
+        glideNumber: +(urlParams.get('glide_number') || 8),
+        gridSize: +(urlParams.get('cell_size') || 50),
+        trimSpeed: +(urlParams.get('trim_speed') || 37),
+        windSpeed: +(urlParams.get('wind_speed') || 0),
+        windDirection: +(urlParams.get('wind_direction') || 0),
+        safetyMargin: +(urlParams.get('safety_margin') || 0),
+        startDistance: +(urlParams.get('start_distance') || 0),
     });
-    const [grid, setGrid] = useState<GridState | undefined>();
+    const [grid, setGrid] = useState<GridState>({
+        loading: false,
+        grid: undefined,
+        response: undefined,
+        startPosition: undefined
+    });
+
+    const lat = urlParams.get('lat');
+    const lon = urlParams.get('lon')
+    if (lat !== null && lon !== null && grid.loading === false && grid.grid === undefined) {
+        doSearchFromLocation(setImageState, setGrid, new LatLng(+lat, +lon), settings);
+    }
 
     return (
         <div className="App">
