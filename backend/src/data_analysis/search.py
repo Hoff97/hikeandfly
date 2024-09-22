@@ -493,7 +493,7 @@ def search_from_point(
     grid = get_height_data_around_point(latitude, longitude, max_distance + 1)
 
     if cell_size < grid.cell_size:
-        _logger.warn("Requested grid cell size too small")
+        _logger.warning("Requested grid cell size too small")
         cell_size = grid.cell_size
 
     grid = grid.downsample(grid.cell_size / cell_size)

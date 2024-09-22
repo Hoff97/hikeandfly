@@ -1,4 +1,5 @@
-Flask==2.3.3
+fastapi==0.115.0
+fastapi-cli==0.0.5
 numpy==1.25.2
 matplotlib==3.7.2
 perlin-noise==1.12

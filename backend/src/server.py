@@ -2,29 +2,35 @@ from functools import lru_cache
 from io import BytesIO
 import logging
 import math
-from flask import Flask, request, send_file
+
+from fastapi import FastAPI, Response
+from fastapi.responses import FileResponse, RedirectResponse
+
 from matplotlib import pyplot as plt
 import numpy as np
 from PIL import Image
 from src.data_analysis.search import SearchQuery, search_from_point
+from fastapi.staticfiles import StaticFiles
 
-app = Flask(__name__)
+import os
+
+app = FastAPI()
 
 _logger = logging.getLogger(__name__)
 
 memoized_search = lru_cache(maxsize=128)(search_from_point)
 
 
-def search_from_request():
-    lat = request.args.get("lat", type=float)
-    lon = request.args.get("lon", type=float)
-    cell_size = request.args.get("cell_size", default=200.0, type=float)
-    glide_number = request.args.get("glide_number", default=8.0, type=float)
-    additional_height = request.args.get("additional_height", default=10.0, type=float)
-    wind_speed = request.args.get("wind_speed", default=0.0, type=float)
-    wind_direction = request.args.get("wind_direction", default=0.0, type=float)
-    trim_speed = request.args.get("trim_speed", default=38.0, type=float)
-
+def search_from_request(
+    lat: float,
+    lon: float,
+    cell_size: float = 200.0,
+    glide_number: float = 8.0,
+    additional_height: float = 10.0,
+    wind_speed: float = 0.0,
+    wind_direction: float = 0.0,
+    trim_speed: float = 0.0,
+):
     lat = round(lat, 4)
     lon = round(lon, 4)
 
@@ -55,9 +61,27 @@ def search_from_request():
     return state, grid, heights
 
 
-@app.route("/flight_cone")
-def get_flight_cone():
-    state, grid, _ = search_from_request()
+@app.get("/flight_cone")
+def get_flight_cone(
+    lat: float,
+    lon: float,
+    cell_size: float = 200.0,
+    glide_number: float = 8.0,
+    additional_height: float = 10.0,
+    wind_speed: float = 0.0,
+    wind_direction: float = 0.0,
+    trim_speed: float = 0.0,
+):
+    state, grid, _ = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+    )
 
     lats, lons = grid.get_coordinates_for_indices()
     resolution = grid.get_angular_resolution()
@@ -134,9 +158,31 @@ def crop_to_not_nan(arr: np.array):
     return arr[c_min : c_max + 1, r_min : r_max + 1]
 
 
-@app.route("/height_image")
-def get_height_image():
-    _, _, heights = search_from_request()
+@app.get(
+    "/height_image",
+    responses={200: {"content": {"image/png": {}}}},
+    response_class=Response,
+)
+def get_height_image(
+    lat: float,
+    lon: float,
+    cell_size: float = 200.0,
+    glide_number: float = 8.0,
+    additional_height: float = 10.0,
+    wind_speed: float = 0.0,
+    wind_direction: float = 0.0,
+    trim_speed: float = 0.0,
+):
+    _, _, heights = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+    )
 
     heights = heights[::-1]
     heights = crop_to_not_nan(heights)
@@ -159,12 +205,34 @@ def get_height_image():
     img_io = BytesIO()
     pil_img.save(img_io, "png")
     img_io.seek(0)
-    return send_file(img_io, mimetype="image/png")
+    return Response(content=img_io.getvalue(), media_type="image/png")
 
 
-@app.route("/agl_contour_image")
-def get_agl_contour_image():
-    _, grid, heights = search_from_request()
+@app.get(
+    "/agl_contour_image",
+    responses={200: {"content": {"image/png": {}}}},
+    response_class=Response,
+)
+def get_agl_contour_image(
+    lat: float,
+    lon: float,
+    cell_size: float = 200.0,
+    glide_number: float = 8.0,
+    additional_height: float = 10.0,
+    wind_speed: float = 0.0,
+    wind_direction: float = 0.0,
+    trim_speed: float = 0.0,
+):
+    _, grid, heights = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+    )
 
     agl = heights - grid.heights
     agl = crop_to_not_nan(agl)
@@ -179,12 +247,34 @@ def get_agl_contour_image():
         img_io, format="png", bbox_inches="tight", transparent=True, pad_inches=0
     )
     img_io.seek(0)
-    return send_file(img_io, mimetype="image/png")
+    return Response(content=img_io.getvalue(), media_type="image/png")
 
 
-@app.route("/height_contour_image")
-def get_height_contour_image():
-    _, _, heights = search_from_request()
+@app.get(
+    "/height_contour_image",
+    responses={200: {"content": {"image/png": {}}}},
+    response_class=Response,
+)
+def get_height_contour_image(
+    lat: float,
+    lon: float,
+    cell_size: float = 200.0,
+    glide_number: float = 8.0,
+    additional_height: float = 10.0,
+    wind_speed: float = 0.0,
+    wind_direction: float = 0.0,
+    trim_speed: float = 0.0,
+):
+    _, _, heights = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+    )
 
     heights = crop_to_not_nan(heights)
 
@@ -198,12 +288,34 @@ def get_height_contour_image():
         img_io, format="png", bbox_inches="tight", transparent=True, pad_inches=0
     )
     img_io.seek(0)
-    return send_file(img_io, mimetype="image/png")
+    return Response(content=img_io.getvalue(), media_type="image/png")
 
 
-@app.route("/agl_image")
-def get_agl_image():
-    _, grid, heights = search_from_request()
+@app.get(
+    "/agl_image",
+    responses={200: {"content": {"image/png": {}}}},
+    response_class=Response,
+)
+def get_agl_image(
+    lat: float,
+    lon: float,
+    cell_size: float = 200.0,
+    glide_number: float = 8.0,
+    additional_height: float = 10.0,
+    wind_speed: float = 0.0,
+    wind_direction: float = 0.0,
+    trim_speed: float = 0.0,
+):
+    _, grid, heights = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+    )
 
     agl = heights - grid.heights
     agl = agl[::-1]
@@ -224,4 +336,14 @@ def get_agl_image():
     img_io = BytesIO()
     pil_img.save(img_io, "png")
     img_io.seek(0)
-    return send_file(img_io, mimetype="image/png")
+    return Response(content=img_io.getvalue(), media_type="image/png")
+
+
+if os.getenv("PROD"):
+    _logger.info("Mounting static files")
+    app.mount("/static", StaticFiles(directory="/static"), name="static")
+
+    @app.get("/")
+    def index():
+        response = RedirectResponse(url="/static/index.html")
+        return response

@@ -1,4 +1,4 @@
-FROM node:20.5.1 as frontend_build
+FROM node:20.5.1 AS frontend_build
 
 WORKDIR /app
 
@@ -11,21 +11,23 @@ COPY ./frontend ./
 
 RUN npm run build
 
-FROM tiangolo/uwsgi-nginx-flask:python3.11
+FROM python:3.11
 
-ENV STATIC_URL /static
-ENV STATIC_PATH /var/www/app/static
-ENV STATIC_INDEX 1
+ENV PROD=true
 
-COPY ./backend/download_data.sh /app
-RUN cd /app/ && ./download_data.sh
+WORKDIR /code
 
-COPY ./backend/requirements.txt /var/www/requirements.txt
+COPY ./backend/download_data.sh /code
+RUN ./download_data.sh
 
-RUN pip install -r /var/www/requirements.txt
+COPY ./backend/requirements.txt /code
 
-COPY ./backend /app
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-RUN mkdir -p /var/www/app/static
-COPY --from=frontend_build /app/build/index.html /var/www/app/static
-COPY --from=frontend_build /app/build /var/www/app/static
+COPY ./backend /code
+
+RUN mkdir -p /static
+COPY --from=frontend_build /app/build/index.html /static
+COPY --from=frontend_build /app/build /static
+
+CMD ["fastapi", "run", "src/server.py", "--port", "80"]

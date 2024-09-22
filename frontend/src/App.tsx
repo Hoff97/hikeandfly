@@ -1,20 +1,18 @@
 import { useState } from "react";
 import "./App.css";
 import {
-    Circle,
     CircleMarker,
     ImageOverlay,
     LayersControl,
     MapContainer,
     Polyline,
-    Rectangle,
     TileLayer,
     Tooltip,
     useMap,
-    useMapEvents
+    useMapEvents,
 } from "react-leaflet";
 import { LatLng, LatLngBounds, PathOptions } from "leaflet";
-import { Section, SectionCard, Slider } from "@blueprintjs/core";
+import { Section, SectionCard, Slider, Button } from "@blueprintjs/core";
 
 interface GridTile {
     index: number[];
@@ -25,7 +23,7 @@ interface GridTile {
     ref: number[];
     agl: number;
     gl: number;
-};
+}
 
 interface ConeSearchResponse {
     nodes: GridTile[];
@@ -44,25 +42,41 @@ interface GridState {
 
 function getSearchParams(lat: number, lon: number, settings: Settings) {
     return new URLSearchParams({
-        "lat": lat.toString(),
-        "lon": lon.toString(),
-        "cell_size": settings.gridSize.toString(),
-        "glide_number": settings.glideNumber.toString(),
-        "additional_height": settings.additionalHeight.toString(),
-        "wind_speed": settings.windSpeed.toString(),
-        "trim_speed": settings.trimSpeed.toString(),
-        "wind_direction": settings.windDirection.toString()
+        lat: lat.toString(),
+        lon: lon.toString(),
+        cell_size: settings.gridSize.toString(),
+        glide_number: settings.glideNumber.toString(),
+        additional_height: settings.additionalHeight.toString(),
+        wind_speed: settings.windSpeed.toString(),
+        trim_speed: settings.trimSpeed.toString(),
+        wind_direction: settings.windDirection.toString(),
     });
 }
 
-function CurrentNodeDisplay({ node, grid }: { node: GridTile, grid: GridState }) {
+function CurrentNodeDisplay({
+    node,
+    grid,
+}: {
+    node: GridTile;
+    grid: GridState;
+}) {
     const map = useMap();
 
-    const blackOptions = { color: 'black', weight: 1.0, opacity: 1.0, fillColor: "white", fillOpacity: 0.5 };
+    const blackOptions = {
+        color: "black",
+        weight: 1.0,
+        opacity: 1.0,
+        fillColor: "white",
+        fillOpacity: 0.5,
+    };
 
     return (
-        <CircleMarker center={new LatLng(node.lat, node.lon)} radius={map.getZoom() / 12 * 10} pathOptions={blackOptions}>
-            <Tooltip direction='top'>
+        <CircleMarker
+            center={new LatLng(node.lat, node.lon)}
+            radius={(map.getZoom() / 12) * 10}
+            pathOptions={blackOptions}
+        >
+            <Tooltip direction="top">
                 AGL: {Math.round(node.agl)}m<br />
                 Height: {Math.round(node.height)}m<br />
                 Distance: {Math.round(node.distance / 100) / 10}km
@@ -87,30 +101,30 @@ function ImageOverlays({ state }: { state: ImageState }) {
                     url={state.heightAGLUrl.toString()}
                     bounds={state.bounds}
                     opacity={0.5}
-                    className="gridImage">
-                </ImageOverlay>
+                    className="gridImage"
+                ></ImageOverlay>
             </LayersControl.Overlay>
             <LayersControl.Overlay name="Height above see level">
                 <ImageOverlay
                     url={state.heightUrl.toString()}
                     bounds={state.bounds}
                     opacity={0.5}
-                    className="gridImage">
-                </ImageOverlay>
+                    className="gridImage"
+                ></ImageOverlay>
             </LayersControl.Overlay>
             <LayersControl.Overlay name="AGL Contour lines">
                 <ImageOverlay
                     url={state.aglContourUrl.toString()}
                     bounds={state.bounds}
-                    opacity={0.4}>
-                </ImageOverlay>
+                    opacity={0.4}
+                ></ImageOverlay>
             </LayersControl.Overlay>
             <LayersControl.Overlay name="Height Contour lines">
                 <ImageOverlay
                     url={state.heightContourUrl.toString()}
                     bounds={state.bounds}
-                    opacity={0.9}>
-                </ImageOverlay>
+                    opacity={0.9}
+                ></ImageOverlay>
             </LayersControl.Overlay>
         </>
     );
@@ -120,15 +134,29 @@ function Grid({ grid }: { grid: GridState }) {
     const [path, setPath] = useState<LatLng[] | undefined>();
     const [node, setNode] = useState<GridTile | undefined>();
 
-
     useMapEvents({
         mousemove(ev) {
-            if (ev.latlng.lat >= grid.response.lat[0] && ev.latlng.lat <= grid.response.lat[1] && ev.latlng.lng >= grid.response.lon[0]
-                && ev.latlng.lng <= grid.response.lon[1]) {
-                const latIx = Math.floor((ev.latlng.lat - grid.response.lat[0]) / (grid.response.lat[1] - grid.response.lat[0]) * grid.response.grid_shape[0]);
-                const lonIx = Math.floor((ev.latlng.lng - grid.response.lon[0]) / (grid.response.lon[1] - grid.response.lon[0]) * grid.response.grid_shape[1]);
+            if (
+                ev.latlng.lat >= grid.response.lat[0] &&
+                ev.latlng.lat <= grid.response.lat[1] &&
+                ev.latlng.lng >= grid.response.lon[0] &&
+                ev.latlng.lng <= grid.response.lon[1]
+            ) {
+                const latIx = Math.floor(
+                    ((ev.latlng.lat - grid.response.lat[0]) /
+                        (grid.response.lat[1] - grid.response.lat[0])) *
+                    grid.response.grid_shape[0]
+                );
+                const lonIx = Math.floor(
+                    ((ev.latlng.lng - grid.response.lon[0]) /
+                        (grid.response.lon[1] - grid.response.lon[0])) *
+                    grid.response.grid_shape[1]
+                );
 
-                if (grid.grid[latIx] !== undefined && grid.grid[latIx][lonIx] !== undefined) {
+                if (
+                    grid.grid[latIx] !== undefined &&
+                    grid.grid[latIx][lonIx] !== undefined
+                ) {
                     const node = grid.grid[latIx][lonIx];
                     let current = node;
                     let path = [];
@@ -144,28 +172,32 @@ function Grid({ grid }: { grid: GridState }) {
                     setNode(undefined);
                 }
             }
-        }
+        },
     });
 
     const pathOptions: PathOptions = {
-        color: 'black',
+        color: "black",
         weight: 4,
         dashArray: [5],
-        lineCap: 'round',
-        lineJoin: 'round'
+        lineCap: "round",
+        lineJoin: "round",
     };
 
-    return <>
-        <LayersControl position="bottomleft">
-
-        </LayersControl>
-        {path !== undefined ? (
-            <Polyline pathOptions={pathOptions} positions={path} />
-        ) : <></>}
-        {node !== undefined ? (
-            <CurrentNodeDisplay node={node} grid={grid} />
-        ) : <></>}
-    </>
+    return (
+        <>
+            <LayersControl position="bottomleft"></LayersControl>
+            {path !== undefined ? (
+                <Polyline pathOptions={pathOptions} positions={path} />
+            ) : (
+                <></>
+            )}
+            {node !== undefined ? (
+                <CurrentNodeDisplay node={node} grid={grid} />
+            ) : (
+                <></>
+            )}
+        </>
+    );
 }
 
 function setupGrid(cone: ConeSearchResponse): GridTile[][] {
@@ -183,55 +215,76 @@ function setupGrid(cone: ConeSearchResponse): GridTile[][] {
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
     settings: Settings;
+    setSettings: (settings: Settings) => void;
+    grid: GridState | undefined,
+    setGrid: (grid: GridState | undefined) => void
 }
 
-function SearchComponent({ setImageState, settings }: SearchComponentProps) {
-    const [grid, setGrid] = useState<GridState | undefined>();
+async function calculateGlideArea(
+    latlng: LatLng,
+    { setImageState, settings, setGrid }: SearchComponentProps,
+) {
+    setImageState(undefined);
+    setGrid(undefined);
+    let url = new URL(window.location.origin + "/flight_cone");
+    url.search = getSearchParams(latlng.lat, latlng.lng, settings).toString();
 
+    let response = await fetch(url);
+    let cone: ConeSearchResponse = await response.json();
+
+    const grid = setupGrid(cone);
+    setGrid({
+        grid: grid,
+        response: cone,
+        startPosition: latlng,
+    });
+
+    const searchParams = getSearchParams(
+        latlng.lat, latlng.lng,
+        settings
+    ).toString();
+    let heightAglUrl = new URL(window.location.origin + "/agl_image");
+    heightAglUrl.search = searchParams;
+    let heightUrl = new URL(window.location.origin + "/height_image");
+    heightUrl.search = searchParams;
+    let aglContourUrl = new URL(window.location.origin + "/agl_contour_image");
+    aglContourUrl.search = searchParams;
+    let heightContourUrl = new URL(
+        window.location.origin + "/height_contour_image"
+    );
+    heightContourUrl.search = searchParams;
+
+    const bounds = new LatLngBounds(
+        new LatLng(cone.lat[0], cone.lon[0]),
+        new LatLng(cone.lat[1], cone.lon[1])
+    );
+    setImageState({
+        heightAGLUrl: heightAglUrl.toString(),
+        heightUrl: heightUrl.toString(),
+        aglContourUrl: aglContourUrl.toString(),
+        heightContourUrl: heightContourUrl.toString(),
+        bounds,
+    });
+}
+
+function SearchComponent(props: SearchComponentProps) {
     useMapEvents({
         async click(e) {
-            setImageState(undefined);
-            setGrid(undefined);
-            let url = new URL(window.location.origin + "/flight_cone");
-            url.search = getSearchParams(e.latlng.lat, e.latlng.lng, settings).toString();
-
-            let response = await fetch(url);
-            let cone: ConeSearchResponse = await response.json();
-
-            const grid = setupGrid(cone)
-            setGrid({
-                grid: grid,
-                response: cone,
-                startPosition: e.latlng
+            props.setSettings({
+                ...props.settings,
+                latLng: e.latlng,
             });
-
-            const searchParams = getSearchParams(e.latlng.lat, e.latlng.lng, settings).toString();
-            let heightAglUrl = new URL(window.location.origin + "/agl_image");
-            heightAglUrl.search = searchParams;
-            let heightUrl = new URL(window.location.origin + "/height_image");
-            heightUrl.search = searchParams;
-            let aglContourUrl = new URL(window.location.origin + "/agl_contour_image");
-            aglContourUrl.search = searchParams;
-            let heightContourUrl = new URL(window.location.origin + "/height_contour_image");
-            heightContourUrl.search = searchParams;
-
-            const bounds = new LatLngBounds(
-                new LatLng(cone.lat[0], cone.lon[0]),
-                new LatLng(cone.lat[1], cone.lon[1])
-            );
-            setImageState({
-                heightAGLUrl: heightAglUrl.toString(),
-                heightUrl: heightUrl.toString(),
-                aglContourUrl: aglContourUrl.toString(),
-                heightContourUrl: heightContourUrl.toString(),
-                bounds
-            })
+            calculateGlideArea(e.latlng, props);
         },
     });
 
-    return grid === undefined ? <></> : (<>
-        <Grid grid={grid}></Grid>
-    </>);
+    return props.grid === undefined ? (
+        <></>
+    ) : (
+        <>
+            <Grid grid={props.grid}></Grid>
+        </>
+    );
 }
 
 interface Settings {
@@ -241,74 +294,127 @@ interface Settings {
     trimSpeed: number;
     windSpeed: number;
     windDirection: number;
+    latLng: LatLng | undefined;
 }
 
-function SettingsCard({ settings, setSettings }: { settings: Settings, setSettings: (settings: Settings) => void }) {
+function SettingsCard({
+    settings,
+    setSettings,
+    searchComponentProps,
+}: {
+    settings: Settings;
+    setSettings: (settings: Settings) => void;
+    searchComponentProps: SearchComponentProps,
+}) {
     const setAdditionalHeight = (value: number) => {
         setSettings({
             ...settings,
             additionalHeight: value,
         });
-    }
+    };
     const setGlideNumber = (value: number) => {
         setSettings({
             ...settings,
             glideNumber: value,
         });
-    }
+    };
     const setGridSize = (value: number) => {
         setSettings({
             ...settings,
             gridSize: value,
         });
-    }
+    };
     const setTrimSpeed = (value: number) => {
         setSettings({
             ...settings,
             trimSpeed: value,
         });
-    }
+    };
     const setWindSpeed = (value: number) => {
         setSettings({
             ...settings,
             windSpeed: value,
         });
-    }
+    };
     const setWindDirection = (value: number) => {
         setSettings({
             ...settings,
             windDirection: value,
         });
-    }
+    };
 
     return (
         <div className="settings">
-            <Section collapsible compact title="Settings" collapseProps={{ defaultIsOpen: false }}>
+            <Section
+                collapsible
+                compact
+                title="Settings"
+                collapseProps={{ defaultIsOpen: false }}
+            >
                 <SectionCard>
                     Additional Height:
-                    <Slider initialValue={0} min={0} max={1000}
-                        onChange={setAdditionalHeight} value={settings.additionalHeight}
-                        labelStepSize={500} ></Slider>
+                    <Slider
+                        initialValue={0}
+                        min={0}
+                        max={1000}
+                        onChange={setAdditionalHeight}
+                        value={settings.additionalHeight}
+                        labelStepSize={500}
+                    ></Slider>
                     Glide number:
-                    <Slider initialValue={1} min={1} max={12}
-                        onChange={setGlideNumber} value={settings.glideNumber}
-                        labelStepSize={2} stepSize={0.5}></Slider>
+                    <Slider
+                        initialValue={1}
+                        min={1}
+                        max={12}
+                        onChange={setGlideNumber}
+                        value={settings.glideNumber}
+                        labelStepSize={2}
+                        stepSize={0.5}
+                    ></Slider>
                     Grid size:
-                    <Slider initialValue={30} min={30} max={200}
-                        onChange={setGridSize} value={settings.gridSize}
-                        labelStepSize={50} stepSize={10}></Slider>
+                    <Slider
+                        initialValue={30}
+                        min={30}
+                        max={200}
+                        onChange={setGridSize}
+                        value={settings.gridSize}
+                        labelStepSize={50}
+                        stepSize={10}
+                    ></Slider>
                     Trim speed:
-                    <Slider initialValue={25} min={25} max={45}
-                        onChange={setTrimSpeed} value={settings.trimSpeed}
-                        labelStepSize={5} stepSize={1}></Slider>
+                    <Slider
+                        initialValue={25}
+                        min={25}
+                        max={45}
+                        onChange={setTrimSpeed}
+                        value={settings.trimSpeed}
+                        labelStepSize={5}
+                        stepSize={1}
+                    ></Slider>
                     Wind speed:
-                    <Slider initialValue={0} min={0} max={50}
-                        onChange={setWindSpeed} value={settings.windSpeed}
-                        labelStepSize={10} stepSize={5}></Slider>
+                    <Slider
+                        initialValue={0}
+                        min={0}
+                        max={50}
+                        onChange={setWindSpeed}
+                        value={settings.windSpeed}
+                        labelStepSize={10}
+                        stepSize={5}
+                    ></Slider>
                     Wind direction:
-                    <Slider initialValue={0} min={0} max={360}
-                        onChange={setWindDirection} value={settings.windDirection}
-                        labelStepSize={90} stepSize={15}></Slider>
+                    <Slider
+                        initialValue={0}
+                        min={0}
+                        max={360}
+                        onChange={setWindDirection}
+                        value={settings.windDirection}
+                        labelStepSize={90}
+                        stepSize={15}
+                    ></Slider>
+                    {settings.latLng === undefined ?
+                        <></> :
+                        <Button onClick={() => calculateGlideArea(settings.latLng as LatLng, searchComponentProps)} icon="refresh" />
+                    }
                 </SectionCard>
             </Section>
         </div>
@@ -323,13 +429,24 @@ function App() {
         gridSize: 50,
         trimSpeed: 38,
         windSpeed: 0,
-        windDirection: 0
-    })
+        windDirection: 0,
+        latLng: undefined
+    });
+
+    const [grid, setGrid] = useState<GridState | undefined>();
 
     return (
         <div className="App">
-            <SettingsCard settings={settings} setSettings={setSettings}></SettingsCard>
-            <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
+            <SettingsCard
+                settings={settings}
+                setSettings={setSettings}
+                searchComponentProps={{ setImageState, settings, setGrid, grid, setSettings }}
+            ></SettingsCard>
+            <MapContainer
+                center={[47.67844930525105, 11.905059814453125]}
+                zoom={13}
+                scrollWheelZoom={true}
+            >
                 <LayersControl position="bottomright">
                     <LayersControl.BaseLayer checked name="OpenTopoMap">
                         <TileLayer
@@ -346,13 +463,22 @@ function App() {
                     <LayersControl.BaseLayer name="Satellite">
                         <TileLayer
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                            url='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                         />
                     </LayersControl.BaseLayer>
-                    {imageState !== undefined ? <ImageOverlays state={imageState}></ImageOverlays> : <></>}
-
+                    {imageState !== undefined ? (
+                        <ImageOverlays state={imageState}></ImageOverlays>
+                    ) : (
+                        <></>
+                    )}
                 </LayersControl>
-                <SearchComponent setImageState={setImageState} settings={settings}></SearchComponent>
+                <SearchComponent
+                    setImageState={setImageState}
+                    settings={settings}
+                    grid={grid}
+                    setGrid={setGrid}
+                    setSettings={setSettings}
+                ></SearchComponent>
             </MapContainer>
         </div>
     );
