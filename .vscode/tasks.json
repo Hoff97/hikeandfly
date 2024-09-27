@@ -11,8 +11,32 @@
         },
         {
             "type": "shell",
-            "label": "Run backend",
+            "label": "Run python backend",
             "command": "cd backend && fastapi dev src/server.py",
+            "problemMatcher": []
+        },
+        {
+            "type": "shell",
+            "label": "Run backend (dev)",
+            "command": "cd backend-rust && cargo run",
+            "problemMatcher": []
+        },
+        {
+            "type": "shell",
+            "label": "Run backend (release)",
+            "command": "cd backend-rust && cargo run -- release",
+            "problemMatcher": []
+        },
+        {
+            "type": "shell",
+            "label": "Build docker container and run",
+            "command": "docker buildx build --progress=plain -t hoff97/hikeandfly:latest ./ && docker run -p 8080:8080 hoff97/hikeandfly:latest",
+            "problemMatcher": []
+        },
+        {
+            "type": "shell",
+            "label": "Benchmark search",
+            "command": "cargo flamegraph --bench search_benchmark -- --bench",
             "problemMatcher": []
         }
     ]

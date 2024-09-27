@@ -1,3 +1,5 @@
 backend/data/
+backend-rust/data/
+backend-rust/target/
 __pycache__
 frontend/node_modules

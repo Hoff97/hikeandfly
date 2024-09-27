@@ -112,7 +112,7 @@ def get_flight_cone(
                     "distance": node.distance,
                     "lat": lats[grid_ix[0]],
                     "lon": lons[grid_ix[1]],
-                    "ref": node.ref,
+                    "reference": node.ref,
                     "size": grid.cell_size,
                     "agl": node.height - grid.heights[grid_ix[0], grid_ix[1]],
                     "gl": grid.heights[grid_ix[0], grid_ix[1]],

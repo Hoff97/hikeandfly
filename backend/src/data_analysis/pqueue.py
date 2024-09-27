@@ -1,19 +1,19 @@
 import collections
-from typing import Generic, List, TypeVar, NamedTuple
+from typing import Generic, TypeVar, NamedTuple
 
-T = TypeVar("T")
-U = TypeVar("U")
+V = TypeVar("V")
+K = TypeVar("K")
 
 
-class HeapNode(NamedTuple, Generic[T, U]):
+class HeapNode(NamedTuple, Generic[V, K]):
     priority: float
-    item: T
-    key: U
+    item: V
+    key: K
 
 
-class PriorityQueue(Generic[T, U]):
-    heap: list[HeapNode[T, U]]
-    positions: dict[U, int]
+class PriorityQueue(Generic[V, K]):
+    heap: list[HeapNode[V, K]]
+    positions: dict[K, int]
 
     def __init__(self):
         self.heap = []
@@ -22,13 +22,13 @@ class PriorityQueue(Generic[T, U]):
     def __len__(self):
         return len(self.heap)
 
-    def put(self, item: T, key: U, priority: float):
+    def put(self, item: V, key: K, priority: float):
         self.heap.append(HeapNode(priority, item, key))
         self.positions[key] = len(self.heap) - 1
 
         _siftup(self.heap, len(self.heap) - 1, self.positions)
 
-    def update(self, key: U, item: T, priority: float):
+    def update(self, key: K, item: V, priority: float):
         position = self.positions[key]
         old_node = self.heap[position]
 
@@ -39,7 +39,7 @@ class PriorityQueue(Generic[T, U]):
         else:
             _siftdown(self.heap, position, self.positions)
 
-    def update_if_less(self, item: T, key: U, priority: float):
+    def update_if_less(self, item: V, key: K, priority: float):
         if self.contains(key):
             old_item = self.get(key)
             if old_item.priority > priority:
@@ -64,10 +64,10 @@ class PriorityQueue(Generic[T, U]):
 
         return head
 
-    def contains(self, key: U):
+    def contains(self, key: K):
         return key in self.positions
 
-    def get(self, key: U) -> HeapNode:
+    def get(self, key: K) -> HeapNode:
         return self.heap[self.positions[key]]
 
     def all(self):
@@ -78,7 +78,7 @@ class PriorityQueue(Generic[T, U]):
         return x
 
 
-def _siftup(heap: list[HeapNode[T, U]], pos: int, positions: dict[U, int]):
+def _siftup(heap: list[HeapNode[V, K]], pos: int, positions: dict[K, int]):
     newitem = heap[pos]
     key = newitem.key
     # Follow the path to the root, moving parents down until finding a place
@@ -97,7 +97,7 @@ def _siftup(heap: list[HeapNode[T, U]], pos: int, positions: dict[U, int]):
     positions[key] = pos
 
 
-def _siftdown(heap: list[HeapNode[T, U]], pos: int, positions: dict[U, int]):
+def _siftdown(heap: list[HeapNode[V, K]], pos: int, positions: dict[K, int]):
     endpos = len(heap)
     newitem = heap[pos]
     # Bubble up the smaller child until hitting a leaf.
@@ -123,9 +123,9 @@ def _siftdown(heap: list[HeapNode[T, U]], pos: int, positions: dict[U, int]):
     positions[newitem.key] = pos
 
 
-class FakePriorityQueue(Generic[T, U]):
-    keys: collections.deque[U]
-    items: dict[U, (float, T)]
+class FakePriorityQueue(Generic[V, K]):
+    keys: collections.deque[K]
+    items: dict[K, (float, V)]
 
     def __init__(self):
         self.keys = collections.deque()
@@ -134,14 +134,14 @@ class FakePriorityQueue(Generic[T, U]):
     def __len__(self):
         return len(self.items)
 
-    def put(self, item: T, key: U, priority: float):
+    def put(self, item: V, key: K, priority: float):
         self.keys.append(key)
         self.items[key] = (priority, item)
 
-    def update(self, key: U, item: T, priority: float):
+    def update(self, key: K, item: V, priority: float):
         self.items[key] = (priority, item)
 
-    def update_if_less(self, item: T, key: U, priority: float):
+    def update_if_less(self, item: V, key: K, priority: float):
         if self.contains(key):
             old_item = self.get(key)
             if old_item.priority > priority:
@@ -157,10 +157,10 @@ class FakePriorityQueue(Generic[T, U]):
 
         return HeapNode(priority, item, key)
 
-    def contains(self, key: U):
+    def contains(self, key: K):
         return key in self.items
 
-    def get(self, key: U) -> HeapNode:
+    def get(self, key: K) -> HeapNode:
         priority, item = self.items[key]
         return HeapNode(priority, item, key)
 

@@ -11,8 +11,10 @@ import {
     useMap,
     useMapEvents,
 } from "react-leaflet";
+import { Map as MapLeaflet } from "leaflet";
 import { LatLng, LatLngBounds, PathOptions } from "leaflet";
-import { Section, SectionCard, Slider, Button } from "@blueprintjs/core";
+import { Section, SectionCard, Slider, Button, Divider, Spinner, Intent, H3, Overlay2, OverlaysProvider, Classes, H4 } from "@blueprintjs/core";
+import { InfoSign, Share } from "@blueprintjs/icons";
 
 interface GridTile {
     index: number[];
@@ -20,7 +22,7 @@ interface GridTile {
     distance: number;
     lat: number;
     lon: number;
-    ref: number[];
+    reference: number[];
     agl: number;
     gl: number;
 }
@@ -91,8 +93,6 @@ function CurrentNodeDisplay({
 interface ImageState {
     heightAGLUrl: string;
     heightUrl: string;
-    aglContourUrl: string;
-    heightContourUrl: string;
     bounds: LatLngBounds;
 }
 
@@ -115,28 +115,11 @@ function ImageOverlays({ state }: { state: ImageState }) {
                     className="gridImage"
                 ></ImageOverlay>
             </LayersControl.Overlay>
-            <LayersControl.Overlay name="AGL Contour lines">
-                <ImageOverlay
-                    url={state.aglContourUrl.toString()}
-                    bounds={state.bounds}
-                    opacity={0.4}
-                ></ImageOverlay>
-            </LayersControl.Overlay>
-            <LayersControl.Overlay name="Height Contour lines">
-                <ImageOverlay
-                    url={state.heightContourUrl.toString()}
-                    bounds={state.bounds}
-                    opacity={0.9}
-                ></ImageOverlay>
-            </LayersControl.Overlay>
         </>
     );
 }
 
-function Grid({ grid }: { grid: GridState }) {
-    const [path, setPath] = useState<LatLng[] | undefined>();
-    const [node, setNode] = useState<GridTile | undefined>();
-
+function Grid({ grid, pathAndNode }: { grid: GridState, pathAndNode: PathAndNode }) {
     useMapEvents({
         mousemove(ev) {
             if (grid.response === undefined || grid.grid === undefined)
@@ -166,16 +149,17 @@ function Grid({ grid }: { grid: GridState }) {
                     const node = grid.grid[latIx][lonIx];
                     let current = node;
                     let path = [];
-                    while (current.ref !== null) {
+                    while (current.reference !== null) {
                         path.push(new LatLng(current.lat, current.lon, current.height));
-                        current = grid.grid[current.ref[0]][current.ref[1]];
+                        current = grid.grid[current.reference[0]][current.reference[1]];
                     }
                     path.push(new LatLng(current.lat, current.lon, current.height));
-                    setPath(path);
-                    setNode(node);
+                    path.reverse();
+                    pathAndNode.setPath(path);
+                    pathAndNode.setNode(node);
                 } else {
-                    setPath(undefined);
-                    setNode(undefined);
+                    pathAndNode.setPath(undefined);
+                    pathAndNode.setNode(undefined);
                 }
             }
         },
@@ -192,13 +176,13 @@ function Grid({ grid }: { grid: GridState }) {
     return (
         <>
             <LayersControl position="bottomleft"></LayersControl>
-            {path !== undefined ? (
-                <Polyline pathOptions={pathOptions} positions={path} />
+            {pathAndNode.path !== undefined ? (
+                <Polyline pathOptions={pathOptions} positions={pathAndNode.path} />
             ) : (
                 <></>
             )}
-            {node !== undefined ? (
-                <CurrentNodeDisplay node={node} grid={grid} />
+            {pathAndNode.node !== undefined ? (
+                <CurrentNodeDisplay node={pathAndNode.node} grid={grid} />
             ) : (
                 <></>
             )}
@@ -221,11 +205,18 @@ function setupGrid(cone: ConeSearchResponse): GridTile[][] {
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
     settings: Settings;
-    grid: GridState | undefined;
+    grid: GridState;
     setGrid: (grid: GridState) => void;
+    pathAndNode: PathAndNode;
 }
 
-async function doSearchFromLocation(setImageState: (state: ImageState | undefined) => void, setGrid: (grid: GridState) => void, latLng: LatLng, settings: Settings,) {
+async function doSearchFromLocation(
+    setImageState: (state: ImageState | undefined) => void,
+    setGrid: (grid: GridState) => void,
+    latLng: LatLng, settings: Settings,
+    pathAndNode: PathAndNode,
+    map: MapLeaflet | undefined,
+) {
     setImageState(undefined);
     setGrid({
         loading: true,
@@ -233,6 +224,9 @@ async function doSearchFromLocation(setImageState: (state: ImageState | undefine
         response: undefined,
         startPosition: undefined
     });
+    pathAndNode.setNode(undefined);
+    pathAndNode.setPath(undefined);
+
     let url = new URL(window.location.origin + "/flight_cone");
     url.search = getSearchParams(latLng.lat, latLng.lng, settings).toString();
 
@@ -247,15 +241,13 @@ async function doSearchFromLocation(setImageState: (state: ImageState | undefine
         startPosition: latLng
     });
 
+    console.log(grid);
+
     const searchParams = getSearchParams(latLng.lat, latLng.lng, settings).toString();
     let heightAglUrl = new URL(window.location.origin + "/agl_image");
     heightAglUrl.search = searchParams;
     let heightUrl = new URL(window.location.origin + "/height_image");
     heightUrl.search = searchParams;
-    let aglContourUrl = new URL(window.location.origin + "/agl_contour_image");
-    aglContourUrl.search = searchParams;
-    let heightContourUrl = new URL(window.location.origin + "/height_contour_image");
-    heightContourUrl.search = searchParams;
 
     const bounds = new LatLngBounds(
         new LatLng(cone.lat[0], cone.lon[0]),
@@ -264,10 +256,11 @@ async function doSearchFromLocation(setImageState: (state: ImageState | undefine
     setImageState({
         heightAGLUrl: heightAglUrl.toString(),
         heightUrl: heightUrl.toString(),
-        aglContourUrl: aglContourUrl.toString(),
-        heightContourUrl: heightContourUrl.toString(),
         bounds
     });
+    if (map !== undefined) {
+        map.flyToBounds(bounds);
+    }
 
     updateSearchParams(latLng, settings);
 }
@@ -276,23 +269,40 @@ function updateSearchParams(latLng: LatLng, settings: Settings) {
     const searchParams = getSearchParams(latLng.lat, latLng.lng, settings);
 
     const url = new URL(window.location.origin);
+    url.pathname = window.location.pathname;
     url.search = searchParams.toString();
 
     window.history.replaceState({}, "", url);
 }
 
-function SearchComponent({ setImageState, settings, grid, setGrid }: SearchComponentProps) {
+interface PathAndNode {
+    path: LatLng[] | undefined;
+    node: GridTile | undefined;
+    setPath: (path: LatLng[] | undefined) => void;
+    setNode: (node: GridTile | undefined) => void;
+}
+
+function SearchComponent({ setImageState, settings, grid, setGrid, pathAndNode }: SearchComponentProps) {
+    const map = useMap();
     useMapEvents({
         async click(e) {
-            await doSearchFromLocation(setImageState, setGrid, e.latlng, settings);
+            await doSearchFromLocation(setImageState, setGrid, e.latlng, settings, pathAndNode, map);
         },
     });
+    const urlParams = new URLSearchParams(window.location.search);
+
+    const lat = urlParams.get('lat');
+    const lon = urlParams.get('lon');
+    if (lat !== null && lon !== null && grid.loading === false && grid.grid === undefined) {
+        const latlon = new LatLng(+lat, +lon);
+        doSearchFromLocation(setImageState, setGrid, latlon, settings, pathAndNode, map);
+    }
 
     return grid === undefined ? (
         <></>
     ) : (
         <>
-            <Grid grid={grid}></Grid>
+            <Grid grid={grid} pathAndNode={pathAndNode}></Grid>
         </>
     );
 }
@@ -313,10 +323,16 @@ interface SettingsCardProps {
     setSettings: (settings: Settings) => void;
     setImageState: (state: ImageState | undefined) => void;
     setGrid: (grid: GridState) => void;
-    grid: GridState | undefined;
+    grid: GridState;
+    pathAndNode: PathAndNode;
+    setIsInfoOpen: (open: boolean) => void;
 }
 
-function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: SettingsCardProps) {
+function copyUrlToClipBoard() {
+    navigator.clipboard.writeText(window.location.href);
+}
+
+function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pathAndNode, setIsInfoOpen }: SettingsCardProps) {
     const setAdditionalHeight = (value: number) => {
         setSettings({
             ...settings,
@@ -368,8 +384,17 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
 
     function rerun() {
         if (grid !== undefined && grid.startPosition !== undefined) {
-            doSearchFromLocation(setImageState, setGrid, grid.startPosition, settings);
+            doSearchFromLocation(setImageState, setGrid, grid.startPosition, settings, pathAndNode, undefined);
         }
+    }
+
+    let kmlUrl = undefined;
+    if (grid.startPosition !== undefined) {
+        const searchParams = getSearchParams(grid.startPosition.lat, grid.startPosition.lat, settings).toString();
+        let kml = new URL(window.location.origin + "/kml");
+        kml.search = searchParams;
+
+        kmlUrl = kml.toString();
     }
 
     return (
@@ -381,15 +406,6 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
                 collapseProps={{ defaultIsOpen: false }}
             >
                 <SectionCard>
-                    Additional Height:
-                    <Slider
-                        initialValue={0}
-                        min={0}
-                        max={1000}
-                        onChange={setAdditionalHeight}
-                        value={settings.additionalHeight}
-                        labelStepSize={500}
-                    ></Slider>
                     Glide number:
                     <Slider
                         initialValue={1}
@@ -400,7 +416,7 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
                         labelStepSize={2}
                         stepSize={0.5}
                     ></Slider>
-                    Grid size:
+                    Grid size (m):
                     <Slider
                         initialValue={30}
                         min={30}
@@ -410,17 +426,18 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
                         labelStepSize={50}
                         stepSize={10}
                     ></Slider>
-                    Trim speed:
+                    Additional Height (m):
                     <Slider
-                        initialValue={25}
-                        min={25}
-                        max={45}
-                        onChange={setTrimSpeed}
-                        value={settings.trimSpeed}
-                        labelStepSize={5}
-                        stepSize={1}
+                        initialValue={0}
+                        min={0}
+                        max={500}
+                        onChange={setAdditionalHeight}
+                        value={settings.additionalHeight}
+                        labelStepSize={100}
+                        stepSize={5}
                     ></Slider>
-                    Wind speed:
+                    <Divider />
+                    Wind speed (km/h):
                     <Slider
                         initialValue={0}
                         min={0}
@@ -430,22 +447,131 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid }: S
                         labelStepSize={10}
                         stepSize={5}
                     ></Slider>
-                    Wind direction:
+                    Wind direction (°):
                     <Slider initialValue={0} min={0} max={360}
                         onChange={setWindDirection} value={settings.windDirection}
                         labelStepSize={90} stepSize={15}></Slider>
-                    Safety margin:
+                    Trim speed (km/h):
+                    <Slider
+                        initialValue={25}
+                        min={25}
+                        max={45}
+                        onChange={setTrimSpeed}
+                        value={settings.trimSpeed}
+                        labelStepSize={5}
+                        stepSize={1}
+                    ></Slider>
+                    <Divider />
+                    Safety margin (m):
                     <Slider initialValue={0} min={0} max={200}
                         onChange={setSafetyMargin} value={settings.safetyMargin}
                         labelStepSize={40} stepSize={10}></Slider>
-                    Start distance:
+                    Start distance (m):
                     <Slider initialValue={0} min={0} max={300}
                         onChange={setStartDistance} value={settings.startDistance}
                         labelStepSize={50} stepSize={10}></Slider>
-                    {grid !== undefined ? <Button text="Rerun from current location" onClick={rerun} /> : <></>}
+                    {grid.response !== undefined ?
+                        <>
+                            <Button text="Rerun" onClick={rerun} className="marginRight" />
+                            <a href={kmlUrl} download="glideArea.kml" className="marginRight"><Button text="KML File" /></a>
+                            <Button
+                                icon={<Share />}
+                                onClick={copyUrlToClipBoard}
+                                className="marginRight"
+                                text="Share">
+                            </Button>
+                        </> : <></>}
                 </SectionCard>
             </Section>
+            <br />
+            <Button
+                icon={<InfoSign />}
+                onClick={() => setIsInfoOpen(true)}
+                large={true}
+                intent="primary"
+                className="right">
+            </Button>
         </div>
+    );
+}
+
+interface InfoPanelProps {
+    isOpen: boolean;
+    setIsOpen: (open: boolean) => void;
+}
+
+function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
+    let handleClose = () => {
+        setIsOpen(false);
+    };
+    return (
+        <Overlay2
+            onClose={handleClose}
+            canEscapeKeyClose={true}
+            canOutsideClickClose={true}
+            hasBackdrop={true}
+            isOpen={isOpen}
+            className={Classes.OVERLAY_SCROLL_CONTAINER}
+        >
+            <div className="overlay">
+                <H3>About</H3>
+                <p>
+                    This is a tool for calculating the area reachable by a paraglider when
+                    starting from a specific location. It assumes that you fly
+                    <ul>
+                        <li>with a <b>constant glide ration</b> even when turning</li>
+                        <li>using <b>no thermals</b></li>
+                    </ul>
+                    You can change the following settings:
+                    <ul>
+                        <li><b>Glide ratio</b>: Meters flown horizontally for every vertical meter lost</li>
+                        <li>
+                            <b>Grid size</b>: By default, the height grid uses a resolution of 100 meters, which should be accurate enough for many use cases. You can increase the resolution
+                            if needed - note however that a higher resolution will result in a longer calculation.
+                        </li>
+                        <li>
+                            <b>Additional starting height</b>: Meters above the starting location from which you start the glide.
+                            By default a small margin of 5 Meters is set here, because otherwise the tool sometimes will determine that you stop flying immediately.
+                        </li>
+                    </ul>
+                    <H4>WIND</H4>
+                    By default, this tool assumes no wind. You can however simulate wind.
+                    <ul>
+                        <li><b>Wind speed</b>: The wind speed - will be constant for all heights</li>
+                        <li>
+                            <b>Wind direction</b>: The wind direction in degrees - will be constant for all heights. 0° is wind from the North, 90° East, 180° South and 270° wind from the west.
+                        </li>
+                        <li>
+                            <b>Trim speed</b>: The tool will assume that you fly at trim (ie. no breaking/accelerating) and with an "optimal" lead angle to reach a certain location.
+                            We can not simulate breaking/accelerating, since this would require knowing the polar curve of the paraglider (if someone has access to this, please let me know).
+                        </li>
+                    </ul>
+                    <H4>Safety margin</H4>
+                    By default, the tool will calculate the the reachable area by flying as close as possible to the terrain.
+                    <ul>
+                        <li>
+                            <b>Safety margin</b>: You can set a custom safety margin. The reachable area will then be calculated assuming you can not
+                            fly closer to the terrain <b>vertically</b> than this safety margin.
+                        </li>
+                        <li>
+                            <b>Start distance</b>: The safety margin will be ignored below this start distance. It makes sense setting this, as otherwise the tool
+                            will likely stop the calculation immediately at the start.
+                        </li>
+                    </ul>
+                </p>
+                <H3>Attribution</H3>
+                This page is heavily inspired by <a href="https://hikeandfly.org/">hikeandfly.org</a>. The Digital evalation model comes
+                from <a href="https://viewfinderpanoramas.org/dem3.html">Viewfinder Panoramas</a>. Maps are provided by
+                <a href="https://opentopomap.org/about">OpenTopoMap</a>, <a href="https://opentopomap.org/about">OpenStreetMap</a>
+                and <a href="https://www.arcgis.com/apps/mapviewer/">ArcGIS</a> and are rendered using <a href="https://leafletjs.com/">Leaflet</a>.<br />
+                The code for this page is open source and can be found on <a href="https://github.com/Hoff97/hikeandfly">Github</a>.
+                <br />
+                <br />
+                <Button intent={Intent.DANGER} onClick={handleClose} style={{ margin: "" }}>
+                    Close
+                </Button>
+            </div>
+        </Overlay2>
     );
 }
 
@@ -455,14 +581,14 @@ function App() {
     const urlParams = new URLSearchParams(window.location.search);
 
     const [settings, setSettings] = useState<Settings>({
-        additionalHeight: +(urlParams.get('additional_height') || 10),
-        glideNumber: +(urlParams.get('glide_number') || 8),
-        gridSize: +(urlParams.get('cell_size') || 50),
+        additionalHeight: +(urlParams.get('additional_height') || 5),
+        glideNumber: +(urlParams.get('glide_number') || 6.5),
+        gridSize: +(urlParams.get('cell_size') || 100),
         trimSpeed: +(urlParams.get('trim_speed') || 37),
         windSpeed: +(urlParams.get('wind_speed') || 0),
         windDirection: +(urlParams.get('wind_direction') || 0),
         safetyMargin: +(urlParams.get('safety_margin') || 0),
-        startDistance: +(urlParams.get('start_distance') || 0),
+        startDistance: +(urlParams.get('start_distance') || 50),
     });
     const [grid, setGrid] = useState<GridState>({
         loading: false,
@@ -470,44 +596,62 @@ function App() {
         response: undefined,
         startPosition: undefined
     });
-
-    const lat = urlParams.get('lat');
-    const lon = urlParams.get('lon')
-    if (lat !== null && lon !== null && grid.loading === false && grid.grid === undefined) {
-        doSearchFromLocation(setImageState, setGrid, new LatLng(+lat, +lon), settings);
-    }
+    const [path, setPath] = useState<LatLng[] | undefined>();
+    const [node, setNode] = useState<GridTile | undefined>();
+    const pathAndNode = {
+        path, setPath, node, setNode
+    };
+    const [isInfoOpen, setIsisInfoOpen] = useState<boolean>(false);
 
     return (
         <div className="App">
-            <SettingsCard settings={settings} setSettings={setSettings} grid={grid} setGrid={setGrid} setImageState={setImageState}></SettingsCard>
-            <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
-                <LayersControl position="bottomright">
-                    <LayersControl.BaseLayer checked name="OpenTopoMap">
-                        <TileLayer
-                            attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
-                            url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-                        />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="OpenStreetMap">
-                        <TileLayer
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="Satellite">
-                        <TileLayer
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                        />
-                    </LayersControl.BaseLayer>
-                    {imageState !== undefined ? (
-                        <ImageOverlays state={imageState}></ImageOverlays>
-                    ) : (
-                        <></>
-                    )}
-                </LayersControl>
-                <SearchComponent setImageState={setImageState} settings={settings} grid={grid} setGrid={setGrid}></SearchComponent>
-            </MapContainer>
+            <OverlaysProvider>
+                <div className="loading">
+                    {grid.loading ?
+                        <Spinner
+                            intent={Intent.PRIMARY}
+                            size={50}
+                        /> : <></>
+                    }
+                </div>
+                <InfoPanel isOpen={isInfoOpen} setIsOpen={setIsisInfoOpen}></InfoPanel>
+                <SettingsCard
+                    settings={settings}
+                    setSettings={setSettings}
+                    grid={grid}
+                    setGrid={setGrid}
+                    setImageState={setImageState}
+                    pathAndNode={pathAndNode}
+                    setIsInfoOpen={setIsisInfoOpen}></SettingsCard>
+                <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
+                    <LayersControl position="bottomright">
+                        <LayersControl.BaseLayer checked name="OpenTopoMap">
+                            <TileLayer
+                                attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
+                                url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+                            />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="OpenStreetMap">
+                            <TileLayer
+                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="Satellite">
+                            <TileLayer
+                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                            />
+                        </LayersControl.BaseLayer>
+                        {imageState !== undefined ? (
+                            <ImageOverlays state={imageState}></ImageOverlays>
+                        ) : (
+                            <></>
+                        )}
+                    </LayersControl>
+                    <SearchComponent setImageState={setImageState} settings={settings} grid={grid} setGrid={setGrid} pathAndNode={pathAndNode}></SearchComponent>
+                </MapContainer>
+            </OverlaysProvider>
         </div>
     );
 }

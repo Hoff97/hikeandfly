@@ -232,8 +232,10 @@ def is_line_intersecting(to: Node, ix: GridIndex, config: SearchConfig):
 
     safety_margins = config.safety_margin
     if to.distance < config.start_distance:
-        safety_margins = np.ones(i_len)*config.safety_margin
-        n_no_safety_margin = math.ceil(i_len*((config.start_distance - to.distance)/length))
+        safety_margins = np.ones(i_len) * config.safety_margin
+        n_no_safety_margin = math.ceil(
+            i_len * ((config.start_distance - to.distance) / length)
+        )
         safety_margins[:n_no_safety_margin] = 0
 
     heights = config.grid.heights[x.astype(int), y.astype(int)]
@@ -430,10 +432,6 @@ def search(start: GridIndex, height: float, config: SearchConfig):
     i = 0
 
     while len(state.queue) > 0:
-        if i % 500 == 0:
-            _logger.info(
-                "Explored %d, queue size %d", len(state.explored), len(state.queue)
-            )
         first = state.queue.pop()
         state.explored[first.key] = first.item
 
@@ -462,9 +460,11 @@ def reindex(state: SearchState, grid: HeightGrid):
         (grid_ix[0] - mins[0], grid_ix[1] - mins[1]): Node(
             node.height,
             [node.ix[0] - mins[0], node.ix[1] - mins[1]],
-            [node.ref[0] - mins[0], node.ref[1] - mins[1]]
-            if node.ref is not None
-            else None,
+            (
+                [node.ref[0] - mins[0], node.ref[1] - mins[1]]
+                if node.ref is not None
+                else None
+            ),
             node.distance,
             node.reachable,
             node.effective_glide_ratio,
@@ -537,7 +537,7 @@ def search_from_point(
             query.wind_direction,
             query.wind_speed,
             query.safety_margin,
-            query.start_distance
+            query.start_distance,
         ),
     )
 

@@ -14,9 +14,47 @@
     z-index: 500;
 }
 
+.loading {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 500;
+}
+
+.bp5-overlay {
+    z-index: 510;
+}
+
+.bp5-overlay-backdrop {
+    z-index: 510;
+}
+
+.overlay {
+    z-index: 520;
+    width: 600px;
+    position: absolute;
+    background-color: white;
+    border-radius: 10px;
+    border-color: gray;
+    padding: 10px;
+    top: 50px;
+    left: calc(50% - 300px);
+    max-height: 80%;
+    overflow: scroll;
+}
+
 img.gridImage {
     image-rendering: -moz-crisp-edges;
     image-rendering: -webkit-optimize-contrast;
     image-rendering: pixelated;
     -ms-interpolation-mode: nearest-neighbor;
+}
+
+.right {
+    position: absolute;
+    right: 0px;
+}
+
+.marginRight {
+    margin-right: 10px;
 }

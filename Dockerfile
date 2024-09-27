@@ -2,6 +2,9 @@ FROM node:20.5.1 AS frontend_build
 
 WORKDIR /app
 
+COPY ./backend-rust/download_data.sh ./
+RUN ./download_data.sh && ls && ls data
+
 COPY ./frontend/package.json ./
 COPY ./frontend/package-lock.json ./
 
@@ -11,23 +14,37 @@ COPY ./frontend ./
 
 RUN npm run build
 
-FROM python:3.11
+FROM docker.io/rust:1-slim-bookworm AS backend_build
 
-ENV PROD=true
+ARG pkg=main
 
-WORKDIR /code
+WORKDIR /build
 
-COPY ./backend/download_data.sh /code
-RUN ./download_data.sh
+COPY ./backend-rust .
 
-COPY ./backend/requirements.txt /code
+RUN --mount=type=cache,target=/build/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    set -eux; \
+    cargo build --release --target-dir /build/target; \
+    ls; \
+    objcopy --compress-debug-sections target/release/$pkg ./main
 
-RUN pip install --no-cache-dir --upgrade -r requirements.txt
+FROM docker.io/debian:bookworm-slim
 
-COPY ./backend /code
+WORKDIR /app
 
-RUN mkdir -p /static
-COPY --from=frontend_build /app/build/index.html /static
-COPY --from=frontend_build /app/build /static
+COPY --from=frontend_build /app/data ./data
 
-CMD ["fastapi", "run", "src/server.py", "--port", "80"]
+## copy the main binary
+COPY --from=backend_build /build/main ./
+
+RUN mkdir static
+COPY --from=frontend_build /app/build/index.html ./static
+COPY --from=frontend_build /app/build ./static
+
+## ensure the container listens globally on port 8080
+ENV ROCKET_ADDRESS=0.0.0.0
+ENV ROCKET_PORT=8080
+
+CMD ./main

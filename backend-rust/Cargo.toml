@@ -1,0 +1,25 @@
+[package]
+name = "backend-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.5.0"
+cached = "0.53.1"
+image = "0.25.2"
+ndarray = "0.16.1"
+num-traits = "0.2.19"
+quick-xml = "0.36.2"
+rocket = { version = "0.5.1", features = ["json"] }
+serde = { version = "1.0.210", features = ["derive", "serde_derive"] }
+
+[dev-dependencies]
+approx = "0.5.1"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "search_benchmark"
+harness = false
+
+#[profile.release]
+#debug = 1
