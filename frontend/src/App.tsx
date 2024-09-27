@@ -20,11 +20,8 @@ interface GridTile {
     index: number[];
     height: number;
     distance: number;
-    lat: number;
-    lon: number;
     reference: number[];
     agl: number;
-    gl: number;
 }
 
 interface ConeSearchResponse {
@@ -75,9 +72,15 @@ function CurrentNodeDisplay({
         fillOpacity: 0.5,
     };
 
+    let lat = 0;
+    let lon = 0;
+    if (grid.response !== undefined) {
+        [lat, lon] = ixToLatLon(node.index, grid.response);
+    }
+
     return (
         <CircleMarker
-            center={new LatLng(node.lat, node.lon)}
+            center={new LatLng(lat, lon)}
             radius={(map.getZoom() / 12) * 10}
             pathOptions={blackOptions}
         >
@@ -119,6 +122,12 @@ function ImageOverlays({ state }: { state: ImageState }) {
     );
 }
 
+function ixToLatLon(ix: number[], response: ConeSearchResponse) {
+    let lat = response.lat[0] + (ix[0] + 0.5) / (response.grid_shape[0]) * (response.lat[1] - response.lat[0]);
+    let lon = response.lon[0] + (ix[1] + 0.5) / (response.grid_shape[1]) * (response.lon[1] - response.lon[0]);
+    return [lat, lon];
+}
+
 function Grid({ grid, pathAndNode }: { grid: GridState, pathAndNode: PathAndNode }) {
     useMapEvents({
         mousemove(ev) {
@@ -150,10 +159,21 @@ function Grid({ grid, pathAndNode }: { grid: GridState, pathAndNode: PathAndNode
                     let current = node;
                     let path = [];
                     while (current.reference !== null) {
-                        path.push(new LatLng(current.lat, current.lon, current.height));
+                        let lat = 0;
+                        let lon = 0;
+                        if (grid.response !== undefined) {
+                            [lat, lon] = ixToLatLon(current.index, grid.response);
+                        }
+
+                        path.push(new LatLng(lat, lon, current.height));
                         current = grid.grid[current.reference[0]][current.reference[1]];
                     }
-                    path.push(new LatLng(current.lat, current.lon, current.height));
+                    let lat = 0;
+                    let lon = 0;
+                    if (grid.response !== undefined) {
+                        [lat, lon] = ixToLatLon(current.index, grid.response);
+                    }
+                    path.push(new LatLng(lat, lon, current.height));
                     path.reverse();
                     pathAndNode.setPath(path);
                     pathAndNode.setNode(node);

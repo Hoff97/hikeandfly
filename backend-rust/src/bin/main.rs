@@ -209,14 +209,10 @@ pub fn search_from_request(
 
 struct NodeResponse {
     index: GridIx,
-    height: f32,
-    distance: f32,
-    lat: f32,
-    lon: f32,
+    height: i16,
+    distance: i32,
     reference: Option<GridIx>,
-    size: f32,
-    agl: f32,
-    gl: i16,
+    agl: i16,
 }
 
 #[derive(Serialize)]
@@ -271,14 +267,10 @@ fn get_flight_cone(
         if node.reachable {
             response.nodes.push(NodeResponse {
                 index: node.ix,
-                height: node.height,
-                distance: node.distance,
-                lat: lats[node.ix.0 as usize],
-                lon: lons[node.ix.1 as usize],
+                height: node.height as i16,
+                distance: node.distance as i32,
                 reference: node.reference,
-                size: grid.cell_size,
-                agl: node.height - grid.heights[(node.ix.0 as usize, node.ix.1 as usize)] as f32,
-                gl: grid.heights[(node.ix.0 as usize, node.ix.1 as usize)],
+                agl: node.height as i16 - grid.heights[(node.ix.0 as usize, node.ix.1 as usize)],
             })
         }
     }
