@@ -38,7 +38,7 @@
     border-color: gray;
     padding: 10px;
     top: 50px;
-    left: calc(50% - 300px);
+    left: calc(50% - min(300px, 45%));
     max-height: 80%;
     overflow: scroll;
 }
