@@ -639,23 +639,7 @@ fn get_kml<'a>(
 
 #[launch]
 fn rocket() -> _ {
-    let mut tls_config = None;
-    let metadata = fs::metadata("/app/ssl/fullchain.pem");
-    if metadata.is_ok() && metadata.unwrap().is_file() {
-        println!("Running with TLS enabled!");
-
-        tls_config = Some(TlsConfig::from_paths(
-            "/app/ssl/fullchain.pem",
-            "/app/ssl/privkey.pem",
-        ));
-    }
-
-    let config = Config {
-        tls: tls_config,
-        ..Default::default()
-    };
-
-    rocket::custom(config)
+    rocket::build()
         .mount("/", routes![index])
         .mount("/", routes![get_flight_cone])
         .mount("/", routes![get_agl_image])
