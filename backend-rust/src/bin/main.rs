@@ -1,7 +1,7 @@
 use core::f32;
 use std::{
     cmp::{max, min},
-    collections::HashMap,
+    fs,
     hash::{Hash, Hasher},
     io::Cursor,
 };
@@ -17,10 +17,12 @@ use quick_xml::{
     Writer,
 };
 use rocket::{
+    config::TlsConfig,
     fs::FileServer,
     http::ContentType,
     response::Redirect,
     serde::{json::Json, Serialize},
+    Config,
 };
 
 use ndarray::{s, Array2};
@@ -251,7 +253,6 @@ fn get_flight_cone(
         start_distance,
     );
 
-    let (lats, lons) = grid.get_coordinates_for_indices();
     let resolution = grid.get_angular_resolution();
 
     let mut response = FlightConeResponse {
@@ -638,7 +639,23 @@ fn get_kml<'a>(
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build()
+    let mut tls_config = None;
+    let metadata = fs::metadata("/app/ssl/certs.pem");
+    if metadata.is_ok() && metadata.unwrap().is_file() {
+        println!("Running with TLS enabled!");
+
+        tls_config = Some(TlsConfig::from_paths(
+            "/app/ssl/fullchain.pem",
+            "/app/ssl/privkey.pem",
+        ));
+    }
+
+    let config = Config {
+        tls: tls_config,
+        ..Default::default()
+    };
+
+    rocket::custom(config)
         .mount("/", routes![index])
         .mount("/", routes![get_flight_cone])
         .mount("/", routes![get_agl_image])
