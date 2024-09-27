@@ -1,7 +1,7 @@
 use core::f32;
 use std::{
     cmp::{max, min},
-    fs,
+    f32::consts::PI,
     hash::{Hash, Hasher},
     io::Cursor,
 };
@@ -17,12 +17,10 @@ use quick_xml::{
     Writer,
 };
 use rocket::{
-    config::TlsConfig,
     fs::FileServer,
     http::ContentType,
     response::Redirect,
     serde::{json::Json, Serialize},
-    Config,
 };
 
 use ndarray::{s, Array2};
@@ -52,7 +50,7 @@ const WIND_SPEED_MAXIMUM: f32 = 50.0;
 const WIND_DIRECTION_DEFAULT: f32 = 0.0;
 const TRIM_SPEED_DEFAULT: f32 = 38.0;
 const TRIM_SPEED_MINIMUM: f32 = 0.0;
-const TRIM_SPEED_MAXIMUM: f32 = 50.0;
+const TRIM_SPEED_MAXIMUM: f32 = 80.0;
 const SAFETY_MARGIN_DEFAULT: f32 = 0.0;
 const SAFETY_MARGIN_MINIMUM: f32 = 0.0;
 const START_DISTANCE_DEFAULT: f32 = 0.0;
@@ -183,7 +181,7 @@ pub fn search_from_request(
         SearchQueryHashable {
             additional_height: Distance(additional_height),
             wind_speed: Distance(wind_speed),
-            wind_direction: Distance(wind_direction),
+            wind_direction: Distance(wind_direction / 180.0 * PI),
             glide_ratio: Distance(1.0 / glide_number),
             trim_speed: Distance(trim_speed),
             safety_margin: Distance(safety_margin),

@@ -473,12 +473,12 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
                         labelStepSize={90} stepSize={15}></Slider>
                     Trim speed (km/h):
                     <Slider
-                        initialValue={25}
-                        min={25}
-                        max={45}
+                        initialValue={20}
+                        min={20}
+                        max={80}
                         onChange={setTrimSpeed}
                         value={settings.trimSpeed}
-                        labelStepSize={5}
+                        labelStepSize={10}
                         stepSize={1}
                     ></Slider>
                     <Divider />
