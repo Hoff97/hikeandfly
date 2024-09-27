@@ -640,7 +640,7 @@ fn get_kml<'a>(
 #[launch]
 fn rocket() -> _ {
     let mut tls_config = None;
-    let metadata = fs::metadata("/app/ssl/certs.pem");
+    let metadata = fs::metadata("/app/ssl/fullchain.pem");
     if metadata.is_ok() && metadata.unwrap().is_file() {
         println!("Running with TLS enabled!");
 
