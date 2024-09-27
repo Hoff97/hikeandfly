@@ -9,6 +9,7 @@ use ndarray::{linspace, s};
 
 use crate::{
     height_data::{get_height_at_point, get_height_data_around_point, HeightGrid},
+    line::Line,
     pqueue::{MapLike, PriorityQueue},
 };
 
@@ -245,18 +246,19 @@ impl SearchConfig {
 }
 
 pub fn get_neighbor_indices(ix: GridIx, height_grid: &HeightGrid) -> Vec<GridIx> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(4);
 
-    let x = ix.0 as i32;
-    let y = ix.1 as i32;
-    for (a, b) in vec![(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
-        if a >= 0
-            && a < (height_grid.heights.shape()[0]) as i32
-            && b >= 0
-            && b < (height_grid.heights.shape()[1]) as i32
-        {
-            result.push((a as GridIxType, b as GridIxType));
-        }
+    if ix.0 > 0 {
+        result.push((ix.0 - 1, ix.1));
+    }
+    if ix.1 > 0 {
+        result.push((ix.0, ix.1 - 1));
+    }
+    if ix.0 < (height_grid.heights.shape()[0] - 1) as GridIxType {
+        result.push((ix.0 + 1, ix.1));
+    }
+    if ix.1 < (height_grid.heights.shape()[1] - 1) as GridIxType {
+        result.push((ix.0, ix.1 + 1));
     }
 
     return result;
@@ -667,6 +669,47 @@ pub fn f32_usize(x: f32) -> usize {
     usize::from(x as u16)
 }
 
+pub fn is_line_intersecting_smart(to: &Node, ix: GridIx, config: &SearchConfig) -> bool {
+    let effective_glide = get_effective_glide_ratio_from_to(config, ix, to.ix);
+    if f32::is_infinite(effective_glide.glide_ratio) {
+        return true;
+    }
+
+    let length = l2_distance(to.ix, ix);
+
+    let grid_indices = Line::new((to.ix.0 as i16, to.ix.1 as i16), (ix.0 as i16, ix.1 as i16));
+
+    let distance = length * config.grid.cell_size;
+    let height_loss = distance * effective_glide.glide_ratio;
+    let final_height = to.height - height_loss;
+
+    let mut real_height = if grid_indices.iterator_reversed() {
+        final_height
+    } else {
+        to.height
+    };
+    let height_step = if grid_indices.iterator_reversed() {
+        height_loss / (grid_indices.num_pixels() - 1) as f32
+    } else {
+        -height_loss / (grid_indices.num_pixels() - 1) as f32
+    };
+
+    if config.safety_margin == 0.0 || to.distance + distance <= config.start_distance {
+        for (x_i, y_i) in grid_indices.iter() {
+            if real_height < config.grid.heights[(x_i as usize, y_i as usize)] as f32 {
+                return true;
+            }
+            real_height += height_step;
+        }
+    } else if to.distance < config.start_distance && to.distance + distance > config.start_distance
+    {
+        // TODO
+    } else {
+        // TODO
+    }
+    return false;
+}
+
 pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> bool {
     let effective_glide = get_effective_glide_ratio_from_to(config, ix, to.ix);
     if f32::is_infinite(effective_glide.glide_ratio) {
@@ -746,6 +789,7 @@ pub fn reindex(explored: Explored, grid: &HeightGrid) -> (Explored, HeightGrid) 
     let mut lat_max = GridIxType::MIN;
     let mut lon_min = GridIxType::MAX;
     let mut lon_max = GridIxType::MIN;
+
     for node in explored.values.iter() {
         if node.is_some() {
             let n = node.as_ref().unwrap();
@@ -814,7 +858,7 @@ pub fn prepare_search(
 
     let start_ix = (
         (grid.heights.shape()[0] / 2) as GridIxType,
-        (grid.heights.shape()[1] / 2) as GridIxType, // TODO: Huh?
+        (grid.heights.shape()[1] / 2) as GridIxType,
     );
 
     let config = SearchConfig {

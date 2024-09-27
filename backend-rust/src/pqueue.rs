@@ -86,6 +86,13 @@ impl<P, V, K, MapType: MapLike<K, usize>> PriorityQueue<P, V, K, MapType> {
             positions: map,
         }
     }
+
+    pub fn new_with_map_and_capacity(map: MapType, capacity: usize) -> Self {
+        Self {
+            heap: Vec::with_capacity(capacity),
+            positions: map,
+        }
+    }
 }
 
 impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
