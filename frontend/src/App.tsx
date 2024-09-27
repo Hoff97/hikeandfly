@@ -410,7 +410,7 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
 
     let kmlUrl = undefined;
     if (grid.startPosition !== undefined) {
-        const searchParams = getSearchParams(grid.startPosition.lat, grid.startPosition.lat, settings).toString();
+        const searchParams = getSearchParams(grid.startPosition.lat, grid.startPosition.lng, settings).toString();
         let kml = new URL(window.location.origin + "/kml");
         kml.search = searchParams;
 
@@ -582,8 +582,7 @@ function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
                 <H3>Attribution</H3>
                 This page is heavily inspired by <a href="https://hikeandfly.org/">hikeandfly.org</a>. The Digital evalation model comes
                 from <a href="https://viewfinderpanoramas.org/dem3.html">Viewfinder Panoramas</a>. Maps are provided by
-                <a href="https://opentopomap.org/about">OpenTopoMap</a>, <a href="https://opentopomap.org/about">OpenStreetMap</a>
-                and <a href="https://www.arcgis.com/apps/mapviewer/">ArcGIS</a> and are rendered using <a href="https://leafletjs.com/">Leaflet</a>.<br />
+                <a href="https://opentopomap.org/about">OpenTopoMap</a>, <a href="https://opentopomap.org/about">OpenStreetMap</a> and <a href="https://www.arcgis.com/apps/mapviewer/">ArcGIS</a> and are rendered using <a href="https://leafletjs.com/">Leaflet</a>.<br />
                 The code for this page is open source and can be found on <a href="https://github.com/Hoff97/hikeandfly">Github</a>.
                 <br />
                 <br />
@@ -643,7 +642,7 @@ function App() {
                     setImageState={setImageState}
                     pathAndNode={pathAndNode}
                     setIsInfoOpen={setIsisInfoOpen}></SettingsCard>
-                <MapContainer center={[47.67844930525105, 11.905059814453125]} zoom={13} scrollWheelZoom={true}>
+                <MapContainer center={[47.42280178926773, 10.984954833984375]} zoom={13} scrollWheelZoom={true}>
                     <LayersControl position="bottomright">
                         <LayersControl.BaseLayer checked name="OpenTopoMap">
                             <TileLayer
