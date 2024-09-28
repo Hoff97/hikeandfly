@@ -8,7 +8,7 @@ use std::{
 
 use backend_rust::{
     colors::{f32_color_to_u8, lerp},
-    height_data::HeightGrid,
+    height_data::{location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
 };
 use image::{DynamicImage, GenericImage, ImageFormat, Rgba};
@@ -18,7 +18,7 @@ use quick_xml::{
 };
 use rocket::{
     fs::FileServer,
-    http::ContentType,
+    http::{ContentType, Status},
     response::Redirect,
     serde::{json::Json, Serialize},
 };
@@ -244,7 +244,11 @@ fn get_flight_cone(
     trim_speed: Option<f32>,
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
-) -> Json<FlightConeResponse> {
+) -> Result<Json<FlightConeResponse>, Status> {
+    if !location_supported(lat, lon) {
+        return Result::Err(Status::NotFound);
+    }
+
     let (explored, grid, _, _, height_at_start) = search_from_request(
         lat,
         lon,
@@ -283,7 +287,7 @@ fn get_flight_cone(
         }
     }
 
-    return Json(response);
+    Result::Ok(Json(response))
 }
 
 const DEFAULT_LERP_COLORS: [[f32; 4]; 3] = [

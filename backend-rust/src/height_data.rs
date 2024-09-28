@@ -22,6 +22,19 @@ const ANGLE_TO_RADIANS: f32 = PI / 180.0;
 const ARC_SECOND_IN_M_EQUATOR: f32 = 1852.0 / 60.0;
 const ARC_SECOND_IN_DEGREE: f32 = 1.0 / (60.0 * 60.0); //TODO is this safe
 
+pub fn location_supported(latitude: f32, longitude: f32) -> bool {
+    let lat_i = latitude.trunc() as i32;
+    let lon_i = longitude.trunc() as i32;
+
+    if lat_i < 0 || lon_i < 0 {
+        return false;
+    }
+
+    let file_name = format!("./data/N{}E{:03}.hgt", lat_i, lon_i);
+
+    return File::open(file_name).is_ok();
+}
+
 #[cached]
 pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
     assert!(latitude >= 0, "South not supported for now");

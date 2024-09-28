@@ -259,6 +259,18 @@ async function doSearchFromLocation(
     url.search = getSearchParams(latLng, settings).toString();
 
     let response = await fetch(url);
+
+    if (response.status === 404) {
+        setGrid({
+            loading: false,
+            grid: undefined,
+            response: undefined,
+            startPosition: undefined
+        });
+        alert("Location not yet supported!");
+        return;
+    }
+
     let cone: ConeSearchResponse = await response.json();
 
     const grid = setupGrid(cone)

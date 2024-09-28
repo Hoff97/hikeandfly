@@ -46,5 +46,6 @@ COPY --from=frontend_build /app/build ./static
 ## ensure the container listens globally on port 8080
 ENV ROCKET_ADDRESS=0.0.0.0
 ENV ROCKET_PORT=8080
+ENV ROCKET_LOG_LEVEL=NORMAL
 
 CMD ./main
