@@ -88,18 +88,20 @@ struct SearchQueryHashable {
     pub trim_speed: Distance,
     pub wind_direction: Distance,
     pub wind_speed: Distance,
+    pub start_height: Option<Distance>,
     pub additional_height: Distance,
     pub safety_margin: Distance,
     pub start_distance: Distance,
 }
 
 impl SearchQueryHashable {
-    pub fn to_search_query(&self) -> SearchQuery {
+    pub fn to_search_query(self) -> SearchQuery {
         SearchQuery {
             glide_ratio: self.glide_ratio.0,
             trim_speed: self.trim_speed.0,
             wind_direction: self.wind_direction.0,
             wind_speed: self.wind_speed.0,
+            start_height: self.start_height.map(|x| x.0),
             additional_height: self.additional_height.0,
             safety_margin: self.safety_margin.0,
             start_distance: self.start_distance.0,
@@ -113,8 +115,8 @@ fn search_from_point_memoized(
     longitude: Distance,
     cell_size: Distance,
     query: SearchQueryHashable,
-) -> (Vec<Node>, HeightGrid) {
-    let (explored, height_grid) = search_from_point(
+) -> (Vec<Node>, HeightGrid, f32) {
+    let (explored, height_grid, height_at_start) = search_from_point(
         latitude.0,
         longitude.0,
         cell_size.0,
@@ -128,6 +130,7 @@ fn search_from_point_memoized(
             .map(|x| x.unwrap())
             .collect(),
         height_grid,
+        height_at_start,
     )
 }
 
@@ -137,12 +140,13 @@ pub fn search_from_request(
     cell_size_opt: Option<f32>,
     glide_number_opt: Option<f32>,
     additional_height_opt: Option<f32>,
+    start_height: Option<f32>,
     wind_speed_opt: Option<f32>,
     wind_direction_opt: Option<f32>,
     trim_speed_opt: Option<f32>,
     safety_margin_opt: Option<f32>,
     start_distance_opt: Option<f32>,
-) -> (Vec<Node>, HeightGrid, Array2<f32>, Array2<f32>) {
+) -> (Vec<Node>, HeightGrid, Array2<f32>, Array2<f32>, f32) {
     let cell_size = cell_size_opt
         .unwrap_or(CELL_SIZE_DEFAULT)
         .max(CELL_SIZE_MINIMUM)
@@ -174,11 +178,12 @@ pub fn search_from_request(
     let lat_rounded = (lat * 1000.0).round() / 1000.0;
     let lon_rounded = (lon * 1000.0).round() / 1000.0;
 
-    let (explored, grid) = search_from_point_memoized(
+    let (explored, grid, height_at_start) = search_from_point_memoized(
         Distance(lat_rounded),
         Distance(lon_rounded),
         Distance(cell_size),
         SearchQueryHashable {
+            start_height: start_height.map(|x| Distance(x)),
             additional_height: Distance(additional_height),
             wind_speed: Distance(wind_speed),
             wind_direction: Distance(wind_direction / 180.0 * PI),
@@ -202,7 +207,7 @@ pub fn search_from_request(
         }
     }
 
-    return (explored, grid, heights, node_heights);
+    return (explored, grid, heights, node_heights, height_at_start);
 }
 
 #[derive(Serialize)]
@@ -223,27 +228,30 @@ struct FlightConeResponse {
     lat: (f32, f32),
     lon: (f32, f32),
     grid_shape: (usize, usize),
+    start_height: f32,
 }
 
-#[get("/flight_cone?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+#[get("/flight_cone?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_flight_cone(
     lat: f32,
     lon: f32,
     cell_size: Option<f32>,
     glide_number: Option<f32>,
     additional_height: Option<f32>,
+    start_height: Option<f32>,
     wind_speed: Option<f32>,
     wind_direction: Option<f32>,
     trim_speed: Option<f32>,
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> Json<FlightConeResponse> {
-    let (explored, grid, _, _) = search_from_request(
+    let (explored, grid, _, _, height_at_start) = search_from_request(
         lat,
         lon,
         cell_size,
         glide_number,
         additional_height,
+        start_height,
         wind_speed,
         wind_direction,
         trim_speed,
@@ -260,6 +268,7 @@ fn get_flight_cone(
         lat: grid.latitudes,
         lon: grid.longitudes,
         grid_shape: (grid.heights.shape()[0], grid.heights.shape()[1]),
+        start_height: height_at_start,
     };
 
     for node in explored {
@@ -284,25 +293,27 @@ const DEFAULT_LERP_COLORS: [[f32; 4]; 3] = [
 ];
 const DEFAULT_LERP_STEPS: [f32; 3] = [0.0, 0.5, 1.0];
 
-#[get("/agl_image?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+#[get("/agl_image?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_agl_image<'a>(
     lat: f32,
     lon: f32,
     cell_size: Option<f32>,
     glide_number: Option<f32>,
     additional_height: Option<f32>,
+    start_height: Option<f32>,
     wind_speed: Option<f32>,
     wind_direction: Option<f32>,
     trim_speed: Option<f32>,
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (_, _, heights, _) = search_from_request(
+    let (_, _, heights, _, _) = search_from_request(
         lat,
         lon,
         cell_size,
         glide_number,
         additional_height,
+        start_height,
         wind_speed,
         wind_direction,
         trim_speed,
@@ -368,25 +379,27 @@ fn get_agl_image<'a>(
     (ContentType::PNG, c.into_inner())
 }
 
-#[get("/height_image?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+#[get("/height_image?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_height_image<'a>(
     lat: f32,
     lon: f32,
     cell_size: Option<f32>,
     glide_number: Option<f32>,
     additional_height: Option<f32>,
+    start_height: Option<f32>,
     wind_speed: Option<f32>,
     wind_direction: Option<f32>,
     trim_speed: Option<f32>,
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (_, _, _, heights) = search_from_request(
+    let (_, _, _, heights, _) = search_from_request(
         lat,
         lon,
         cell_size,
         glide_number,
         additional_height,
+        start_height,
         wind_speed,
         wind_direction,
         trim_speed,
@@ -482,25 +495,27 @@ fn interpolate(node: &Node, px: u16, py: u16, heights: &Array2<f32>) -> f32 {
     }
 }
 
-#[get("/kml?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+#[get("/kml?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_kml<'a>(
     lat: f32,
     lon: f32,
     cell_size: Option<f32>,
     glide_number: Option<f32>,
     additional_height: Option<f32>,
+    start_height: Option<f32>,
     wind_speed: Option<f32>,
     wind_direction: Option<f32>,
     trim_speed: Option<f32>,
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (nodes, height_grid, heights, node_heights) = search_from_request(
+    let (nodes, height_grid, heights, node_heights, _) = search_from_request(
         lat,
         lon,
         cell_size,
         glide_number,
         additional_height,
+        start_height,
         wind_speed,
         wind_direction,
         trim_speed,

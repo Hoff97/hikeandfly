@@ -13,7 +13,7 @@ import {
 } from "react-leaflet";
 import { Map as MapLeaflet } from "leaflet";
 import { LatLng, LatLngBounds, PathOptions } from "leaflet";
-import { Section, SectionCard, Slider, Button, Divider, Spinner, Intent, H3, Overlay2, OverlaysProvider, Classes, H4 } from "@blueprintjs/core";
+import { Section, SectionCard, Slider, Button, Divider, Spinner, Intent, H3, Overlay2, OverlaysProvider, Classes, H4, Checkbox } from "@blueprintjs/core";
 import { InfoSign, Share } from "@blueprintjs/icons";
 
 interface GridTile {
@@ -31,6 +31,7 @@ interface ConeSearchResponse {
     lon: number[];
     grid_shape: number[];
     angular_resolution: number[];
+    start_height: number;
 }
 
 interface GridState {
@@ -40,10 +41,8 @@ interface GridState {
     grid: GridTile[][] | undefined;
 }
 
-function getSearchParams(lat: number, lon: number, settings: Settings) {
-    return new URLSearchParams({
-        "lat": lat.toString(),
-        "lon": lon.toString(),
+function getSearchParams(latlng: LatLng | undefined, settings: Settings) {
+    let dict: any = {
         "cell_size": settings.gridSize.toString(),
         "glide_number": settings.glideNumber.toString(),
         "additional_height": settings.additionalHeight.toString(),
@@ -52,7 +51,16 @@ function getSearchParams(lat: number, lon: number, settings: Settings) {
         "wind_direction": settings.windDirection.toString(),
         "safety_margin": settings.safetyMargin.toString(),
         "start_distance": settings.startDistance.toString(),
-    });
+    };
+    if (settings.startHeight !== undefined) {
+        dict["start_height"] = settings.startHeight.toString();
+    }
+    if (latlng !== undefined) {
+        dict["lat"] = latlng.lat.toString();
+        dict["lon"] = latlng.lng.toString();
+    }
+
+    return new URLSearchParams(dict);
 }
 
 function CurrentNodeDisplay({
@@ -248,7 +256,7 @@ async function doSearchFromLocation(
     pathAndNode.setPath(undefined);
 
     let url = new URL(window.location.origin + "/flight_cone");
-    url.search = getSearchParams(latLng.lat, latLng.lng, settings).toString();
+    url.search = getSearchParams(latLng, settings).toString();
 
     let response = await fetch(url);
     let cone: ConeSearchResponse = await response.json();
@@ -261,9 +269,7 @@ async function doSearchFromLocation(
         startPosition: latLng
     });
 
-    console.log(grid);
-
-    const searchParams = getSearchParams(latLng.lat, latLng.lng, settings).toString();
+    const searchParams = getSearchParams(latLng, settings).toString();
     let heightAglUrl = new URL(window.location.origin + "/agl_image");
     heightAglUrl.search = searchParams;
     let heightUrl = new URL(window.location.origin + "/height_image");
@@ -285,8 +291,8 @@ async function doSearchFromLocation(
     updateSearchParams(latLng, settings);
 }
 
-function updateSearchParams(latLng: LatLng, settings: Settings) {
-    const searchParams = getSearchParams(latLng.lat, latLng.lng, settings);
+function updateSearchParams(latLng: LatLng | undefined, settings: Settings) {
+    const searchParams = getSearchParams(latLng, settings);
 
     const url = new URL(window.location.origin);
     url.pathname = window.location.pathname;
@@ -328,6 +334,7 @@ function SearchComponent({ setImageState, settings, grid, setGrid, pathAndNode }
 }
 
 interface Settings {
+    startHeight: number | undefined;
     additionalHeight: number;
     glideNumber: number;
     gridSize: number;
@@ -353,6 +360,38 @@ function copyUrlToClipBoard() {
 }
 
 function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pathAndNode, setIsInfoOpen }: SettingsCardProps) {
+    const setStartHeight = (value: number | undefined) => {
+        if (value !== undefined && grid.response !== undefined) {
+            if (value > grid.response.start_height) {
+                setSettings({
+                    ...settings,
+                    startHeight: Math.max(grid.response.start_height, Math.round(value / 100) * 100)
+                });
+            } else {
+                setSettings({
+                    ...settings,
+                    startHeight: grid.response.start_height
+                });
+            }
+        } else {
+            setSettings({
+                ...settings,
+                startHeight: value,
+            });
+        }
+
+    };
+    const handleUseModelHeightChanged = (value: string) => {
+        if (settings.startHeight !== undefined) {
+            setStartHeight(undefined);
+        } else {
+            if (grid.response !== undefined) {
+                setStartHeight(grid.response.start_height);
+            } else {
+                setStartHeight(1000);
+            }
+        }
+    }
     const setAdditionalHeight = (value: number) => {
         setSettings({
             ...settings,
@@ -403,14 +442,25 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
     }
 
     function rerun() {
-        if (grid !== undefined && grid.startPosition !== undefined) {
+        if (grid.startPosition !== undefined) {
             doSearchFromLocation(setImageState, setGrid, grid.startPosition, settings, pathAndNode, undefined);
         }
     }
 
+    function clear() {
+        setGrid({
+            ...grid,
+            response: undefined,
+            startPosition: undefined,
+            grid: undefined,
+        });
+        setImageState(undefined);
+        updateSearchParams(undefined, settings);
+    }
+
     let kmlUrl = undefined;
     if (grid.startPosition !== undefined) {
-        const searchParams = getSearchParams(grid.startPosition.lat, grid.startPosition.lng, settings).toString();
+        const searchParams = getSearchParams(grid.startPosition, settings).toString();
         let kml = new URL(window.location.origin + "/kml");
         kml.search = searchParams;
 
@@ -446,16 +496,35 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
                         labelStepSize={50}
                         stepSize={10}
                     ></Slider>
-                    Additional Height (m):
-                    <Slider
-                        initialValue={0}
-                        min={0}
-                        max={500}
-                        onChange={setAdditionalHeight}
-                        value={settings.additionalHeight}
-                        labelStepSize={100}
-                        stepSize={5}
-                    ></Slider>
+                    <Checkbox checked={settings.startHeight === undefined} label="Use model height" onChange={e => handleUseModelHeightChanged(e.target.value)} />
+                    {
+                        settings.startHeight !== undefined ?
+                            <>
+                                Start Height (m):
+                                <Slider
+                                    initialValue={grid.response !== undefined ? grid.response.start_height : 0}
+                                    showTrackFill={true}
+                                    min={0}
+                                    max={5000}
+                                    onChange={setStartHeight}
+                                    value={settings.startHeight}
+                                    labelStepSize={1000}
+                                    stepSize={100}
+                                    className="startHeightSlider"
+                                ></Slider>
+                            </> : <>
+                                Additional Height (m):
+                                <Slider
+                                    initialValue={0}
+                                    min={0}
+                                    max={500}
+                                    onChange={setAdditionalHeight}
+                                    value={settings.additionalHeight}
+                                    labelStepSize={100}
+                                    stepSize={5}
+                                ></Slider>
+                            </>
+                    }
                     <Divider />
                     Wind speed (km/h):
                     <Slider
@@ -492,6 +561,7 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
                         labelStepSize={50} stepSize={10}></Slider>
                     {grid.response !== undefined ?
                         <>
+                            <Button text="Clear" onClick={clear} className="marginRight" />
                             <Button text="Rerun" onClick={rerun} className="marginRight" />
                             <a href={kmlUrl} download="glideArea.kml" className="marginRight"><Button text="KML File" /></a>
                             <Button
@@ -550,8 +620,9 @@ function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
                             if needed - note however that a higher resolution will result in a longer calculation.
                         </li>
                         <li>
-                            <b>Additional starting height</b>: Meters above the starting location from which you start the glide.
-                            By default a small margin of 5 Meters is set here, because otherwise the tool sometimes will determine that you stop flying immediately.
+                            <b>Additional starting height</b>: By default, the model height will be used as the start height. By default a small margin of 5 Meters is
+                            added, because otherwise the tool sometimes will determine that you stop flying immediately. You can change this additional starting height, or set a fixed
+                            start height by unchecking "Use model height". If the fixed height is below the model height, the model height will be used instead.
                         </li>
                     </ul>
                     <H4>WIND</H4>
@@ -599,7 +670,9 @@ function App() {
 
     const urlParams = new URLSearchParams(window.location.search);
 
+    const startHeight = urlParams.get('start_height');
     const [settings, setSettings] = useState<Settings>({
+        startHeight: (startHeight !== null ? (+startHeight) : undefined),
         additionalHeight: +(urlParams.get('additional_height') || 5),
         glideNumber: +(urlParams.get('glide_number') || 6.5),
         gridSize: +(urlParams.get('cell_size') || 100),

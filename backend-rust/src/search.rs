@@ -221,6 +221,7 @@ pub struct SearchQuery {
     pub trim_speed: f32,
     pub wind_direction: f32,
     pub wind_speed: f32,
+    pub start_height: Option<f32>,
     pub additional_height: f32,
     pub safety_margin: f32,
     pub start_distance: f32,
@@ -839,8 +840,12 @@ pub fn prepare_search(
     longitude: f32,
     cell_size: f32,
     query: &SearchQuery,
-) -> (f32, GridIx, SearchConfig) {
-    let height = get_height_at_point(latitude, longitude) as f32 + query.additional_height;
+) -> (f32, f32, GridIx, SearchConfig) {
+    let height_at_point = get_height_at_point(latitude, longitude) as f32;
+    let height = query
+        .start_height
+        .unwrap_or(height_at_point + query.additional_height)
+        .max(height_at_point);
 
     let max_glide_ratio =
         query.glide_ratio / ((query.wind_speed + query.trim_speed) / (query.trim_speed));
@@ -871,7 +876,7 @@ pub fn prepare_search(
         start_distance: query.start_distance,
     };
 
-    (height, start_ix, config)
+    (height, height_at_point, start_ix, config)
 }
 
 pub fn search_from_point(
@@ -879,14 +884,15 @@ pub fn search_from_point(
     longitude: f32,
     cell_size: f32,
     query: SearchQuery,
-) -> (Explored, HeightGrid) {
-    let (height, start_ix, config) = prepare_search(latitude, longitude, cell_size, &query);
+) -> (Explored, HeightGrid, f32) {
+    let (height, height_at_point, start_ix, config) =
+        prepare_search(latitude, longitude, cell_size, &query);
 
     let state = search(start_ix, height, &config);
 
     let (explored, new_grid) = reindex(state.explored, &config.grid);
 
-    return (explored, new_grid);
+    return (explored, new_grid, height_at_point);
 }
 
 #[cfg(test)]
