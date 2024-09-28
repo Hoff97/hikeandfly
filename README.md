@@ -2,6 +2,8 @@
 
 This is a web application to calculate the glide area for paragliders.
 
+<img src="example.png" alt="Example glide area" width="600"/>
+
 ## Running locally
 
 The easiest way to run this application on your computer is using the provided docker image:
