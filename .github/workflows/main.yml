@@ -25,27 +25,3 @@ jobs:
           tags: hoff97/hikeandfly:latest
           cache-from: type=registry,ref=hoff97/hikeandfly:latest
           cache-to: type=inline
-  deploy:
-    runs-on: ubuntu-latest
-    needs: docker
-    steps:
-      - name: Deploy to Digital Ocean droplet via SSH action
-        uses: appleboy/ssh-action@v0.1.3
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSHKEY }}
-          debug: true
-          script: |
-            # Stop running container
-            docker stop hoff97hikeandfly
-            # Remove old container and image, pull new image
-            docker rm hoff97hikeandfly
-            docker image rm hoff97/hikeandfly
-            docker pull hoff97/hikeandfly:latest
-            # Run a new container from a new image
-            docker run -d \
-              --restart always \
-              --name hoff97hikeandfly \
-              -p 8080:8080 \
-              hoff97/hikeandfly:latest
