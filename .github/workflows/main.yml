@@ -51,4 +51,4 @@ jobs:
         run: ssh prod 'docker stop hoff97hikeandfly && docker rm hoff97hikeandfly && docker image rm hoff97/hikeandfly'
 
       - name: Start the server
-        run: ssh prod 'docker pull hoff97/hikeandfly:latest && docker run -d --restart always --name hoff97hikeandfly -p 8080:8080 hoff97/hikeandfly:latest'
+        run: ssh prod 'docker pull hoff97/hikeandfly:latest && docker run -d --restart always --name hoff97hikeandfly -v /root/data:/app/data -p 8080:8080 hoff97/hikeandfly:latest'
