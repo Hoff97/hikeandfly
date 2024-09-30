@@ -28,7 +28,7 @@ The frontend is built with react and can be run with
 ```
 $ cd frontend
 $ npm install
-$ npm run
+$ npm run start
 ```
 
 # Backend

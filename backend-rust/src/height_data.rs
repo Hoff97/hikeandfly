@@ -22,26 +22,35 @@ const ANGLE_TO_RADIANS: f32 = PI / 180.0;
 const ARC_SECOND_IN_M_EQUATOR: f32 = 1852.0 / 60.0;
 const ARC_SECOND_IN_DEGREE: f32 = 1.0 / (60.0 * 60.0); //TODO is this safe
 
+pub fn get_file_name(latitude: i32, longitude: i32) -> String {
+    let lat_string = if latitude >= 0 {
+        format!("N{:02}", latitude)
+    } else {
+        format!("S{:02}", -latitude)
+    };
+    let lon_string = if longitude >= 0 {
+        format!("E{:03}", longitude)
+    } else {
+        format!("W{:03}", -longitude)
+    };
+
+    return format!("./data/{}{}.hgt", lat_string, lon_string);
+}
+
 pub fn location_supported(latitude: f32, longitude: f32) -> bool {
-    let lat_i = latitude.trunc() as i32;
-    let lon_i = longitude.trunc() as i32;
+    let lat_i = latitude.floor() as i32;
+    let lon_i = longitude.floor() as i32;
 
-    if lat_i < 0 || lon_i < 0 {
-        return false;
-    }
+    let file_name = get_file_name(lat_i, lon_i);
 
-    let file_name = format!("./data/N{}E{:03}.hgt", lat_i, lon_i);
+    println!("Trying to get file {file_name}");
 
     return File::open(file_name).is_ok();
 }
 
 #[cached]
 pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
-    assert!(latitude >= 0, "South not supported for now");
-    assert!(longitude >= 0, "West not supported for now");
-    // TODO: South and west
-
-    let file_name = format!("./data/N{}E{:03}.hgt", latitude, longitude);
+    let file_name = get_file_name(latitude, longitude);
     let file = File::open(file_name).expect("Could not open hgt file");
     let mut reader = BufReader::new(file);
     let mut content = Vec::<u8>::with_capacity(HGT_N_BYTES);
@@ -78,7 +87,7 @@ pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
 
 #[cached]
 pub fn read_hgt_file(latitude: i32, longitude: i32) -> Vec<u8> {
-    let file_name = format!("./data/N{}E{:03}.hgt", latitude, longitude);
+    let file_name = get_file_name(latitude, longitude);
     let file = File::open(file_name).expect("Could not open hgt file");
     let mut reader = BufReader::new(file);
     let mut content = Vec::<u8>::with_capacity(HGT_N_BYTES);
@@ -199,8 +208,8 @@ impl HeightGrid {
 }
 
 pub fn get_height_at_point(latitude: f32, longitude: f32) -> i16 {
-    let lat_i = latitude.trunc();
-    let lon_i = longitude.trunc();
+    let lat_i = latitude.floor();
+    let lon_i = longitude.floor();
 
     let data = load_hgt(lat_i as i32, lon_i as i32);
 
@@ -229,11 +238,11 @@ pub fn get_height_data_around_point(
     let lower_longitude = longitude - distance_degree_lon;
     let upper_longitude = longitude + distance_degree_lon;
 
-    let lower_lat_i = lower_latitude.trunc() as i32;
-    let upper_lat_i = upper_latitude.trunc() as i32;
+    let lower_lat_i = lower_latitude.floor() as i32;
+    let upper_lat_i = upper_latitude.floor() as i32;
 
-    let lower_lon_i = lower_longitude.trunc() as i32;
-    let upper_lon_i = upper_longitude.trunc() as i32;
+    let lower_lon_i = lower_longitude.floor() as i32;
+    let upper_lon_i = upper_longitude.floor() as i32;
 
     let n_lat = upper_lat_i - lower_lat_i + 1;
     let n_lon = upper_lon_i - lower_lon_i + 1;
