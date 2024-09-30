@@ -224,6 +224,7 @@ struct NodeResponse {
 struct FlightConeResponse {
     nodes: Vec<NodeResponse>,
     cell_size: f32,
+    min_cell_size: f32,
     angular_resolution: (f32, f32),
     lat: (f32, f32),
     lon: (f32, f32),
@@ -271,6 +272,7 @@ fn get_flight_cone(
         angular_resolution: resolution,
         lat: grid.latitudes,
         lon: grid.longitudes,
+        min_cell_size: grid.min_cell_size,
         grid_shape: (grid.heights.shape()[0], grid.heights.shape()[1]),
         start_height: height_at_start,
     };

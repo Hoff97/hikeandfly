@@ -6,8 +6,6 @@ use ndarray::Array;
 use ndarray::Array1;
 use ndarray::Array2;
 use ndarray::ArrayView;
-use ndarray::ArrayViewMut;
-use ndarray::AssignElem;
 use ndarray::Ix2;
 use std::f32::consts::PI;
 use std::fs::File;
@@ -58,23 +56,24 @@ pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
     let total_read = reader
         .read_to_end(&mut content)
         .expect("Could not read hgt file");
+    let n_entries = total_read / 2;
+    let shape = (n_entries as f32).sqrt() as usize;
+    assert!(shape * shape * 2 == total_read, "Bad HGT file size");
 
-    assert!(total_read == HGT_N_BYTES, "Wrong number of bytes read!");
-
-    let mut result_vec = Vec::<i16>::with_capacity(HGT_SIZE_SQUARED);
-    for i in (0..HGT_N_BYTES).step_by(2) {
+    let mut result_vec: Vec<i16> = Vec::<i16>::with_capacity(content.len());
+    for i in (0..content.len()).step_by(2) {
         let mut r = BigEndian::read_i16(&content[i..i + 2]);
         if r < -1000 && result_vec.len() >= 1 {
             r = result_vec[result_vec.len() - 1];
         }
-        if r < -1000 && result_vec.len() >= HGT_SIZE {
-            r = result_vec[result_vec.len() - HGT_SIZE - 1]
+        if r < -1000 && result_vec.len() >= shape {
+            r = result_vec[result_vec.len() - shape - 1]
         }
-        if r < -1000 && result_vec.len() >= HGT_SIZE - 1 {
-            r = result_vec[result_vec.len() - HGT_SIZE]
+        if r < -1000 && result_vec.len() >= shape - 1 {
+            r = result_vec[result_vec.len() - shape]
         }
-        if r < -1000 && result_vec.len() >= HGT_SIZE + 1 {
-            r = result_vec[result_vec.len() - HGT_SIZE - 2]
+        if r < -1000 && result_vec.len() >= shape + 1 {
+            r = result_vec[result_vec.len() - shape - 2]
         }
         if r < -1000 {
             panic!("No suitable replacement for outlier height value found!");
@@ -82,7 +81,7 @@ pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
         result_vec.push(r);
     }
 
-    return Array::from_shape_vec((HGT_SIZE, HGT_SIZE), result_vec).unwrap();
+    return Array::from_shape_vec((shape, shape), result_vec).unwrap();
 }
 
 #[cached]
@@ -101,35 +100,6 @@ pub fn read_hgt_file(latitude: i32, longitude: i32) -> Vec<u8> {
     return content;
 }
 
-pub fn load_hgt_to_array(latitude: i32, longitude: i32, array: &mut ArrayViewMut<'_, i16, Ix2>) {
-    let bytes = read_hgt_file(latitude, longitude);
-
-    for i in (0..HGT_N_BYTES).step_by(2) {
-        let ix = i >> 1;
-        let x = ix / HGT_SIZE;
-        let y = ix % HGT_SIZE;
-
-        let mut r = BigEndian::read_i16(&bytes[i..i + 2]);
-        if r < -1000 && y > 0 {
-            r = array[(x, y - 1)];
-        }
-        if r < -1000 && x > 0 {
-            r = array[(x - 1, y)]
-        }
-        if r < -1000 && x > 0 && y < HGT_SIZE - 1 {
-            r = array[(x - 1, y + 1)]
-        }
-        if r < -1000 && x > 0 && y > 0 {
-            r = array[(x - 1, y - 1)]
-        }
-        if r < -1000 {
-            panic!("No suitable replacement for outlier height value found!");
-        }
-
-        array[(x, y)].assign_elem(r);
-    }
-}
-
 pub fn arcsecond_in_meters(latitude: f32) -> f32 {
     return (latitude * ANGLE_TO_RADIANS).cos() * ARC_SECOND_IN_M_EQUATOR;
 }
@@ -142,6 +112,7 @@ pub fn meter_in_arcseconds(latitude: f32) -> f32 {
 pub struct HeightGrid {
     pub heights: Array2<i16>,
     pub cell_size: f32,
+    pub min_cell_size: f32,
     pub latitudes: (f32, f32),
     pub longitudes: (f32, f32),
 }
@@ -180,9 +151,11 @@ pub fn scale_2d_array(values: &ArrayView<'_, i16, Ix2>, scales: (f32, f32)) -> A
 
 impl HeightGrid {
     pub fn scale(&self, factor: f32) -> HeightGrid {
+        let scale_f = factor.min(1.0);
         HeightGrid {
-            heights: scale_2d_array(&self.heights.view(), (factor, factor)),
-            cell_size: self.cell_size / factor,
+            heights: scale_2d_array(&self.heights.view(), (scale_f, scale_f)),
+            cell_size: self.cell_size / scale_f,
+            min_cell_size: self.min_cell_size,
             latitudes: self.latitudes,
             longitudes: self.longitudes,
         }
@@ -247,7 +220,10 @@ pub fn get_height_data_around_point(
     let n_lat = upper_lat_i - lower_lat_i + 1;
     let n_lon = upper_lon_i - lower_lon_i + 1;
 
-    let mut arr = Array2::zeros(((n_lat as usize) * HGT_SIZE, (n_lon as usize) * HGT_SIZE));
+    let arr_0 = load_hgt(lower_lat_i, lower_lon_i);
+    let shape = arr_0.shape()[0];
+
+    let mut arr = Array2::zeros(((n_lat as usize) * shape, (n_lon as usize) * shape));
 
     for lat_i in lower_lat_i..upper_lat_i + 1 {
         for lon_i in lower_lon_i..upper_lon_i + 1 {
@@ -256,14 +232,12 @@ pub fn get_height_data_around_point(
             let lon_ix = (lon_i - lower_lon_i) as usize;
 
             let mut sub_slice = arr.slice_mut(s![
-                lat_ix * HGT_SIZE..(lat_ix + 1) * HGT_SIZE;-1,
-                lon_ix * HGT_SIZE..(lon_ix + 1) * HGT_SIZE
+                lat_ix * shape..(lat_ix + 1) * shape;-1,
+                lon_ix * shape..(lon_ix + 1) * shape
             ]);
 
             let data = load_hgt(lat_i, lon_i);
             sub_slice.assign(&data);
-
-            //load_hgt_to_array(lat_i, lon_i, &mut sub_slice);
         }
     }
     let degree_per_lat_ix = i32_f32((upper_lat_i + 1) - lower_lat_i) / usize_f32(arr.shape()[0]);
@@ -304,6 +278,7 @@ pub fn get_height_data_around_point(
     return HeightGrid {
         heights: final_grid,
         cell_size: max_resolution,
+        min_cell_size: max_resolution,
         latitudes: (lower_latitude, upper_latitude),
         longitudes: (lower_longitude, upper_longitude),
     };

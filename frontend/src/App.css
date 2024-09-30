@@ -59,6 +59,6 @@ img.gridImage {
     margin-right: 10px;
 }
 
-div.startHeightSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
+div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     background-color: #888;
 }

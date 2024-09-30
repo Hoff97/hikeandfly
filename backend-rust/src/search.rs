@@ -816,6 +816,7 @@ pub fn reindex(explored: Explored, grid: &HeightGrid) -> (Explored, HeightGrid) 
             ])
             .to_owned(),
         cell_size: grid.cell_size,
+        min_cell_size: grid.min_cell_size,
         latitudes: (
             grid.latitudes.0
                 + (grid.latitudes.1 - grid.latitudes.0) / (old_shape[0] as f32) * (lat_min as f32),

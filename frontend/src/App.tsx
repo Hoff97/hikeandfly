@@ -27,6 +27,7 @@ interface GridTile {
 interface ConeSearchResponse {
     nodes: GridTile[];
     cell_size: number;
+    min_cell_size: number;
     lat: number[];
     lon: number[];
     grid_shape: number[];
@@ -233,6 +234,7 @@ function setupGrid(cone: ConeSearchResponse): GridTile[][] {
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
     settings: Settings;
+    setSettings: (settings: Settings) => void;
     grid: GridState;
     setGrid: (grid: GridState) => void;
     pathAndNode: PathAndNode;
@@ -241,6 +243,7 @@ interface SearchComponentProps {
 async function doSearchFromLocation(
     setImageState: (state: ImageState | undefined) => void,
     setGrid: (grid: GridState) => void,
+    setSettings: (settings: Settings) => void,
     latLng: LatLng, settings: Settings,
     pathAndNode: PathAndNode,
     map: MapLeaflet | undefined,
@@ -280,6 +283,12 @@ async function doSearchFromLocation(
         response: cone,
         startPosition: latLng
     });
+    const newSettings = {
+        ...settings,
+        gridSize: cone.cell_size,
+        minGridSize: cone.min_cell_size,
+    };
+    setSettings(newSettings);
 
     const searchParams = getSearchParams(latLng, settings).toString();
     let heightAglUrl = new URL(window.location.origin + "/agl_image");
@@ -300,7 +309,7 @@ async function doSearchFromLocation(
         map.flyToBounds(bounds);
     }
 
-    updateSearchParams(latLng, settings);
+    updateSearchParams(latLng, newSettings);
 }
 
 function updateSearchParams(latLng: LatLng | undefined, settings: Settings) {
@@ -320,11 +329,11 @@ interface PathAndNode {
     setNode: (node: GridTile | undefined) => void;
 }
 
-function SearchComponent({ setImageState, settings, grid, setGrid, pathAndNode }: SearchComponentProps) {
+function SearchComponent({ setImageState, settings, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
     const map = useMap();
     useMapEvents({
         async click(e) {
-            await doSearchFromLocation(setImageState, setGrid, e.latlng, settings, pathAndNode, map);
+            await doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
         },
     });
     const urlParams = new URLSearchParams(window.location.search);
@@ -333,7 +342,7 @@ function SearchComponent({ setImageState, settings, grid, setGrid, pathAndNode }
     const lon = urlParams.get('lon');
     if (lat !== null && lon !== null && grid.loading === false && grid.grid === undefined) {
         const latlon = new LatLng(+lat, +lon);
-        doSearchFromLocation(setImageState, setGrid, latlon, settings, pathAndNode, map);
+        doSearchFromLocation(setImageState, setGrid, setSettings, latlon, settings, pathAndNode, map);
     }
 
     return grid === undefined ? (
@@ -350,6 +359,7 @@ interface Settings {
     additionalHeight: number;
     glideNumber: number;
     gridSize: number;
+    minGridSize: number;
     trimSpeed: number;
     windSpeed: number;
     windDirection: number;
@@ -417,10 +427,17 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
         });
     };
     const setGridSize = (value: number) => {
-        setSettings({
-            ...settings,
-            gridSize: value,
-        });
+        if (value > settings.minGridSize) {
+            setSettings({
+                ...settings,
+                gridSize: Math.max(settings.minGridSize, Math.round(value / 10) * 10)
+            });
+        } else {
+            setSettings({
+                ...settings,
+                gridSize: settings.minGridSize
+            });
+        }
     };
     const setTrimSpeed = (value: number) => {
         setSettings({
@@ -455,7 +472,7 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
 
     function rerun() {
         if (grid.startPosition !== undefined) {
-            doSearchFromLocation(setImageState, setGrid, grid.startPosition, settings, pathAndNode, undefined);
+            doSearchFromLocation(setImageState, setGrid, setSettings, grid.startPosition, settings, pathAndNode, undefined);
         }
     }
 
@@ -466,8 +483,14 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
             startPosition: undefined,
             grid: undefined,
         });
+        const newSettings = {
+            ...settings,
+            minGridSize: 30,
+            gridSize: Math.round(settings.gridSize / 10) * 10
+        };
+        setSettings(newSettings);
         setImageState(undefined);
-        updateSearchParams(undefined, settings);
+        updateSearchParams(undefined, newSettings);
     }
 
     let kmlUrl = undefined;
@@ -500,13 +523,14 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
                     ></Slider>
                     Grid size (m):
                     <Slider
-                        initialValue={30}
+                        initialValue={settings.minGridSize}
                         min={30}
                         max={200}
                         onChange={setGridSize}
                         value={settings.gridSize}
                         labelStepSize={50}
                         stepSize={10}
+                        className="restrictedSlider"
                     ></Slider>
                     <Checkbox checked={settings.startHeight === undefined} label="Use model height" onChange={e => handleUseModelHeightChanged(e.target.value)} />
                     {
@@ -522,7 +546,7 @@ function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pat
                                     value={settings.startHeight}
                                     labelStepSize={1000}
                                     stepSize={100}
-                                    className="startHeightSlider"
+                                    className="restrictedSlider"
                                 ></Slider>
                             </> : <>
                                 Additional Height (m):
@@ -688,6 +712,7 @@ function App() {
         additionalHeight: +(urlParams.get('additional_height') || 5),
         glideNumber: +(urlParams.get('glide_number') || 6.5),
         gridSize: +(urlParams.get('cell_size') || 100),
+        minGridSize: 30,
         trimSpeed: +(urlParams.get('trim_speed') || 37),
         windSpeed: +(urlParams.get('wind_speed') || 0),
         windDirection: +(urlParams.get('wind_direction') || 0),
@@ -753,7 +778,13 @@ function App() {
                             <></>
                         )}
                     </LayersControl>
-                    <SearchComponent setImageState={setImageState} settings={settings} grid={grid} setGrid={setGrid} pathAndNode={pathAndNode}></SearchComponent>
+                    <SearchComponent
+                        setImageState={setImageState}
+                        settings={settings}
+                        grid={grid}
+                        setGrid={setGrid}
+                        pathAndNode={pathAndNode}
+                        setSettings={setSettings}></SearchComponent>
                 </MapContainer>
             </OverlaysProvider>
         </div>
