@@ -48,4 +48,4 @@ jobs:
           SSH_HOST: ${{ secrets.HOST }}
 
       - name: Stop and start the server
-        run: ssh prod 'docker pull hoff97/hikeandfly:latest && docker stop hoff97hikeandfly && docker rm hoff97hikeandfly && docker image prune && docker run -d --restart always --name hoff97hikeandfly -v /root/data:/app/data -p 8080:8080 hoff97/hikeandfly:latest'
+        run: ssh prod 'docker pull hoff97/hikeandfly:latest && docker stop hoff97hikeandfly && docker rm hoff97hikeandfly && docker image prune -f && docker run -d --restart always --name hoff97hikeandfly -v /root/data:/app/data -p 8080:8080 hoff97/hikeandfly:latest'
