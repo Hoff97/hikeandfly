@@ -2,9 +2,6 @@ FROM node:20.5.1 AS frontend_build
 
 WORKDIR /app
 
-COPY ./backend-rust/download_data.sh ./
-RUN ./download_data.sh && ls && ls data
-
 COPY ./frontend/package.json ./
 COPY ./frontend/package-lock.json ./
 
@@ -34,7 +31,7 @@ FROM docker.io/debian:bookworm-slim
 
 WORKDIR /app
 
-COPY --from=frontend_build /app/data ./data
+RUN mkdir data
 
 ## copy the main binary
 COPY --from=backend_build /build/main ./
