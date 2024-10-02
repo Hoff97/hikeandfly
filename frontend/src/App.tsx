@@ -335,6 +335,11 @@ function SearchComponent({ setImageState, settings, setSettings, grid, setGrid, 
         async click(e) {
             await doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
         },
+        moveend(e) {
+            const center = map.getCenter();
+            window.localStorage.setItem("lastLocationLat", center.lat.toString());
+            window.localStorage.setItem("lastLocationLon", center.lng.toString());
+        }
     });
     const urlParams = new URLSearchParams(window.location.search);
 
@@ -732,6 +737,9 @@ function App() {
     };
     const [isInfoOpen, setIsisInfoOpen] = useState<boolean>(false);
 
+    const lastLocationLat = +(window.localStorage.getItem("lastLocationLat") || "47.42280178926773");
+    const lastLocationLon = +(window.localStorage.getItem("lastLocationLon") || "10.984954833984375");
+
     return (
         <div className="App">
             <OverlaysProvider>
@@ -752,7 +760,7 @@ function App() {
                     setImageState={setImageState}
                     pathAndNode={pathAndNode}
                     setIsInfoOpen={setIsisInfoOpen}></SettingsCard>
-                <MapContainer center={[47.42280178926773, 10.984954833984375]} zoom={13} scrollWheelZoom={true}>
+                <MapContainer center={[lastLocationLat, lastLocationLon]} zoom={13} scrollWheelZoom={true}>
                     <LayersControl position="bottomright">
                         <LayersControl.BaseLayer checked name="OpenTopoMap">
                             <TileLayer

@@ -41,8 +41,6 @@ pub fn location_supported(latitude: f32, longitude: f32) -> bool {
 
     let file_name = get_file_name(lat_i, lon_i);
 
-    println!("Trying to get file {file_name}");
-
     return File::open(file_name).is_ok();
 }
 
