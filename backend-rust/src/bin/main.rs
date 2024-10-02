@@ -351,8 +351,17 @@ fn get_agl_image<'a>(
         }
     }
 
-    imgx = (x_upper - x_lower) + 1;
-    imgy = (y_upper - y_lower) + 1;
+    if x_lower == usize::MAX {
+        imgx = 1;
+        imgy = 1;
+        x_lower = 0;
+        x_upper = 0;
+        y_lower = 0;
+        y_upper = 0;
+    } else {
+        imgx = (x_upper - x_lower) + 1;
+        imgy = (y_upper - y_lower) + 1;
+    }
 
     let heights_sub = heights.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
 
