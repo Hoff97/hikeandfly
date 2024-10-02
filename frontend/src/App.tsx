@@ -331,8 +331,16 @@ interface PathAndNode {
 
 function SearchComponent({ setImageState, settings, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
     const map = useMap();
+
     useMapEvents({
         async click(e) {
+            if (
+                ("classList" in (e.originalEvent.target as any) &&
+                    (e.originalEvent.target as any).classList.contains("locationButton"))
+                || ("parentElement" in (e.originalEvent.target as any) && "classList" in (e.originalEvent.target as any).parentElement &&
+                    (e.originalEvent.target as any).parentElement.classList.contains("locationButton"))) {
+                return;
+            }
             await doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
         },
         moveend(e) {
@@ -384,6 +392,35 @@ interface SettingsCardProps {
 
 function copyUrlToClipBoard() {
     navigator.clipboard.writeText(window.location.href);
+}
+
+function searchFromCurrentLocation(
+    setImageState: (state: ImageState | undefined) => void,
+    setGrid: (grid: GridState) => void,
+    setSettings: (settings: Settings) => void,
+    settings: Settings,
+    pathAndNode: PathAndNode,
+    map: MapLeaflet
+) {
+    if (!("geolocation" in navigator)) {
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition((position) => {
+        console.log(position);
+        if (position.coords.altitude !== null) {
+            const newSettings: Settings = {
+                ...settings,
+                startHeight: position.coords.altitude
+            };
+            setSettings(newSettings);
+            doSearchFromLocation(setImageState, setGrid, setSettings, new LatLng(position.coords.latitude, position.coords.longitude), newSettings, pathAndNode, map);
+        } else {
+            doSearchFromLocation(setImageState, setGrid, setSettings, new LatLng(position.coords.latitude, position.coords.longitude), settings, pathAndNode, map);
+        }
+    }, null, {
+        enableHighAccuracy: true
+    });
 }
 
 function SettingsCard({ settings, setSettings, setImageState, setGrid, grid, pathAndNode, setIsInfoOpen }: SettingsCardProps) {
@@ -631,6 +668,34 @@ interface InfoPanelProps {
     setIsOpen: (open: boolean) => void;
 }
 
+interface CurrentLocationProps {
+    setImageState: (state: ImageState | undefined) => void;
+    settings: Settings;
+    setSettings: (settings: Settings) => void;
+    setGrid: (grid: GridState) => void;
+    pathAndNode: PathAndNode;
+}
+
+function CurrenLocationPane({ setImageState, setGrid, setSettings, settings, pathAndNode }: CurrentLocationProps) {
+    const map = useMap();
+
+    return <>
+        {
+            "geolocation" in navigator ? <Button
+                onClick={(ev) => {
+                    searchFromCurrentLocation(setImageState, setGrid, setSettings, settings, pathAndNode, map);
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                }}
+                large={true}
+                intent="primary"
+                className="locationButton"
+                text="From my location">
+            </Button> : <></>
+        }
+    </>;
+}
+
 function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
     let handleClose = () => {
         setIsOpen(false);
@@ -793,6 +858,12 @@ function App() {
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}
                         setSettings={setSettings}></SearchComponent>
+                    <CurrenLocationPane
+                        setImageState={setImageState}
+                        settings={settings}
+                        setGrid={setGrid}
+                        pathAndNode={pathAndNode}
+                        setSettings={setSettings}></CurrenLocationPane>
                 </MapContainer>
             </OverlaysProvider>
         </div>

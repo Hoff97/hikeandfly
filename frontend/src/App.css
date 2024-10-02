@@ -55,6 +55,13 @@ img.gridImage {
     right: 0px;
 }
 
+.locationButton {
+    position: absolute;
+    right: 60px;
+    top: 68px;
+    z-index: 490;
+}
+
 .marginRight {
     margin-right: 10px;
 }
