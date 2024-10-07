@@ -12,11 +12,15 @@ fn criterion_benchmark(c: &mut Criterion) {
             additional_height: 10.0,
             safety_margin: 0.0,
             start_distance: 0.0,
+            start_height: None,
         };
-        let (height, start_ix, config) =
-            prepare_search(47.42124381683321, 10.985727310180666, 30.0, &query);
+        let search_setup = prepare_search(47.42124381683321, 10.985727310180666, 30.0, query);
         b.iter(|| {
-            let _result = search(black_box(start_ix), black_box(height), black_box(&config));
+            let _result = search(
+                black_box(search_setup.start_ix),
+                black_box(search_setup.start_height),
+                black_box(&search_setup.config),
+            );
         })
     });
 }

@@ -116,21 +116,22 @@ fn search_from_point_memoized(
     cell_size: Distance,
     query: SearchQueryHashable,
 ) -> (Vec<Node>, HeightGrid, f32) {
-    let (explored, height_grid, height_at_start) = search_from_point(
+    let search_result = search_from_point(
         latitude.0,
         longitude.0,
         cell_size.0,
         query.to_search_query(),
     );
     (
-        explored
+        search_result
+            .explored
             .values
             .into_iter()
             .filter(|x| x.is_some())
             .map(|x| x.unwrap())
             .collect(),
-        height_grid,
-        height_at_start,
+        search_result.height_grid,
+        search_result.ground_height,
     )
 }
 

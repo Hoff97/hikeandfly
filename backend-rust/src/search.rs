@@ -229,20 +229,15 @@ pub struct SearchQuery {
 
 pub struct SearchConfig {
     pub grid: HeightGrid,
-    pub glide_ratio: f32,
-    pub trim_speed: f32,
-    pub wind_direction: f32,
-    pub wind_speed: f32,
-    pub safety_margin: f32,
-    pub start_distance: f32,
+    pub query: SearchQuery,
 }
 
 impl SearchConfig {
     pub fn get_safety_margin_at_distance(&self, distance: f32) -> f32 {
-        if distance < self.start_distance {
+        if distance < self.query.start_distance {
             return 0.0;
         }
-        return self.safety_margin;
+        return self.query.safety_margin;
     }
 }
 
@@ -282,27 +277,27 @@ const PI: f32 = 3.14159265359;
 const PI_2: f32 = PI / 2.0;
 
 fn get_effective_glide_ratio_from_to(
-    config: &SearchConfig,
+    query: &SearchQuery,
     start: GridIx,
     end: GridIx,
 ) -> EffectiveGlide {
-    if config.wind_speed == 0.0 {
+    if query.wind_speed == 0.0 {
         return EffectiveGlide {
-            speed: config.trim_speed,
-            glide_ratio: config.glide_ratio,
+            speed: query.trim_speed,
+            glide_ratio: query.glide_ratio,
         };
     }
 
     let diff = l2_diff(end, start);
     let angle = (diff.0 as f32).atan2(diff.1 as f32);
 
-    let effective_wind_angle = (-config.wind_direction + PI_2) - angle;
+    let effective_wind_angle = (-query.wind_direction + PI_2) - angle;
 
     return get_effective_glide_ratio(
         effective_wind_angle,
-        config.wind_speed,
-        config.trim_speed,
-        config.glide_ratio,
+        query.wind_speed,
+        query.trim_speed,
+        query.glide_ratio,
     );
 }
 
@@ -347,7 +342,7 @@ pub fn update_one_neighbor(
 
     let mut reference = neighbor;
     if neighbor.reference.is_some()
-        && (config.wind_speed >= config.trim_speed || do_intersection_check)
+        && (config.query.wind_speed >= config.query.trim_speed || do_intersection_check)
     {
         reference = explored.get(&neighbor.reference.unwrap()).unwrap();
 
@@ -363,7 +358,7 @@ pub fn update_one_neighbor(
         }
     }
 
-    let effective_glide = get_effective_glide_ratio_from_to(config, ix, reference.ix);
+    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, reference.ix);
     let distance = l2_distance(ix, reference.ix) * config.grid.cell_size;
     let height = reference.height - distance * effective_glide.glide_ratio;
 
@@ -426,8 +421,11 @@ pub fn update_two_neighbors(
 
             let distance = l2_distance(ix, ref_path_intersection.unwrap()) * config.grid.cell_size;
 
-            let effective_glide =
-                get_effective_glide_ratio_from_to(config, ix, ref_path_intersection.unwrap());
+            let effective_glide = get_effective_glide_ratio_from_to(
+                &config.query,
+                ix,
+                ref_path_intersection.unwrap(),
+            );
 
             if f32::is_infinite(effective_glide.glide_ratio) {
                 return;
@@ -614,7 +612,7 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
         reference: None,
         distance: 0.0,
         reachable: true,
-        effective_glide_ratio: config.glide_ratio,
+        effective_glide_ratio: config.query.glide_ratio,
     });
 
     while state.queue.len() > 0 {
@@ -671,7 +669,7 @@ pub fn f32_usize(x: f32) -> usize {
 }
 
 pub fn is_line_intersecting_smart(to: &Node, ix: GridIx, config: &SearchConfig) -> bool {
-    let effective_glide = get_effective_glide_ratio_from_to(config, ix, to.ix);
+    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, to.ix);
     if f32::is_infinite(effective_glide.glide_ratio) {
         return true;
     }
@@ -695,14 +693,15 @@ pub fn is_line_intersecting_smart(to: &Node, ix: GridIx, config: &SearchConfig) 
         -height_loss / (grid_indices.num_pixels() - 1) as f32
     };
 
-    if config.safety_margin == 0.0 || to.distance + distance <= config.start_distance {
+    if config.query.safety_margin == 0.0 || to.distance + distance <= config.query.start_distance {
         for (x_i, y_i) in grid_indices.iter() {
             if real_height < config.grid.heights[(x_i as usize, y_i as usize)] as f32 {
                 return true;
             }
             real_height += height_step;
         }
-    } else if to.distance < config.start_distance && to.distance + distance > config.start_distance
+    } else if to.distance < config.query.start_distance
+        && to.distance + distance > config.query.start_distance
     {
         // TODO
     } else {
@@ -712,7 +711,7 @@ pub fn is_line_intersecting_smart(to: &Node, ix: GridIx, config: &SearchConfig) 
 }
 
 pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> bool {
-    let effective_glide = get_effective_glide_ratio_from_to(config, ix, to.ix);
+    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, to.ix);
     if f32::is_infinite(effective_glide.glide_ratio) {
         return true;
     }
@@ -732,22 +731,23 @@ pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> boo
         i_len,
     );
 
-    if config.safety_margin == 0.0 || to.distance + distance <= config.start_distance {
+    if config.query.safety_margin == 0.0 || to.distance + distance <= config.query.start_distance {
         for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
             if real_height < config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32 {
                 return true;
             }
         }
-    } else if to.distance < config.start_distance && to.distance + distance > config.start_distance
+    } else if to.distance < config.query.start_distance
+        && to.distance + distance > config.query.start_distance
     {
         let mut cur_distance = to.distance;
         let distance_step = distance / (i_len - 1) as f32;
 
         for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
-            let check_height = if cur_distance < config.start_distance {
+            let check_height = if cur_distance < config.query.start_distance {
                 real_height
             } else {
-                real_height - config.safety_margin
+                real_height - config.query.safety_margin
             };
             if check_height < config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32 {
                 return true;
@@ -756,7 +756,7 @@ pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> boo
         }
     } else {
         for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
-            if real_height - config.safety_margin
+            if real_height - config.query.safety_margin
                 < config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32
             {
                 return true;
@@ -836,12 +836,19 @@ pub fn reindex(explored: Explored, grid: &HeightGrid) -> (Explored, HeightGrid) 
     return (new_explored, new_grid);
 }
 
+pub struct SearchSetup {
+    pub ground_height: f32,
+    pub start_height: f32,
+    pub start_ix: GridIx,
+    pub config: SearchConfig,
+}
+
 pub fn prepare_search(
     latitude: f32,
     longitude: f32,
     cell_size: f32,
-    query: &SearchQuery,
-) -> (f32, f32, GridIx, SearchConfig) {
+    query: SearchQuery,
+) -> SearchSetup {
     let height_at_point = get_height_at_point(latitude, longitude) as f32;
     let height = query
         .start_height
@@ -869,15 +876,21 @@ pub fn prepare_search(
 
     let config = SearchConfig {
         grid: grid,
-        glide_ratio: query.glide_ratio,
-        trim_speed: query.trim_speed,
-        wind_direction: query.wind_direction,
-        wind_speed: query.wind_speed,
-        safety_margin: query.safety_margin,
-        start_distance: query.start_distance,
+        query: query,
     };
 
-    (height, height_at_point, start_ix, config)
+    SearchSetup {
+        ground_height: height_at_point,
+        start_height: height,
+        start_ix: start_ix,
+        config: config,
+    }
+}
+
+pub struct SearchResult {
+    pub explored: Explored,
+    pub height_grid: HeightGrid,
+    pub ground_height: f32,
 }
 
 pub fn search_from_point(
@@ -885,15 +898,22 @@ pub fn search_from_point(
     longitude: f32,
     cell_size: f32,
     query: SearchQuery,
-) -> (Explored, HeightGrid, f32) {
-    let (height, height_at_point, start_ix, config) =
-        prepare_search(latitude, longitude, cell_size, &query);
+) -> SearchResult {
+    let search_setup = prepare_search(latitude, longitude, cell_size, query);
 
-    let state = search(start_ix, height, &config);
+    let state = search(
+        search_setup.start_ix,
+        search_setup.start_height,
+        &search_setup.config,
+    );
 
-    let (explored, new_grid) = reindex(state.explored, &config.grid);
+    let (explored, new_grid) = reindex(state.explored, &search_setup.config.grid);
 
-    return (explored, new_grid, height_at_point);
+    SearchResult {
+        explored: explored,
+        height_grid: new_grid,
+        ground_height: search_setup.ground_height,
+    }
 }
 
 #[cfg(test)]
