@@ -73,6 +73,8 @@ export async function doSearchFromLocation(
   pathAndNode: PathAndNode,
   map: MapLeaflet | undefined
 ) {
+  latLng = latLng.wrap();
+
   setImageState(undefined);
   setGrid({
     loading: true,
