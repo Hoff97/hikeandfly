@@ -1,5 +1,5 @@
 import { LatLng } from "leaflet";
-import { doSearchFromLocation } from "../utils/utils";
+import { doSearchFromLocation, nodeInGrid, setPath } from "../utils/utils";
 import { useMap, useMapEvents } from "react-leaflet";
 import { GridState, ImageState, PathAndNode, Settings } from "../utils/types";
 import { Grid } from "./Grid";
@@ -26,7 +26,29 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
                     (e.originalEvent.target as any).parentElement.classList.contains("locationButton"))) {
                 return;
             }
+
+            let node = nodeInGrid(e.latlng, grid);
+            if (node !== undefined) {
+                setPath(node, grid, pathAndNode);
+                pathAndNode.setFixed(true);
+                return;
+            }
+
             doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
+        },
+        dblclick(e) {
+            if (
+                ("classList" in (e.originalEvent.target as any) &&
+                    (e.originalEvent.target as any).classList.contains("locationButton"))
+                || ("parentElement" in (e.originalEvent.target as any) && "classList" in (e.originalEvent.target as any).parentElement &&
+                    (e.originalEvent.target as any).parentElement.classList.contains("locationButton"))) {
+                return;
+            }
+            if (grid.response !== undefined && grid.grid !== undefined) {
+                e.originalEvent.stopPropagation();
+                doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
+                return true;
+            }
         },
         moveend(e) {
             const center = map.getCenter();

@@ -41,9 +41,10 @@ function App() {
         startPosition: undefined
     });
     const [path, setPath] = useState<LatLng[] | undefined>();
+    const [fixed, setFixed] = useState<boolean>(false);
     const [node, setNode] = useState<GridTile | undefined>();
     const pathAndNode = {
-        path, setPath, node, setNode
+        path, setPath, node, setNode, fixed, setFixed
     };
     const [isInfoOpen, setIsisInfoOpen] = useState<boolean>(false);
 

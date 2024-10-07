@@ -1,6 +1,5 @@
 import { Circle, CircleMarker, useMap } from "react-leaflet";
 import { ConeSearchResponse, Settings } from "../utils/types";
-import { LatLng } from "leaflet";
 import { ixToLatLon } from "../utils/utils";
 
 interface StartMarkerProps {

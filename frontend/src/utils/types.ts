@@ -49,6 +49,8 @@ export interface ImageState {
 export interface PathAndNode {
   path: LatLng[] | undefined;
   node: GridTile | undefined;
+  fixed: boolean;
   setPath: (path: LatLng[] | undefined) => void;
   setNode: (node: GridTile | undefined) => void;
+  setFixed: (fixed: boolean) => void;
 }
