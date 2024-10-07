@@ -18,7 +18,7 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
     const map = useMap();
 
     useMapEvents({
-        async click(e) {
+        click(e) {
             if (
                 ("classList" in (e.originalEvent.target as any) &&
                     (e.originalEvent.target as any).classList.contains("locationButton"))
@@ -26,7 +26,7 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
                     (e.originalEvent.target as any).parentElement.classList.contains("locationButton"))) {
                 return;
             }
-            await doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
+            doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
         },
         moveend(e) {
             const center = map.getCenter();
@@ -38,7 +38,7 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
 
     const lat = urlParams.get('lat');
     const lon = urlParams.get('lon');
-    if (lat !== null && lon !== null && grid.loading === false && grid.response === undefined) {
+    if (lat !== null && lon !== null && grid.loading === "done" && grid.response === undefined) {
         const latlon = new LatLng(+lat, +lon);
         doSearchFromLocation(setImageState, setGrid, setSettings, latlon, settings, pathAndNode, map);
     }

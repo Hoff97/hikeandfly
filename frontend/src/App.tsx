@@ -35,7 +35,7 @@ function App() {
         startDistance: +(urlParams.get('start_distance') || 50),
     });
     const [grid, setGrid] = useState<GridState>({
-        loading: false,
+        loading: "done",
         grid: undefined,
         response: undefined,
         startPosition: undefined
@@ -54,9 +54,9 @@ function App() {
         <div className="App">
             <OverlaysProvider>
                 <div className="loading">
-                    {grid.loading ?
+                    {grid.loading !== "done" ?
                         <Spinner
-                            intent={Intent.PRIMARY}
+                            intent={grid.loading === "image" ? Intent.PRIMARY : Intent.SUCCESS}
                             size={50}
                         /> : <></>
                     }

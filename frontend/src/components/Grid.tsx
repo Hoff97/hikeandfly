@@ -1,4 +1,4 @@
-import { LayersControl, Polyline, useMapEvents } from "react-leaflet";
+import { Polyline, useMapEvents } from "react-leaflet";
 import { CurrentNode } from "./CurrentNode";
 import { LatLng, PathOptions } from "leaflet";
 import { ixToLatLon } from "../utils/utils";

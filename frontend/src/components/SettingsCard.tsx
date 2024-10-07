@@ -119,6 +119,8 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
             startPosition: undefined,
             grid: undefined,
         });
+        pathAndNode.setNode(undefined);
+        pathAndNode.setPath(undefined);
         const newSettings = {
             ...settings,
             minGridSize: 30,

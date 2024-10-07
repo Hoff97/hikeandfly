@@ -77,7 +77,7 @@ export async function doSearchFromLocation(
 
   setImageState(undefined);
   setGrid({
-    loading: true,
+    loading: "image",
     grid: undefined,
     response: undefined,
     startPosition: undefined,
@@ -92,7 +92,7 @@ export async function doSearchFromLocation(
 
   if (response.status === 404) {
     setGrid({
-      loading: false,
+      loading: "done",
       grid: undefined,
       response: undefined,
       startPosition: undefined,
@@ -104,7 +104,7 @@ export async function doSearchFromLocation(
   let cone: ConeSearchResponse = await response.json();
 
   setGrid({
-    loading: false,
+    loading: "grid",
     grid: undefined,
     response: cone,
     startPosition: latLng,
@@ -142,11 +142,12 @@ export async function doSearchFromLocation(
   grid_url.search = getSearchParams(latLng, settings).toString();
 
   let grid_response = await fetch(grid_url);
+
   let cone_grid: ConeSearchResponse = await grid_response.json();
 
   const grid = setupGrid(cone_grid);
   setGrid({
-    loading: false,
+    loading: "done",
     grid: grid,
     response: cone,
     startPosition: latLng,

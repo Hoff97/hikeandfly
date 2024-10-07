@@ -34,7 +34,7 @@ export interface ConeSearchResponse {
 }
 
 export interface GridState {
-  loading: boolean;
+  loading: "done" | "grid" | "image";
   response: ConeSearchResponse | undefined;
   startPosition: LatLng | undefined;
   grid: GridTile[][] | undefined;
