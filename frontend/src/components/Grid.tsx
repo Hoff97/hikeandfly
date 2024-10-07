@@ -76,7 +76,6 @@ export function Grid({ grid, pathAndNode }: GridProps) {
 
     return (
         <>
-            <LayersControl position="bottomleft"></LayersControl>
             {pathAndNode.path !== undefined ? (
                 <Polyline pathOptions={pathOptions} positions={pathAndNode.path} />
             ) : (
