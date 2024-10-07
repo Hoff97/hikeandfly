@@ -855,8 +855,8 @@ pub fn prepare_search(
     cell_size: f32,
     query: SearchQuery,
 ) -> SearchSetup {
-    let height_at_point = get_height_at_point(latitude, longitude) as f32;
-    let height = query
+    let mut height_at_point = get_height_at_point(latitude, longitude) as f32;
+    let mut height = query
         .start_height
         .unwrap_or(height_at_point + query.additional_height)
         .max(height_at_point);
@@ -879,6 +879,11 @@ pub fn prepare_search(
         (grid.heights.shape()[0] / 2) as GridIxType,
         (grid.heights.shape()[1] / 2) as GridIxType,
     );
+    height_at_point = grid.heights[[start_ix.0 as usize, start_ix.1 as usize]] as f32;
+    height = query
+        .start_height
+        .unwrap_or(height_at_point + query.additional_height)
+        .max(height_at_point);
 
     let config = SearchConfig {
         grid: grid,
