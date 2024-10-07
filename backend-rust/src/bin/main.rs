@@ -223,7 +223,7 @@ struct NodeResponse {
 
 #[derive(Serialize)]
 struct FlightConeResponse {
-    nodes: Vec<NodeResponse>,
+    nodes: Option<Vec<NodeResponse>>,
     cell_size: f32,
     min_cell_size: f32,
     angular_resolution: (f32, f32),
@@ -268,7 +268,7 @@ fn get_flight_cone(
     let resolution = grid.get_angular_resolution();
 
     let mut response = FlightConeResponse {
-        nodes: vec![],
+        nodes: None,
         cell_size: grid.cell_size,
         angular_resolution: resolution,
         lat: grid.latitudes,
@@ -278,9 +278,11 @@ fn get_flight_cone(
         start_height: height_at_start,
     };
 
+    let mut nodes = vec![];
+
     for node in explored {
         if node.reachable {
-            response.nodes.push(NodeResponse {
+            nodes.push(NodeResponse {
                 index: node.ix,
                 height: node.height as i16,
                 distance: node.distance as i32,
@@ -289,6 +291,56 @@ fn get_flight_cone(
             })
         }
     }
+
+    response.nodes = Some(nodes);
+
+    Result::Ok(Json(response))
+}
+
+#[get("/flight_cone_bounds?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+fn get_flight_cone_bounds(
+    lat: f32,
+    lon: f32,
+    cell_size: Option<f32>,
+    glide_number: Option<f32>,
+    additional_height: Option<f32>,
+    start_height: Option<f32>,
+    wind_speed: Option<f32>,
+    wind_direction: Option<f32>,
+    trim_speed: Option<f32>,
+    safety_margin: Option<f32>,
+    start_distance: Option<f32>,
+) -> Result<Json<FlightConeResponse>, Status> {
+    if !location_supported(lat, lon) {
+        return Result::Err(Status::NotFound);
+    }
+
+    let (_, grid, _, _, height_at_start) = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        start_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+        safety_margin,
+        start_distance,
+    );
+
+    let resolution = grid.get_angular_resolution();
+
+    let response = FlightConeResponse {
+        nodes: None,
+        cell_size: grid.cell_size,
+        angular_resolution: resolution,
+        lat: grid.latitudes,
+        lon: grid.longitudes,
+        min_cell_size: grid.min_cell_size,
+        grid_shape: (grid.heights.shape()[0], grid.heights.shape()[1]),
+        start_height: height_at_start,
+    };
 
     Result::Ok(Json(response))
 }
@@ -671,6 +723,7 @@ fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/", routes![get_flight_cone])
+        .mount("/", routes![get_flight_cone_bounds])
         .mount("/", routes![get_agl_image])
         .mount("/", routes![get_height_image])
         .mount("/", routes![get_kml])
