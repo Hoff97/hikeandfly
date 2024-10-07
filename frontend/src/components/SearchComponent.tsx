@@ -1,8 +1,9 @@
 import { LatLng } from "leaflet";
 import { doSearchFromLocation } from "../utils/utils";
-import { CircleMarker, useMap, useMapEvents } from "react-leaflet";
+import { useMap, useMapEvents } from "react-leaflet";
 import { GridState, ImageState, PathAndNode, Settings } from "../utils/types";
 import { Grid } from "./Grid";
+import { StartMarker } from "./StartMarker";
 
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
@@ -42,20 +43,8 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
         doSearchFromLocation(setImageState, setGrid, setSettings, latlon, settings, pathAndNode, map);
     }
 
-    const blackOptions = {
-        color: "black",
-        weight: 1.0,
-        opacity: 1.0,
-        fillColor: "white",
-        fillOpacity: 0.5,
-    };
-
     return (<>
-        {lat === null || lon === null ? <></> : <CircleMarker
-            center={new LatLng(+lat, +lon)}
-            radius={(map.getZoom() / 12) * 10}
-            pathOptions={blackOptions}
-        ></CircleMarker>}
+        {grid.response === undefined ? <></> : <StartMarker response={grid.response} settings={settings}></StartMarker>}
         {
             grid === undefined ? (<></>) : (
                 <Grid grid={grid} pathAndNode={pathAndNode}></Grid>

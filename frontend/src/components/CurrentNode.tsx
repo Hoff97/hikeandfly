@@ -20,15 +20,14 @@ export function CurrentNode({
         fillOpacity: 0.5,
     };
 
-    let lat = 0;
-    let lon = 0;
+    let latlng = new LatLng(0, 0);
     if (grid.response !== undefined) {
-        [lat, lon] = ixToLatLon(node.index, grid.response);
+        latlng = ixToLatLon(node.index, grid.response);
     }
 
     return (
         <CircleMarker
-            center={new LatLng(lat, lon)}
+            center={latlng}
             radius={(map.getZoom() / 12) * 10}
             pathOptions={blackOptions}
         >

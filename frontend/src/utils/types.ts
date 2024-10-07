@@ -27,6 +27,7 @@ export interface ConeSearchResponse {
   min_cell_size: number;
   lat: number[];
   lon: number[];
+  start_ix: number[];
   grid_shape: number[];
   angular_resolution: number[];
   start_height: number;

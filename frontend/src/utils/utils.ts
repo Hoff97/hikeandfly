@@ -160,7 +160,7 @@ export function ixToLatLon(ix: number[], response: ConeSearchResponse) {
     response.lon[0] +
     ((ix[1] + 0.5) / response.grid_shape[1]) *
       (response.lon[1] - response.lon[0]);
-  return [lat, lon];
+  return new LatLng(lat, lon);
 }
 
 export function searchFromCurrentLocation(

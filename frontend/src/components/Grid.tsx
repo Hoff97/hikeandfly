@@ -40,21 +40,21 @@ export function Grid({ grid, pathAndNode }: GridProps) {
                     let current = node;
                     let path = [];
                     while (current.reference !== null) {
-                        let lat = 0;
-                        let lon = 0;
+                        let latlng = new LatLng(0, 0);
                         if (grid.response !== undefined) {
-                            [lat, lon] = ixToLatLon(current.index, grid.response);
+                            latlng = ixToLatLon(current.index, grid.response);
                         }
 
-                        path.push(new LatLng(lat, lon, current.height));
+                        latlng.alt = current.height;
+                        path.push(latlng);
                         current = grid.grid[current.reference[0]][current.reference[1]];
                     }
-                    let lat = 0;
-                    let lon = 0;
+                    let latlng = new LatLng(0, 0);
+                    latlng.alt = current.height;
                     if (grid.response !== undefined) {
-                        [lat, lon] = ixToLatLon(current.index, grid.response);
+                        latlng = ixToLatLon(current.index, grid.response);
                     }
-                    path.push(new LatLng(lat, lon, current.height));
+                    path.push(latlng);
                     path.reverse();
                     pathAndNode.setPath(path);
                     pathAndNode.setNode(node);

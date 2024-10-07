@@ -785,7 +785,11 @@ fn reindex_node(
     }
 }
 
-pub fn reindex(explored: Explored, grid: &HeightGrid) -> (Explored, HeightGrid) {
+pub fn reindex(
+    explored: Explored,
+    grid: &HeightGrid,
+    start_ix: GridIx,
+) -> (Explored, HeightGrid, GridIx) {
     let mut lat_min = GridIxType::MAX;
     let mut lat_max = GridIxType::MIN;
     let mut lon_min = GridIxType::MAX;
@@ -806,6 +810,8 @@ pub fn reindex(explored: Explored, grid: &HeightGrid) -> (Explored, HeightGrid) 
     let new_explored = explored.subset((lat_min, lat_max), (lon_min, lon_max));
 
     let old_shape = grid.heights.shape();
+
+    let new_start_ix = (start_ix.0 - lat_min, start_ix.1 - lon_min);
 
     let new_grid = HeightGrid {
         heights: grid
@@ -833,7 +839,7 @@ pub fn reindex(explored: Explored, grid: &HeightGrid) -> (Explored, HeightGrid) 
         ),
     };
 
-    return (new_explored, new_grid);
+    return (new_explored, new_grid, new_start_ix);
 }
 
 pub struct SearchSetup {
@@ -891,6 +897,7 @@ pub struct SearchResult {
     pub explored: Explored,
     pub height_grid: HeightGrid,
     pub ground_height: f32,
+    pub start_ix: GridIx,
 }
 
 pub fn search_from_point(
@@ -907,12 +914,17 @@ pub fn search_from_point(
         &search_setup.config,
     );
 
-    let (explored, new_grid) = reindex(state.explored, &search_setup.config.grid);
+    let (explored, new_grid, new_start_ix) = reindex(
+        state.explored,
+        &search_setup.config.grid,
+        search_setup.start_ix,
+    );
 
     SearchResult {
         explored: explored,
         height_grid: new_grid,
         ground_height: search_setup.ground_height,
+        start_ix: new_start_ix,
     }
 }
 

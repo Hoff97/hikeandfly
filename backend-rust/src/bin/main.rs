@@ -115,7 +115,7 @@ fn search_from_point_memoized(
     longitude: Distance,
     cell_size: Distance,
     query: SearchQueryHashable,
-) -> (Vec<Node>, HeightGrid, f32) {
+) -> (Vec<Node>, HeightGrid, f32, GridIx) {
     let search_result = search_from_point(
         latitude.0,
         longitude.0,
@@ -132,6 +132,7 @@ fn search_from_point_memoized(
             .collect(),
         search_result.height_grid,
         search_result.ground_height,
+        search_result.start_ix,
     )
 }
 
@@ -147,7 +148,7 @@ pub fn search_from_request(
     trim_speed_opt: Option<f32>,
     safety_margin_opt: Option<f32>,
     start_distance_opt: Option<f32>,
-) -> (Vec<Node>, HeightGrid, Array2<f32>, Array2<f32>, f32) {
+) -> (Vec<Node>, HeightGrid, Array2<f32>, Array2<f32>, f32, GridIx) {
     let cell_size = cell_size_opt
         .unwrap_or(CELL_SIZE_DEFAULT)
         .max(CELL_SIZE_MINIMUM)
@@ -179,7 +180,7 @@ pub fn search_from_request(
     let lat_rounded = (lat * 1000.0).round() / 1000.0;
     let lon_rounded = (lon * 1000.0).round() / 1000.0;
 
-    let (explored, grid, height_at_start) = search_from_point_memoized(
+    let (explored, grid, height_at_start, start_ix) = search_from_point_memoized(
         Distance(lat_rounded),
         Distance(lon_rounded),
         Distance(cell_size),
@@ -208,7 +209,14 @@ pub fn search_from_request(
         }
     }
 
-    return (explored, grid, heights, node_heights, height_at_start);
+    return (
+        explored,
+        grid,
+        heights,
+        node_heights,
+        height_at_start,
+        start_ix,
+    );
 }
 
 #[derive(Serialize)]
@@ -229,6 +237,7 @@ struct FlightConeResponse {
     angular_resolution: (f32, f32),
     lat: (f32, f32),
     lon: (f32, f32),
+    start_ix: GridIx,
     grid_shape: (usize, usize),
     start_height: f32,
 }
@@ -251,7 +260,7 @@ fn get_flight_cone(
         return Result::Err(Status::NotFound);
     }
 
-    let (explored, grid, _, _, height_at_start) = search_from_request(
+    let (explored, grid, _, _, height_at_start, start_ix) = search_from_request(
         lat,
         lon,
         cell_size,
@@ -271,6 +280,7 @@ fn get_flight_cone(
         nodes: None,
         cell_size: grid.cell_size,
         angular_resolution: resolution,
+        start_ix: start_ix,
         lat: grid.latitudes,
         lon: grid.longitudes,
         min_cell_size: grid.min_cell_size,
@@ -315,7 +325,7 @@ fn get_flight_cone_bounds(
         return Result::Err(Status::NotFound);
     }
 
-    let (_, grid, _, _, height_at_start) = search_from_request(
+    let (_, grid, _, _, height_at_start, start_ix) = search_from_request(
         lat,
         lon,
         cell_size,
@@ -335,6 +345,7 @@ fn get_flight_cone_bounds(
         nodes: None,
         cell_size: grid.cell_size,
         angular_resolution: resolution,
+        start_ix: start_ix,
         lat: grid.latitudes,
         lon: grid.longitudes,
         min_cell_size: grid.min_cell_size,
@@ -366,7 +377,7 @@ fn get_agl_image<'a>(
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (_, _, heights, _, _) = search_from_request(
+    let (_, _, heights, _, _, _) = search_from_request(
         lat,
         lon,
         cell_size,
@@ -461,7 +472,7 @@ fn get_height_image<'a>(
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (_, _, _, heights, _) = search_from_request(
+    let (_, _, _, heights, _, _) = search_from_request(
         lat,
         lon,
         cell_size,
@@ -577,7 +588,7 @@ fn get_kml<'a>(
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (nodes, height_grid, heights, node_heights, _) = search_from_request(
+    let (nodes, height_grid, heights, node_heights, _, _) = search_from_request(
         lat,
         lon,
         cell_size,
