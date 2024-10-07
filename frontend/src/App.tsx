@@ -8,11 +8,12 @@ import {
 import { LatLng } from "leaflet";
 import { Spinner, Intent, OverlaysProvider } from "@blueprintjs/core";
 import { InfoPanel } from "./components/InfoPanel";
-import { GridState, GridTile, ImageState, Settings } from "./utils/types";
+import { GridState, GridTile, HeightPoint, ImageState, Settings } from "./utils/types";
 import { SettingsCard } from "./components/SettingsCard";
 import { ImageOverlays } from "./components/ImageOverlay";
 import { SearchComponent } from "./components/SearchComponent";
 import { CurrenLocationPane } from "./components/CurrentLocation";
+import { HeightPlotCard } from "./components/HeightPlotCard";
 
 
 
@@ -43,8 +44,10 @@ function App() {
     const [path, setPath] = useState<LatLng[] | undefined>();
     const [fixed, setFixed] = useState<boolean>(false);
     const [node, setNode] = useState<GridTile | undefined>();
+    const [heightPoints, setHeightPoints] = useState<HeightPoint[] | undefined>();
+    const [cursorNode, setCursorNode] = useState<HeightPoint | undefined>();
     const pathAndNode = {
-        path, setPath, node, setNode, fixed, setFixed
+        path, setPath, node, setNode, fixed, setFixed, heightPoints, setHeightPoints, cursorNode, setCursorNode
     };
     const [isInfoOpen, setIsisInfoOpen] = useState<boolean>(false);
 
@@ -71,6 +74,7 @@ function App() {
                     setImageState={setImageState}
                     pathAndNode={pathAndNode}
                     setIsInfoOpen={setIsisInfoOpen}></SettingsCard>
+                <HeightPlotCard pathAndNode={pathAndNode} />
                 <MapContainer center={[lastLocationLat, lastLocationLon]} zoom={13} scrollWheelZoom={true}>
                     <LayersControl position="bottomright">
                         <LayersControl.BaseLayer checked name="OpenTopoMap">

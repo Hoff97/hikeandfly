@@ -1,5 +1,5 @@
 import { LatLng } from "leaflet";
-import { doSearchFromLocation, nodeInGrid, setPath } from "../utils/utils";
+import { computeHeights, doSearchFromLocation, nodeInGrid, setPath } from "../utils/utils";
 import { useMap, useMapEvents } from "react-leaflet";
 import { GridState, ImageState, PathAndNode, Settings } from "../utils/types";
 import { Grid } from "./Grid";
@@ -29,8 +29,10 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
 
             let node = nodeInGrid(e.latlng, grid);
             if (node !== undefined) {
-                setPath(node, grid, pathAndNode);
+                let nodes = setPath(node, grid, pathAndNode);
                 pathAndNode.setFixed(true);
+                let heights = computeHeights(nodes, grid);
+                pathAndNode.setHeightPoints(heights);
                 return;
             }
 

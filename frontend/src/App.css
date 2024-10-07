@@ -69,3 +69,24 @@ img.gridImage {
 div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     background-color: #888;
 }
+
+.heightPlotButton {
+    position: absolute;
+    bottom: 10px;
+    z-index: 5000;
+    left: calc(50% - 75px);
+    width: 150px;
+}
+
+.heightPlotDrawer {
+    z-index: 5001;
+}
+
+.heightPlotDrawerBody {
+    display: flex;
+    justify-content: center;
+}
+
+.invisibleCrosshair > .rv-crosshair__line {
+    stroke-width: 0;
+}

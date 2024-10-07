@@ -1,4 +1,4 @@
-import { Polyline, useMapEvents } from "react-leaflet";
+import { Polyline, useMapEvents, CircleMarker, useMap } from "react-leaflet";
 import { CurrentNode } from "./CurrentNode";
 import { PathOptions } from "leaflet";
 import { nodeInGrid, setPath } from "../utils/utils";
@@ -10,6 +10,8 @@ interface GridProps {
 }
 
 export function Grid({ grid, pathAndNode }: GridProps) {
+    const map = useMap();
+
     useMapEvents({
         mousemove(ev) {
             if (grid.response === undefined || grid.grid === undefined || pathAndNode.fixed) {
@@ -34,6 +36,14 @@ export function Grid({ grid, pathAndNode }: GridProps) {
         lineJoin: "round",
     };
 
+    const blackOptions = {
+        color: "black",
+        weight: 1.0,
+        opacity: 1.0,
+        fillColor: "black",
+        fillOpacity: 1.0,
+    };
+
     return (
         <>
             {pathAndNode.path !== undefined ? (
@@ -46,6 +56,13 @@ export function Grid({ grid, pathAndNode }: GridProps) {
             ) : (
                 <></>
             )}
+            {pathAndNode.cursorNode !== undefined ? (<>
+                <CircleMarker
+                    center={pathAndNode.cursorNode.location}
+                    radius={(map.getZoom() / 20) * 10}
+                    pathOptions={blackOptions}
+                ></CircleMarker>
+            </>) : <></>}
         </>
     );
 }

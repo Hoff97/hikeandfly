@@ -50,7 +50,19 @@ export interface PathAndNode {
   path: LatLng[] | undefined;
   node: GridTile | undefined;
   fixed: boolean;
+  heightPoints: HeightPoint[] | undefined;
+  cursorNode: HeightPoint | undefined;
   setPath: (path: LatLng[] | undefined) => void;
   setNode: (node: GridTile | undefined) => void;
   setFixed: (fixed: boolean) => void;
+  setHeightPoints: (heightPoints: HeightPoint[] | undefined) => void;
+  setCursorNode: (cursorNode: HeightPoint | undefined) => void;
+}
+
+export interface HeightPoint {
+  location: LatLng;
+  height: number;
+  groundHeight: number;
+  distance: number;
+  closest_node: GridTile;
 }

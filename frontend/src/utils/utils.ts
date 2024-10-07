@@ -3,6 +3,7 @@ import {
   ConeSearchResponse,
   GridState,
   GridTile,
+  HeightPoint,
   ImageState,
   PathAndNode,
   Settings,
@@ -85,6 +86,8 @@ export async function doSearchFromLocation(
   pathAndNode.setNode(undefined);
   pathAndNode.setPath(undefined);
   pathAndNode.setFixed(false);
+  pathAndNode.setHeightPoints(undefined);
+  pathAndNode.setCursorNode(undefined);
 
   let url = new URL(window.location.origin + "/flight_cone_bounds");
   url.search = getSearchParams(latLng, settings).toString();
@@ -255,10 +258,12 @@ export function setPath(
   node: GridTile,
   grid: GridState,
   pathAndNode: PathAndNode
-) {
+): GridTile[] {
   if (grid.grid === undefined) {
-    return;
+    return [];
   }
+
+  let nodes = [];
 
   let current = node;
   let path = [];
@@ -270,6 +275,8 @@ export function setPath(
 
     latlng.alt = current.height;
     path.push(latlng);
+    nodes.push(current);
+
     current = grid.grid[current.reference[0]][current.reference[1]];
   }
   let latlng = new LatLng(0, 0);
@@ -278,7 +285,92 @@ export function setPath(
     latlng = ixToLatLon(current.index, grid.response);
   }
   path.push(latlng);
+  nodes.push(current);
   path.reverse();
   pathAndNode.setPath(path);
   pathAndNode.setNode(node);
+
+  return nodes;
+}
+
+function heightsBetweenNodes(
+  a: GridTile,
+  b: GridTile,
+  grid: GridState
+): HeightPoint[] {
+  if (grid.response === undefined || grid.grid === undefined) {
+    return [];
+  }
+
+  let diff = [b.index[0] - a.index[0], b.index[1] - a.index[1]];
+  let length = Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1]);
+  let nPoints = Math.ceil(length);
+
+  let distance_diff = b.distance - a.distance;
+  let height_diff = b.height - a.height;
+
+  let points = [
+    {
+      location: ixToLatLon(a.index, grid.response),
+      height: a.height,
+      groundHeight: a.height - a.agl,
+      distance: a.distance,
+      closest_node: a,
+    },
+  ];
+
+  for (let i = 1; i < nPoints; i++) {
+    let fraction = i / nPoints;
+    let ix = [a.index[0] + fraction * diff[0], a.index[1] + fraction * diff[1]];
+    let rounded_ix = [Math.floor(ix[0]), Math.floor(ix[1])];
+    if (
+      grid.grid[rounded_ix[0]] !== undefined &&
+      grid.grid[rounded_ix[0]][rounded_ix[1]] !== undefined
+    ) {
+      let closest_node = grid.grid[rounded_ix[0]][rounded_ix[1]];
+
+      points.push({
+        location: ixToLatLon(ix, grid.response),
+        height: a.height + height_diff * fraction,
+        groundHeight: closest_node.height - closest_node.agl,
+        distance: a.distance + distance_diff * fraction,
+        closest_node: closest_node,
+      });
+    }
+  }
+
+  return points;
+}
+
+export function computeHeights(
+  nodes: GridTile[],
+  grid: GridState
+): HeightPoint[] {
+  if (grid.response === undefined || grid.grid === undefined) {
+    return [];
+  }
+
+  nodes.reverse();
+
+  let height_arr: HeightPoint[] = [];
+
+  for (let i = 0; i < nodes.length - 1; i++) {
+    let a = nodes[i];
+    let b = nodes[i + 1];
+
+    height_arr = height_arr.concat(heightsBetweenNodes(a, b, grid));
+  }
+
+  if (nodes.length > 1) {
+    let a = nodes[nodes.length - 1];
+    height_arr.push({
+      location: ixToLatLon(a.index, grid.response),
+      height: a.height,
+      groundHeight: a.height - a.agl,
+      distance: a.distance,
+      closest_node: a,
+    });
+  }
+
+  return height_arr;
 }

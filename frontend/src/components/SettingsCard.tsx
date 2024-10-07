@@ -122,6 +122,8 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
         pathAndNode.setNode(undefined);
         pathAndNode.setPath(undefined);
         pathAndNode.setFixed(false);
+        pathAndNode.setHeightPoints(undefined);
+        pathAndNode.setCursorNode(undefined);
         const newSettings = {
             ...settings,
             minGridSize: 30,
