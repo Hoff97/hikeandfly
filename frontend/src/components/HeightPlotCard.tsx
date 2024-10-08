@@ -1,14 +1,15 @@
 import { Button, Drawer } from "@blueprintjs/core";
-import { PathAndNode } from "../utils/types";
+import { PathAndNode, Settings } from "../utils/types";
 import { useState } from "react";
 
 import { Crosshair, HorizontalGridLines, LineSeries, LineSeriesPoint, MarkSeries, VerticalGridLines, XAxis, XYPlot, YAxis } from "react-vis";
 
 interface HeightPlotCardProps {
     pathAndNode: PathAndNode;
+    settings: Settings,
 }
 
-export function HeightPlotCard({ pathAndNode }: HeightPlotCardProps) {
+export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
     let [drawerOpen, setDrawerOpen] = useState(false);
     let [groundHeight, setGroundHeight] = useState<LineSeriesPoint | undefined>(undefined);
     let [flightHeight, setFlightHeight] = useState<LineSeriesPoint | undefined>(undefined);
@@ -29,11 +30,20 @@ export function HeightPlotCard({ pathAndNode }: HeightPlotCardProps) {
         return (<></>);
     }
 
+    let minFlightHeight = 100000;
+    let maxFlightHeight = -1000;
     const flightData = [];
     const groundData = [];
+    let safetyMargin = [];
     for (let point of pathAndNode.heightPoints) {
+        minFlightHeight = Math.min(minFlightHeight, point.height);
+        maxFlightHeight = Math.max(maxFlightHeight, point.height);
         flightData.push({ x: point.distance, y: point.height, node: point });
         groundData.push({ x: point.distance, y: point.groundHeight });
+
+        if (settings.safetyMargin > 0 && point.distance >= settings.startDistance) {
+            safetyMargin.push({ x: point.distance, y: point.height - settings.safetyMargin });
+        }
     }
 
     let flightMarks = [];
@@ -54,16 +64,28 @@ export function HeightPlotCard({ pathAndNode }: HeightPlotCardProps) {
         aglData.push({ x: flightHeight.x, y: flightHeight.y });
     }
 
+    // Type hints are not quite correct
+    let Xaxis = XAxis as any;
+    let Yaxis = YAxis as any;
+
+    const plotHeight = 400;
+
+    let crosshairPostion = 0;
+    if (flightHeight !== undefined) {
+        crosshairPostion = (flightHeight.y - minFlightHeight) / (maxFlightHeight - minFlightHeight);
+        crosshairPostion = Math.max(Math.round((1 - crosshairPostion) * plotHeight * 0.85 - 45), 0);
+    }
+
     return (
         <>
             <div className="heightPlotButton">
                 <Button onClick={() => setDrawerOpen(true)} icon={"arrow-up"}>Height Plot</Button>
             </div>
             <Drawer
-                icon="info-sign"
+                icon="chart"
                 onClose={close}
                 title="Path height plot"
-                size={"default"}
+                size={plotHeight + 50}
                 isOpen={drawerOpen}
                 className="heightPlotDrawer"
                 canEscapeKeyClose={true}
@@ -71,21 +93,22 @@ export function HeightPlotCard({ pathAndNode }: HeightPlotCardProps) {
                 hasBackdrop={false}
                 position={"bottom"}>
                 <div className={"heightPlotDrawerBody"}>
-                    <XYPlot height={400} width={window.innerWidth * 0.8} >
+                    <XYPlot height={plotHeight} width={window.innerWidth * 0.8} >
                         <VerticalGridLines />
                         <HorizontalGridLines />
-                        <XAxis />
-                        <YAxis />
-                        <LineSeries data={flightData} color={"green"} fill={0}
+                        <Xaxis title={"Distance (m)"} position="middle" />
+                        <Yaxis title={"Height (m)"} position="middle" />
+                        <LineSeries data={flightData} color={"green"}
                             onNearestX={setFlightHeigthItem} />
                         <LineSeries data={groundData}
                             color={"red"}
                             curve={"curveMonotoneX"}
                             onNearestX={d => setGroundHeight(d)} />
+                        <LineSeries data={safetyMargin} color={"#66D"} strokeStyle="dashed" />
                         {
                             groundHeight !== undefined && flightHeight !== undefined ? (
-                                <Crosshair values={[groundHeight, flightHeight]} className={'invisibleCrosshair'}>
-                                    <div style={{ background: 'black', minWidth: '80px', maxWidth: '110px' }}>
+                                <Crosshair values={[groundHeight, flightHeight]} className={'invisibleCrosshair'} orientation="right">
+                                    <div style={{ background: 'black', minWidth: '80px', maxWidth: '110px', transform: `translate(10px, ${crosshairPostion}px)` }}>
                                         Height: {Math.round(flightHeight.y)}m<br />
                                         Ground: {Math.round(groundHeight.y)}m<br />
                                         AGL: {Math.round(flightHeight.y - groundHeight.y)}m
@@ -107,8 +130,9 @@ export function HeightPlotCard({ pathAndNode }: HeightPlotCardProps) {
                             sizeRange={[0, 5]}
                         />
                         <LineSeries data={aglData}
-                            color={"blue"}
-                            stroke={3} />
+                            color="red"
+                            stroke={3}
+                            strokeStyle="dashed" />
                     </XYPlot>
                 </div>
             </Drawer>

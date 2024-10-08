@@ -89,4 +89,5 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
 
 .invisibleCrosshair > .rv-crosshair__line {
     stroke-width: 0;
+    width: 0px;
 }

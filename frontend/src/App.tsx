@@ -74,7 +74,7 @@ function App() {
                     setImageState={setImageState}
                     pathAndNode={pathAndNode}
                     setIsInfoOpen={setIsisInfoOpen}></SettingsCard>
-                <HeightPlotCard pathAndNode={pathAndNode} />
+                <HeightPlotCard pathAndNode={pathAndNode} settings={settings} />
                 <MapContainer center={[lastLocationLat, lastLocationLon]} zoom={13} scrollWheelZoom={true}>
                     <LayersControl position="bottomright">
                         <LayersControl.BaseLayer checked name="OpenTopoMap">
