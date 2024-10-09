@@ -175,13 +175,13 @@ impl SearchState {
     }
 }
 
-struct EffectiveGlide {
+pub struct EffectiveGlide {
     #[allow(dead_code)]
     speed: f32,
     glide_ratio: f32,
 }
 
-fn get_effective_glide_ratio(
+pub fn get_effective_glide_ratio(
     effective_wind_angle: f32,
     wind_speed: f32,
     trim_speed: f32,
