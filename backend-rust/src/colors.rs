@@ -21,16 +21,16 @@ pub fn lerp<const S: usize>(lerp_colors: &[[f32; 4]; S], steps: &[f32; S], s: f3
             );
         }
     }
-    return lerp_colors[S - 1];
+    lerp_colors[S - 1]
 }
 
 pub fn f32_color_to_u8(color: [f32; 4]) -> [u8; 4] {
-    return [
-        color[0].trunc().min(255.0).max(0.0) as u8,
-        color[1].trunc().min(255.0).max(0.0) as u8,
-        color[2].trunc().min(255.0).max(0.0) as u8,
-        color[3].trunc().min(255.0).max(0.0) as u8,
-    ];
+    [
+        color[0].trunc().clamp(0.0, 255.0) as u8,
+        color[1].trunc().clamp(0.0, 255.0) as u8,
+        color[2].trunc().clamp(0.0, 255.0) as u8,
+        color[3].trunc().clamp(0.0, 255.0) as u8,
+    ]
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ fn test_search() {
         additional_height: 10.0,
         safety_margin: 0.0,
         start_distance: 0.0,
+        start_height: None,
     };
-    let result = search_from_point(47.695412103118734, 11.868152618408203, 200.0, query);
+    let _ = search_from_point(47.6954, 11.8681, 200.0, query);
 }

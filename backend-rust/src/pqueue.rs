@@ -23,7 +23,7 @@ impl<K: Eq + Hash, V: Clone> MapLike<K, V> for HashMapWrap<K, V> {
     }
 
     fn get(&self, key: &K) -> Option<V> {
-        self.hash_map.get(key).map(|x| x.clone())
+        self.hash_map.get(key).cloned()
     }
 
     fn remove_entry(&mut self, key: &K) {
@@ -65,6 +65,10 @@ impl<P, V, K, MapType: MapLike<K, usize>> PriorityQueue<P, V, K, MapType> {
         self.heap.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.heap.is_empty()
+    }
+
     pub fn capacity(&self) -> usize {
         self.heap.capacity()
     }
@@ -76,6 +80,12 @@ impl<P, V, K, MapType: Default + MapLike<K, usize>> PriorityQueue<P, V, K, MapTy
             heap: Vec::new(),
             positions: MapType::default(),
         }
+    }
+}
+
+impl<P, V, K, MapType: Default + MapLike<K, usize>> Default for PriorityQueue<P, V, K, MapType> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -98,11 +108,11 @@ impl<P, V, K, MapType: MapLike<K, usize>> PriorityQueue<P, V, K, MapType> {
 impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
     PriorityQueue<P, V, K, MapType>
 {
-    pub fn push(&mut self, key: K, item: V, priority: P) -> () {
+    pub fn push(&mut self, key: K, item: V, priority: P) {
         self.heap.push(HeapNode {
-            priority: priority,
-            item: item,
-            key: key,
+            priority,
+            item,
+            key,
         });
 
         let ix = self.heap.len() - 1;
@@ -139,8 +149,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
         let ix = self
             .positions
             .get(&key)
-            .expect("Update priority called with invalid key")
-            .clone();
+            .expect("Update priority called with invalid key");
 
         let node = self.heap.get_mut(ix).unwrap();
         let old_priority = node.priority;
@@ -168,11 +177,11 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             return Some(element);
         }
 
-        self.positions.set(self.heap.get(0).unwrap().key, 0);
+        self.positions.set(self.heap.first()?.key, 0);
 
         self.siftdown(0);
 
-        return Some(element);
+        Some(element)
     }
 
     pub fn contains_key(&self, key: &K) -> bool {
@@ -181,18 +190,12 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
 
     pub fn get(&self, key: &K) -> Option<&HeapNode<P, V, K>> {
         let position = self.positions.get(key);
-        if position.is_none() {
-            return None;
-        }
-        self.heap.get(position.unwrap())
+        self.heap.get(position?)
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut HeapNode<P, V, K>> {
         let position = self.positions.get(key);
-        if position.is_none() {
-            return None;
-        }
-        self.heap.get_mut(position.unwrap())
+        self.heap.get_mut(position?)
     }
 
     fn siftup(&mut self, mut ix: usize) -> usize {
@@ -216,7 +219,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
 
         self.positions.set(key, ix);
 
-        return ix;
+        ix
     }
 
     fn siftdown(&mut self, mut ix: usize) -> usize {
@@ -259,7 +262,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
 
         self.positions.set(newitem_key, ix);
 
-        return ix;
+        ix
     }
 }
 
@@ -286,7 +289,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> I
     type Item = HeapNode<P, V, K>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        return self.priority_queue.pop();
+        self.priority_queue.pop()
     }
 }
 
