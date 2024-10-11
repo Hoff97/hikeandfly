@@ -1,9 +1,11 @@
 use core::f32;
 use std::{
-    cmp::{max, min},
+    cmp::{max, min, Ordering},
     collections::HashSet,
     iter::zip,
 };
+
+use std::ops::Fn;
 
 use ndarray::{linspace, s};
 
@@ -141,36 +143,41 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     }
 }
 
-pub type PQueue = PriorityQueue<f32, Node, GridIx, FakeHashMapForGrid>;
+pub type PQueue<C> = PriorityQueue<Node, GridIx, C, FakeHashMapForGrid>;
 
-pub struct SearchState {
+pub struct SearchState<C: Fn(&Node, &Node) -> Ordering> {
     pub explored: Explored,
-    pub queue: PQueue,
+    pub queue: PQueue<C>,
 }
 
-pub fn put_node(queue: &mut PQueue, node: Node) {
+pub fn put_node<C: Fn(&Node, &Node) -> Ordering>(queue: &mut PQueue<C>, node: Node) {
     if queue.contains_key(&node.ix) {
-        let item = queue.update_priority_if_less(node.ix, node.distance);
-        if item.is_some() {
-            item.unwrap().item = node;
+        if (queue.comp)(&node, &queue.get(&node.ix).unwrap().item) != Ordering::Less {
+            return;
         }
+        let item = queue.get_mut(&node.ix).unwrap();
+        let ix = node.ix;
+        item.item = node;
+
+        queue.correct_position(ix);
     } else {
-        let prio = node.distance;
-        queue.push(node.ix, node, prio);
+        queue.push(node.ix, node);
     }
 }
 
-impl SearchState {
+impl<C: Fn(&Node, &Node) -> Ordering> SearchState<C> {
     pub fn put_node(&mut self, node: Node) {
         if self.queue.contains_key(&node.ix) {
-            let item = self
-                .queue
-                .update_priority_if_less(node.ix, node.distance)
-                .unwrap();
+            if (self.queue.comp)(&node, &self.queue.get(&node.ix).unwrap().item) != Ordering::Less {
+                return;
+            }
+            let item = self.queue.get_mut(&node.ix).unwrap();
+            let ix = node.ix;
             item.item = node;
+
+            self.queue.correct_position(ix);
         } else {
-            let prio = node.distance;
-            self.queue.push(node.ix, node, prio);
+            self.queue.push(node.ix, node);
         }
     }
 }
@@ -325,12 +332,12 @@ fn get_straight_line_ref<'a>(ix: GridIx, neighbor: &'a Node, explored: &'a Explo
     n
 }
 
-pub fn update_one_neighbor(
+pub fn update_one_neighbor<C: Fn(&Node, &Node) -> Ordering>(
     neighbor: &Node,
     ix: GridIx,
     config: &SearchConfig,
     explored: &Explored,
-    queue: &mut PQueue,
+    queue: &mut PQueue<C>,
     do_intersection_check_opt: Option<bool>,
 ) {
     let do_intersection_check = do_intersection_check_opt.unwrap_or(false);
@@ -384,25 +391,25 @@ pub fn update_one_neighbor(
     )
 }
 
-pub fn update_two_with_different_references(
+pub fn update_two_with_different_references<C: Fn(&Node, &Node) -> Ordering>(
     neighbor_1: &Node,
     neighbor_2: &Node,
     ix: GridIx,
     config: &SearchConfig,
     explored: &Explored,
-    queue: &mut PQueue,
+    queue: &mut PQueue<C>,
 ) {
     update_one_neighbor(neighbor_1, ix, config, explored, queue, Some(true));
     update_one_neighbor(neighbor_2, ix, config, explored, queue, Some(true));
 }
 
-pub fn update_two_neighbors(
+pub fn update_two_neighbors<C: Fn(&Node, &Node) -> Ordering>(
     neighbor_1: &Node,
     neighbor_2: &Node,
     ix: GridIx,
     config: &SearchConfig,
     explored: &Explored,
-    queue: &mut PQueue,
+    queue: &mut PQueue<C>,
 ) {
     if neighbor_1.reachable && neighbor_2.reachable {
         let ref_path_intersection = ref_paths_intersection(
@@ -469,12 +476,12 @@ pub fn update_two_neighbors(
     }
 }
 
-pub fn update_three_neighbors(
+pub fn update_three_neighbors<C: Fn(&Node, &Node) -> Ordering>(
     explored_neighbors: Vec<GridIx>,
     ix: GridIx,
     config: &SearchConfig,
     explored: &Explored,
-    queue: &mut PQueue,
+    queue: &mut PQueue<C>,
 ) {
     let mut reachable = Vec::from_iter(
         explored_neighbors
@@ -511,12 +518,12 @@ pub fn update_three_neighbors(
     }
 }
 
-pub fn update_four_neighbors(
+pub fn update_four_neighbors<C: Fn(&Node, &Node) -> Ordering>(
     explored_neighbors: Vec<GridIx>,
     ix: GridIx,
     config: &SearchConfig,
     explored: &Explored,
-    queue: &mut PQueue,
+    queue: &mut PQueue<C>,
 ) {
     let mut reachable = Vec::from_iter(
         explored_neighbors
@@ -548,7 +555,11 @@ pub fn update_four_neighbors(
     }
 }
 
-pub fn update_node(ix: GridIx, config: &SearchConfig, state: &mut SearchState) {
+pub fn update_node<C: Fn(&Node, &Node) -> Ordering>(
+    ix: GridIx,
+    config: &SearchConfig,
+    state: &mut SearchState<C>,
+) {
     let neighbors = get_neighbor_indices(ix, &config.grid);
     let explored_neighbors: Vec<GridIx> = neighbors
         .into_iter()
@@ -597,11 +608,25 @@ pub fn update_node(ix: GridIx, config: &SearchConfig, state: &mut SearchState) {
     }
 }
 
-pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState {
+pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> Explored {
     let grid_shape = config.grid.heights.shape();
+
+    let cmp_nodes = |a: &Node, b: &Node| {
+        let dist = l2_distance(a.ix, b.ix);
+
+        if a.height - config.query.glide_ratio * dist > b.height {
+            return Ordering::Less;
+        }
+
+        Ordering::Equal
+    };
+
     let mut state = SearchState {
         explored: Explored::new((grid_shape[0], grid_shape[1])),
-        queue: PQueue::new_with_map(FakeHashMapForGrid::new((grid_shape[0], grid_shape[1]))),
+        queue: PQueue::new_with_map(
+            cmp_nodes,
+            FakeHashMapForGrid::new((grid_shape[0], grid_shape[1])),
+        ),
     };
     state.put_node(Node {
         height,
@@ -623,7 +648,7 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
             }
         }
     }
-    state
+    state.explored
 }
 
 pub fn ref_paths_intersection(
@@ -862,17 +887,14 @@ pub fn search_from_point(
 ) -> SearchResult {
     let search_setup = prepare_search(latitude, longitude, cell_size, query);
 
-    let state = search(
+    let explored = search(
         search_setup.start_ix,
         search_setup.start_height,
         &search_setup.config,
     );
 
-    let (explored, new_grid, new_start_ix) = reindex(
-        state.explored,
-        &search_setup.config.grid,
-        search_setup.start_ix,
-    );
+    let (explored, new_grid, new_start_ix) =
+        reindex(explored, &search_setup.config.grid, search_setup.start_ix);
 
     SearchResult {
         explored,

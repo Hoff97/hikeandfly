@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -48,19 +49,24 @@ impl<K, V> Default for HashMapWrap<K, V> {
 }
 
 #[derive(Debug)]
-pub struct HeapNode<P, V, K> {
-    pub priority: P,
+pub struct HeapNode<V, K> {
     pub item: V,
     pub key: K,
 }
 
 #[derive(Debug)]
-pub struct PriorityQueue<P, V, K, MapType: MapLike<K, usize> = HashMapWrap<K, usize>> {
-    heap: Vec<HeapNode<P, V, K>>,
-    positions: MapType,
+pub struct PriorityQueue<
+    V,
+    K,
+    C: Fn(&V, &V) -> Ordering,
+    MapType: MapLike<K, usize> = HashMapWrap<K, usize>,
+> {
+    pub heap: Vec<HeapNode<V, K>>,
+    pub positions: MapType,
+    pub comp: C,
 }
 
-impl<P, V, K, MapType: MapLike<K, usize>> PriorityQueue<P, V, K, MapType> {
+impl<V, K, C: Fn(&V, &V) -> Ordering, MapType: MapLike<K, usize>> PriorityQueue<V, K, C, MapType> {
     pub fn len(&self) -> usize {
         self.heap.len()
     }
@@ -74,46 +80,41 @@ impl<P, V, K, MapType: MapLike<K, usize>> PriorityQueue<P, V, K, MapType> {
     }
 }
 
-impl<P, V, K, MapType: Default + MapLike<K, usize>> PriorityQueue<P, V, K, MapType> {
-    pub fn new() -> Self {
+impl<V, K, C: Fn(&V, &V) -> Ordering, MapType: Default + MapLike<K, usize>>
+    PriorityQueue<V, K, C, MapType>
+{
+    pub fn new(comp: C) -> Self {
         Self {
             heap: Vec::new(),
             positions: MapType::default(),
+            comp,
         }
     }
 }
 
-impl<P, V, K, MapType: Default + MapLike<K, usize>> Default for PriorityQueue<P, V, K, MapType> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<P, V, K, MapType: MapLike<K, usize>> PriorityQueue<P, V, K, MapType> {
-    pub fn new_with_map(map: MapType) -> Self {
+impl<V, K, C: Fn(&V, &V) -> Ordering, MapType: MapLike<K, usize>> PriorityQueue<V, K, C, MapType> {
+    pub fn new_with_map(comp: C, map: MapType) -> Self {
         Self {
             heap: Vec::new(),
             positions: map,
+            comp,
         }
     }
 
-    pub fn new_with_map_and_capacity(map: MapType, capacity: usize) -> Self {
+    pub fn new_with_map_and_capacity(comp: C, map: MapType, capacity: usize) -> Self {
         Self {
             heap: Vec::with_capacity(capacity),
             positions: map,
+            comp,
         }
     }
 }
 
-impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
-    PriorityQueue<P, V, K, MapType>
+impl<V, K: Eq + Hash + Copy, C: Fn(&V, &V) -> Ordering, MapType: MapLike<K, usize>>
+    PriorityQueue<V, K, C, MapType>
 {
-    pub fn push(&mut self, key: K, item: V, priority: P) {
-        self.heap.push(HeapNode {
-            priority,
-            item,
-            key,
-        });
+    pub fn push(&mut self, key: K, item: V) {
+        self.heap.push(HeapNode { item, key });
 
         let ix = self.heap.len() - 1;
 
@@ -122,48 +123,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
         self.siftup(ix);
     }
 
-    pub fn update_priority(&mut self, key: K, priority: P) -> &mut HeapNode<P, V, K> {
-        let ix = self
-            .positions
-            .get(&key)
-            .expect("Update priority called with invalid key");
-
-        let node = self.heap.get_mut(ix).unwrap();
-        let old_priority = node.priority;
-        node.priority = priority;
-
-        let new_ix = if old_priority > priority {
-            self.siftup(ix)
-        } else {
-            self.siftdown(ix)
-        };
-
-        return self.heap.get_mut(new_ix).unwrap();
-    }
-
-    pub fn update_priority_if_less(
-        &mut self,
-        key: K,
-        priority: P,
-    ) -> Option<&mut HeapNode<P, V, K>> {
-        let ix = self
-            .positions
-            .get(&key)
-            .expect("Update priority called with invalid key");
-
-        let node = self.heap.get_mut(ix).unwrap();
-        let old_priority = node.priority;
-
-        if old_priority <= priority {
-            return None;
-        }
-        node.priority = priority;
-        let new_ix = self.siftup(ix);
-
-        return self.heap.get_mut(new_ix);
-    }
-
-    pub fn pop(&mut self) -> Option<HeapNode<P, V, K>> {
+    pub fn pop(&mut self) -> Option<HeapNode<V, K>> {
         let len = self.len();
         if len == 0 {
             return None;
@@ -188,27 +148,30 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
         self.positions.contains_key(key)
     }
 
-    pub fn get(&self, key: &K) -> Option<&HeapNode<P, V, K>> {
+    pub fn get(&self, key: &K) -> Option<&HeapNode<V, K>> {
         let position = self.positions.get(key);
         self.heap.get(position?)
     }
 
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut HeapNode<P, V, K>> {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut HeapNode<V, K>> {
         let position = self.positions.get(key);
         self.heap.get_mut(position?)
     }
 
+    pub fn correct_position(&mut self, key: K) {
+        let position = self.positions.get(&key).unwrap();
+        self.siftup(position);
+    }
+
     fn siftup(&mut self, mut ix: usize) -> usize {
-        let newitem: &HeapNode<P, V, K> =
-            self.heap.get(ix).expect("siftup called with invalid index");
+        let newitem: &HeapNode<V, K> = self.heap.get(ix).expect("siftup called with invalid index");
         let key = newitem.key;
-        let priority = newitem.priority;
 
         while ix > 0 {
             let parent_ix = (ix - 1) >> 1;
             let parent = self.heap.get(parent_ix).unwrap();
             let parent_key = parent.key;
-            if priority >= parent.priority {
+            if (self.comp)(&self.heap.get(ix).unwrap().item, &parent.item) != Ordering::Less {
                 break;
             }
 
@@ -228,7 +191,6 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             .heap
             .get(ix)
             .expect("siftdown called with invalid index");
-        let newitem_priority = newitem.priority;
         let newitem_key = newitem.key;
 
         // Bubble up the smaller child until hitting a leaf.
@@ -239,17 +201,18 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             let right_ix = child_ix + 1;
 
             if right_ix < end_ix
-                && self.heap.get(right_ix).unwrap().priority
-                    < self.heap.get(child_ix).unwrap().priority
+                && (self.comp)(
+                    &self.heap.get(right_ix).unwrap().item,
+                    &self.heap.get(child_ix).unwrap().item,
+                ) == Ordering::Less
             {
                 child_ix = right_ix
             }
             // Move the smaller child up.
             let child = self.heap.get(child_ix).unwrap();
             let child_key = child.key;
-            let child_priority = child.priority;
 
-            if child_priority >= newitem_priority {
+            if (self.comp)(&child.item, &self.heap.get(ix).unwrap().item) != Ordering::Less {
                 break;
             }
 
@@ -266,15 +229,15 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
     }
 }
 
-pub struct PriorityQueueIterator<P, V, K, MapType: MapLike<K, usize>> {
-    priority_queue: PriorityQueue<P, V, K, MapType>,
+pub struct PriorityQueueIterator<V, K, C: Fn(&V, &V) -> Ordering, MapType: MapLike<K, usize>> {
+    priority_queue: PriorityQueue<V, K, C, MapType>,
 }
 
-impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> IntoIterator
-    for PriorityQueue<P, V, K, MapType>
+impl<V, K: Eq + Hash + Copy, C: Fn(&V, &V) -> Ordering, MapType: MapLike<K, usize>> IntoIterator
+    for PriorityQueue<V, K, C, MapType>
 {
-    type Item = HeapNode<P, V, K>;
-    type IntoIter = PriorityQueueIterator<P, V, K, MapType>;
+    type Item = HeapNode<V, K>;
+    type IntoIter = PriorityQueueIterator<V, K, C, MapType>;
 
     fn into_iter(self) -> Self::IntoIter {
         PriorityQueueIterator {
@@ -283,10 +246,10 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> I
     }
 }
 
-impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> Iterator
-    for PriorityQueueIterator<P, V, K, MapType>
+impl<V, K: Eq + Hash + Copy, C: Fn(&V, &V) -> Ordering, MapType: MapLike<K, usize>> Iterator
+    for PriorityQueueIterator<V, K, C, MapType>
 {
-    type Item = HeapNode<P, V, K>;
+    type Item = HeapNode<V, K>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.priority_queue.pop()
