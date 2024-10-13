@@ -1,51 +1,6 @@
-use std::collections::HashMap;
 use std::hash::Hash;
 
-pub trait MapLike<K, V> {
-    fn insert(&mut self, key: K, value: V);
-
-    fn get(&self, key: &K) -> Option<V>;
-
-    fn remove_entry(&mut self, key: &K);
-
-    fn contains_key(&self, key: &K) -> bool;
-
-    fn set(&mut self, key: K, value: V);
-}
-
-pub struct HashMapWrap<K, V> {
-    hash_map: HashMap<K, V>,
-}
-
-impl<K: Eq + Hash, V: Clone> MapLike<K, V> for HashMapWrap<K, V> {
-    fn insert(&mut self, key: K, value: V) {
-        self.hash_map.insert(key, value);
-    }
-
-    fn get(&self, key: &K) -> Option<V> {
-        self.hash_map.get(key).cloned()
-    }
-
-    fn remove_entry(&mut self, key: &K) {
-        self.hash_map.remove_entry(key);
-    }
-
-    fn contains_key(&self, key: &K) -> bool {
-        self.hash_map.contains_key(key)
-    }
-
-    fn set(&mut self, key: K, value: V) {
-        self.hash_map.insert(key, value);
-    }
-}
-
-impl<K, V> Default for HashMapWrap<K, V> {
-    fn default() -> HashMapWrap<K, V> {
-        HashMapWrap {
-            hash_map: HashMap::<K, V>::new(),
-        }
-    }
-}
+use crate::map_like::{HashMapWrap, MapLike};
 
 #[derive(Debug)]
 pub struct HeapNode<P, V, K> {
@@ -139,6 +94,10 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
         };
 
         return self.heap.get_mut(new_ix).unwrap();
+    }
+
+    pub fn top_priority(&self) -> Option<P> {
+        self.heap.first().map(|node| node.priority)
     }
 
     pub fn update_priority_if_less(

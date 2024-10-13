@@ -194,6 +194,7 @@ dependencies = [
  "image",
  "ndarray",
  "num-traits",
+ "ordered-float",
  "proptest",
  "quick-xml",
  "rocket",
@@ -1380,6 +1381,15 @@ name = "oorandom"
 version = "11.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b410bbe7e14ab526a0e86877eb47c6996a2bd7746f027ba551028c925390e4e9"
+
+[[package]]
+name = "ordered-float"
+version = "4.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44d501f1a72f71d3c063a6bbc8f7271fa73aa09fe5d6283b6571e2ed176a2537"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "overload"

@@ -9,13 +9,15 @@ use ndarray::{linspace, s};
 
 use crate::{
     height_data::{get_height_at_point, get_height_data_around_point, HeightGrid},
-    pqueue::{MapLike, PriorityQueue},
+    map_like::MapLike,
+    pqueue::PriorityQueue,
+    radix_heap::{Radix, RadixHeap},
 };
 
 pub type GridIxType = u16;
 pub type GridIx = (GridIxType, GridIxType);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Node {
     pub height: f32,
     pub ix: GridIx,
@@ -99,7 +101,7 @@ impl GridMap {
 //pub type Explored = HashMap<GridIx, Node>;
 pub type Explored = GridMap;
 
-pub type FakeHashMapPos = u16;
+pub type FakeHashMapPos = (u16, u16);
 
 pub struct FakeHashMapForGrid {
     positions: Vec<FakeHashMapPos>,
@@ -110,68 +112,56 @@ impl FakeHashMapForGrid {
     pub fn new(grid_shape: (usize, usize)) -> FakeHashMapForGrid {
         FakeHashMapForGrid {
             grid_shape,
-            positions: vec![FakeHashMapPos::MAX; grid_shape.0 * grid_shape.1],
+            positions: vec![(u16::MAX, u16::MAX); grid_shape.0 * grid_shape.1],
         }
     }
 }
 
-impl MapLike<GridIx, usize> for FakeHashMapForGrid {
-    fn insert(&mut self, key: GridIx, value: usize) {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] = value as u16;
+impl MapLike<GridIx, (usize, usize)> for FakeHashMapForGrid {
+    fn insert(&mut self, key: GridIx, value: (usize, usize)) {
+        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] =
+            (value.0 as u16, value.1 as u16);
     }
 
-    fn get(&self, key: &GridIx) -> Option<usize> {
+    fn get(&self, key: &GridIx) -> Option<(usize, usize)> {
         let v = self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize];
-        if v == FakeHashMapPos::MAX {
+        if v.0 == u16::MAX {
             return None;
         }
-        Some(v as usize)
+        Some((v.0 as usize, v.1 as usize))
     }
 
     fn remove_entry(&mut self, key: &GridIx) {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] = FakeHashMapPos::MAX;
+        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] = (u16::MAX, u16::MAX);
     }
 
     fn contains_key(&self, key: &GridIx) -> bool {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] != FakeHashMapPos::MAX
+        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] != (u16::MAX, u16::MAX)
     }
 
-    fn set(&mut self, key: GridIx, value: usize) {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] = value as u16;
+    fn set(&mut self, key: GridIx, value: (usize, usize)) {
+        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] =
+            (value.0 as u16, value.1 as u16);
     }
 }
 
-pub type PQueue = PriorityQueue<f32, Node, GridIx, FakeHashMapForGrid>;
+//pub type PQueue = PriorityQueue<f32, Node, GridIx, FakeHashMapForGrid>;
+pub type PQueue = RadixHeap<u32, Node, GridIx, FakeHashMapForGrid>;
 
 pub struct SearchState {
     pub explored: Explored,
     pub queue: PQueue,
 }
 
-pub fn put_node(queue: &mut PQueue, node: Node) {
+pub fn put_node(queue: &mut PQueue, config: &SearchConfig, node: Node) {
+    let p = (node.distance / config.grid.cell_size).floor() as u32;
     if queue.contains_key(&node.ix) {
-        let item = queue.update_priority_if_less(node.ix, node.distance);
+        let item = queue.update_priority_if_less(node.ix, p);
         if item.is_some() {
             item.unwrap().item = node;
         }
     } else {
-        let prio = node.distance;
-        queue.push(node.ix, node, prio);
-    }
-}
-
-impl SearchState {
-    pub fn put_node(&mut self, node: Node) {
-        if self.queue.contains_key(&node.ix) {
-            let item = self
-                .queue
-                .update_priority_if_less(node.ix, node.distance)
-                .unwrap();
-            item.item = node;
-        } else {
-            let prio = node.distance;
-            self.queue.push(node.ix, node, prio);
-        }
+        queue.push(node.ix, node, p);
     }
 }
 
@@ -317,6 +307,10 @@ fn get_straight_line_ref<'a>(ix: GridIx, neighbor: &'a Node, explored: &'a Explo
     let mut n = neighbor;
     while n.reference.is_some() {
         if is_straight(l2_diff(n.reference.unwrap(), ix)) {
+            /*println!("{:?} -> {:?}", n.ix, n.reference.unwrap());
+            if !explored.contains_key(&n.reference.unwrap()) {
+                println!("Not found - WTF!");
+            }*/
             n = explored.get(&n.reference.unwrap()).unwrap()
         } else {
             break;
@@ -373,6 +367,7 @@ pub fn update_one_neighbor(
 
     put_node(
         queue,
+        &config,
         Node {
             height,
             ix,
@@ -448,6 +443,7 @@ pub fn update_two_neighbors(
 
             put_node(
                 queue,
+                &config,
                 Node {
                     height,
                     ix,
@@ -527,6 +523,7 @@ pub fn update_four_neighbors(
     if reachable.is_empty() {
         put_node(
             queue,
+            &config,
             Node {
                 height: 0.0,
                 ix,
@@ -601,19 +598,24 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
     let grid_shape = config.grid.heights.shape();
     let mut state = SearchState {
         explored: Explored::new((grid_shape[0], grid_shape[1])),
-        queue: PQueue::new_with_map(FakeHashMapForGrid::new((grid_shape[0], grid_shape[1]))),
+        queue: PQueue::new_with_map(FakeHashMapForGrid::new((grid_shape[0], grid_shape[1])), 0),
     };
-    state.put_node(Node {
-        height,
-        ix: start,
-        reference: None,
-        distance: 0.0,
-        reachable: true,
-        effective_glide_ratio: config.query.glide_ratio,
-    });
+    put_node(
+        &mut state.queue,
+        &config,
+        Node {
+            height,
+            ix: start,
+            reference: None,
+            distance: 0.0,
+            reachable: true,
+            effective_glide_ratio: config.query.glide_ratio,
+        },
+    );
 
     while !state.queue.is_empty() {
         let first = state.queue.pop().unwrap();
+        //println!("Popped: {:?} {:?}", first.item.distance, first.priority);
         state.explored.insert(first.key, first.item);
 
         let neighbors = get_neighbor_indices(first.key, &config.grid);
