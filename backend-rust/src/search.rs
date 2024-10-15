@@ -3,6 +3,10 @@ use std::{
     cmp::{max, min},
     collections::HashSet,
     iter::zip,
+    simd::{
+        num::{SimdFloat, SimdInt},
+        LaneCount, Simd, SupportedLaneCount,
+    },
 };
 
 use ndarray::{linspace, s};
@@ -10,6 +14,7 @@ use ndarray::{linspace, s};
 use crate::{
     height_data::{get_height_at_point, get_height_data_around_point, HeightGrid},
     pqueue::{MapLike, PriorityQueue},
+    simd_linspace::linspace_simd,
 };
 
 pub type GridIxType = u16;
@@ -352,7 +357,7 @@ pub fn update_one_neighbor(
             }
         }
 
-        if is_line_intersecting(reference, ix, config) {
+        if is_line_intersecting_simd::<4>(reference, ix, config) {
             reference = neighbor;
         }
     }
@@ -717,6 +722,74 @@ pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> boo
                 return true;
             }
         }
+    }
+    false
+}
+
+pub fn is_line_intersecting_simd<const U: usize>(
+    to: &Node,
+    ix: GridIx,
+    config: &SearchConfig,
+) -> bool
+where
+    LaneCount<U>: SupportedLaneCount,
+{
+    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, to.ix);
+    if f32::is_infinite(effective_glide.glide_ratio) {
+        return true;
+    }
+
+    let length = l2_distance(to.ix, ix);
+
+    let i_len = length.ceil() as usize;
+
+    let x_indices = linspace_simd::<U>(u16_f32(to.ix.0), u16_f32(ix.0), i_len);
+    let y_indices = linspace_simd::<U>(u16_f32(to.ix.1), u16_f32(ix.1), i_len);
+
+    let distance = length * config.grid.cell_size;
+
+    let real_heights = linspace_simd::<U>(
+        to.height,
+        to.height - distance * effective_glide.glide_ratio,
+        i_len,
+    );
+
+    if config.query.safety_margin == 0.0 || to.distance + distance <= config.query.start_distance {
+        for ((x_i, y_i), real_height) in
+            zip(zip(x_indices.iter(), y_indices.iter()), real_heights.iter())
+        {
+            let x_i_u = x_i.cast::<usize>();
+            let y_i_u = y_i.cast::<usize>();
+            let x_mul = Simd::<_, U>::splat(config.grid.heights.shape()[1]);
+
+            let heights = config.grid.heights.as_slice().unwrap();
+
+            let heights_indices = x_i_u * x_mul + y_i_u;
+
+            let terrain_heights = Simd::gather_or_default(heights, heights_indices);
+
+            if (real_height - terrain_heights.cast::<f32>())
+                .is_sign_negative()
+                .any()
+            {
+                return true;
+            }
+        }
+
+        for ((x_i, y_i), real_height) in zip(
+            zip(x_indices.reminder(), y_indices.reminder()),
+            real_heights.reminder(),
+        ) {
+            if real_height < config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32 {
+                return true;
+            }
+        }
+    } else if to.distance < config.query.start_distance
+        && to.distance + distance > config.query.start_distance
+    {
+        // TODO
+    } else {
+        // TODO
     }
     false
 }
