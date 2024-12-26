@@ -168,8 +168,10 @@ pub fn search_from_request(
         .unwrap_or(START_DISTANCE_DEFAULT)
         .max(START_DISTANCE_MINIMUM);
 
-    let lat_rounded = (lat * 1000.0).round() / 1000.0;
-    let lon_rounded = (lon * 1000.0).round() / 1000.0;
+    let accuracy = 10000.0;
+
+    let lat_rounded = (lat * accuracy).round() / accuracy;
+    let lon_rounded = (lon * accuracy).round() / accuracy;
 
     let (explored, grid, height_at_start, start_ix) = search_from_point_memoized(
         Distance(lat_rounded),
