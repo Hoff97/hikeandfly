@@ -38,6 +38,12 @@
             "label": "Benchmark search",
             "command": "cargo flamegraph --bench search_benchmark -- --bench",
             "problemMatcher": []
+        },
+        {
+            "type": "shell",
+            "label": "Run clippy",
+            "command": "cargo clippy --all-targets --all-features -- -D warnings",
+            "problemMatcher": []
         }
     ]
 }

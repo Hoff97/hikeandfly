@@ -32,7 +32,7 @@ pub fn get_file_name(latitude: i32, longitude: i32) -> String {
         format!("W{:03}", -longitude)
     };
 
-    return format!("./data/{}{}.hgt", lat_string, lon_string);
+    format!("./data/{}{}.hgt", lat_string, lon_string)
 }
 
 pub fn location_supported(latitude: f32, longitude: f32) -> bool {
@@ -41,7 +41,7 @@ pub fn location_supported(latitude: f32, longitude: f32) -> bool {
 
     let file_name = get_file_name(lat_i, lon_i);
 
-    return File::open(file_name).is_ok();
+    File::open(file_name).is_ok()
 }
 
 #[cached]
@@ -61,7 +61,7 @@ pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
     let mut result_vec: Vec<i16> = Vec::<i16>::with_capacity(content.len());
     for i in (0..content.len()).step_by(2) {
         let mut r = BigEndian::read_i16(&content[i..i + 2]);
-        if r < -1000 && result_vec.len() >= 1 {
+        if r < -1000 && !result_vec.is_empty() {
             r = result_vec[result_vec.len() - 1];
         }
         if r < -1000 && result_vec.len() >= shape {
@@ -70,7 +70,7 @@ pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
         if r < -1000 && result_vec.len() >= shape - 1 {
             r = result_vec[result_vec.len() - shape]
         }
-        if r < -1000 && result_vec.len() >= shape + 1 {
+        if r < -1000 && result_vec.len() > shape {
             r = result_vec[result_vec.len() - shape - 2]
         }
         if r < -1000 {
@@ -79,7 +79,7 @@ pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
         result_vec.push(r);
     }
 
-    return Array::from_shape_vec((shape, shape), result_vec).unwrap();
+    Array::from_shape_vec((shape, shape), result_vec).unwrap()
 }
 
 #[cached]
@@ -95,15 +95,15 @@ pub fn read_hgt_file(latitude: i32, longitude: i32) -> Vec<u8> {
 
     assert!(total_read == HGT_N_BYTES, "Wrong number of bytes read!");
 
-    return content;
+    content
 }
 
 pub fn arcsecond_in_meters(latitude: f32) -> f32 {
-    return (latitude * ANGLE_TO_RADIANS).cos() * ARC_SECOND_IN_M_EQUATOR;
+    (latitude * ANGLE_TO_RADIANS).cos() * ARC_SECOND_IN_M_EQUATOR
 }
 
 pub fn meter_in_arcseconds(latitude: f32) -> f32 {
-    return 1.0 / arcsecond_in_meters(latitude);
+    1.0 / arcsecond_in_meters(latitude)
 }
 
 #[derive(Clone)]
@@ -141,7 +141,7 @@ pub fn scale_2d_array(values: &ArrayView<'_, i16, Ix2>, scales: (f32, f32)) -> A
     let mut result = Array2::zeros((n_elems_x, n_elems_y));
     for (new_x, old_x) in x_indices.iter().enumerate() {
         for (new_y, old_y) in y_indices.iter().enumerate() {
-            result[[new_x, new_y]] = values[[old_x.clone() as usize, old_y.clone() as usize]]
+            result[[new_x, new_y]] = values[[*old_x as usize, *old_y as usize]]
         }
     }
     result
@@ -187,10 +187,7 @@ pub fn get_height_at_point(latitude: f32, longitude: f32) -> i16 {
     let lat_ix = ((latitude - lat_i) * usize_f32(data.shape()[0])).trunc() as usize;
     let lon_ix = ((longitude - lon_i) * usize_f32(data.shape()[1])).trunc() as usize;
 
-    return data
-        .get((data.shape()[0] - lat_ix - 1, lon_ix))
-        .unwrap()
-        .clone();
+    *data.get((data.shape()[0] - lat_ix - 1, lon_ix)).unwrap()
 }
 
 pub fn get_height_data_around_point(
@@ -273,13 +270,13 @@ pub fn get_height_data_around_point(
         ),
     );
 
-    return HeightGrid {
+    HeightGrid {
         heights: final_grid,
         cell_size: max_resolution,
         min_cell_size: max_resolution,
         latitudes: (lower_latitude, upper_latitude),
         longitudes: (lower_longitude, upper_longitude),
-    };
+    }
 }
 
 #[cfg(test)]

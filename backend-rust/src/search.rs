@@ -1,15 +1,14 @@
+use core::f32;
 use std::{
     cmp::{max, min},
     collections::HashSet,
     iter::zip,
-    usize,
 };
 
 use ndarray::{linspace, s};
 
 use crate::{
     height_data::{get_height_at_point, get_height_data_around_point, HeightGrid},
-    line::Line,
     pqueue::{MapLike, PriorityQueue},
 };
 
@@ -54,7 +53,7 @@ impl GridMap {
     fn new(grid_shape: (usize, usize)) -> GridMap {
         GridMap {
             values: vec![None; grid_shape.0 * grid_shape.1],
-            grid_shape: grid_shape,
+            grid_shape,
         }
     }
 
@@ -82,7 +81,7 @@ impl GridMap {
                 if n.ix.0 >= lat.0 && n.ix.0 <= lat.1 && n.ix.1 >= lon.0 && n.ix.1 <= lon.1 {
                     let new_lat = n.ix.0 - lat.0;
                     let new_lon = n.ix.1 - lon.0;
-                    result.insert((new_lat, new_lon), reindex_node(&n, lat, lon));
+                    result.insert((new_lat, new_lon), reindex_node(n, lat, lon));
                 }
             }
         }
@@ -110,7 +109,7 @@ pub struct FakeHashMapForGrid {
 impl FakeHashMapForGrid {
     pub fn new(grid_shape: (usize, usize)) -> FakeHashMapForGrid {
         FakeHashMapForGrid {
-            grid_shape: grid_shape,
+            grid_shape,
             positions: vec![FakeHashMapPos::MAX; grid_shape.0 * grid_shape.1],
         }
     }
@@ -176,12 +175,13 @@ impl SearchState {
     }
 }
 
-struct EffectiveGlide {
+pub struct EffectiveGlide {
+    #[allow(dead_code)]
     speed: f32,
     glide_ratio: f32,
 }
 
-fn get_effective_glide_ratio(
+pub fn get_effective_glide_ratio(
     effective_wind_angle: f32,
     wind_speed: f32,
     trim_speed: f32,
@@ -210,10 +210,10 @@ fn get_effective_glide_ratio(
 
     let effective_glide_ratio = glide_ratio / (effective_speed / trim_speed);
 
-    return EffectiveGlide {
+    EffectiveGlide {
         speed: effective_speed,
         glide_ratio: effective_glide_ratio,
-    };
+    }
 }
 
 pub struct SearchQuery {
@@ -237,7 +237,7 @@ impl SearchConfig {
         if distance < self.query.start_distance {
             return 0.0;
         }
-        return self.query.safety_margin;
+        self.query.safety_margin
     }
 }
 
@@ -257,7 +257,7 @@ pub fn get_neighbor_indices(ix: GridIx, height_grid: &HeightGrid) -> Vec<GridIx>
         result.push((ix.0, ix.1 + 1));
     }
 
-    return result;
+    result
 }
 
 pub fn l2_distance(a: GridIx, b: GridIx) -> f32 {
@@ -273,8 +273,7 @@ pub fn l2_diff(a: GridIx, b: GridIx) -> (i32, i32) {
     (a.0 as i32 - b.0 as i32, a.1 as i32 - b.1 as i32)
 }
 
-const PI: f32 = 3.14159265359;
-const PI_2: f32 = PI / 2.0;
+const PI_2: f32 = f32::consts::PI / 2.0;
 
 fn get_effective_glide_ratio_from_to(
     query: &SearchQuery,
@@ -293,12 +292,12 @@ fn get_effective_glide_ratio_from_to(
 
     let effective_wind_angle = (-query.wind_direction + PI_2) - angle;
 
-    return get_effective_glide_ratio(
+    get_effective_glide_ratio(
         effective_wind_angle,
         query.wind_speed,
         query.trim_speed,
         query.glide_ratio,
-    );
+    )
 }
 
 pub fn is_straight(a: (i32, i32)) -> bool {
@@ -323,7 +322,7 @@ fn get_straight_line_ref<'a>(ix: GridIx, neighbor: &'a Node, explored: &'a Explo
             break;
         }
     }
-    return n;
+    n
 }
 
 pub fn update_one_neighbor(
@@ -375,11 +374,11 @@ pub fn update_one_neighbor(
     put_node(
         queue,
         Node {
-            height: height,
-            ix: ix,
-            reference: Some(get_straight_line_ref(ix, reference, &explored).ix),
+            height,
+            ix,
+            reference: Some(get_straight_line_ref(ix, reference, explored).ix),
             distance: total_distance,
-            reachable: reachable,
+            reachable,
             effective_glide_ratio: effective_glide.glide_ratio,
         },
     )
@@ -450,11 +449,11 @@ pub fn update_two_neighbors(
             put_node(
                 queue,
                 Node {
-                    height: height,
-                    ix: ix,
+                    height,
+                    ix,
                     reference: ref_path_intersection,
                     distance: total_distance,
-                    reachable: reachable,
+                    reachable,
                     effective_glide_ratio: effective_glide.glide_ratio,
                 },
             )
@@ -484,31 +483,29 @@ pub fn update_three_neighbors(
             .map(|x| explored.get(x).unwrap()),
     );
 
-    if reachable.len() == 0 {
-        return;
-    } else if reachable.len() == 1 {
-        update_one_neighbor(&reachable[0], ix, config, explored, queue, None);
+    if reachable.len() == 1 {
+        update_one_neighbor(reachable[0], ix, config, explored, queue, None);
     } else if reachable.len() == 2 {
-        update_two_neighbors(&reachable[0], &reachable[1], ix, config, explored, queue);
+        update_two_neighbors(reachable[0], reachable[1], ix, config, explored, queue);
     } else if reachable.len() == 3 {
         let reference_set =
             HashSet::<Option<GridIx>>::from_iter(reachable.iter().map(|x| x.reference));
         if reference_set.len() == 3 {
             reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap()); // TODO: Sort needed
 
-            update_one_neighbor(&reachable[0], ix, config, explored, queue, None);
-            update_one_neighbor(&reachable[1], ix, config, explored, queue, None);
-            update_one_neighbor(&reachable[2], ix, config, explored, queue, None);
+            update_one_neighbor(reachable[0], ix, config, explored, queue, None);
+            update_one_neighbor(reachable[1], ix, config, explored, queue, None);
+            update_one_neighbor(reachable[2], ix, config, explored, queue, None);
         } else if reference_set.len() == 2 {
             if reachable[0].reference == reachable[1].reference {
-                update_two_neighbors(&reachable[0], &reachable[1], ix, config, explored, queue);
-                update_one_neighbor(&reachable[2], ix, config, explored, queue, None);
+                update_two_neighbors(reachable[0], reachable[1], ix, config, explored, queue);
+                update_one_neighbor(reachable[2], ix, config, explored, queue, None);
             } else if reachable[0].reference == reachable[2].reference {
-                update_two_neighbors(&reachable[0], &reachable[2], ix, config, explored, queue);
-                update_one_neighbor(&reachable[1], ix, config, explored, queue, None);
+                update_two_neighbors(reachable[0], reachable[2], ix, config, explored, queue);
+                update_one_neighbor(reachable[1], ix, config, explored, queue, None);
             } else {
-                update_two_neighbors(&reachable[1], &reachable[2], ix, config, explored, queue);
-                update_one_neighbor(&reachable[0], ix, config, explored, queue, None);
+                update_two_neighbors(reachable[1], reachable[2], ix, config, explored, queue);
+                update_one_neighbor(reachable[0], ix, config, explored, queue, None);
             }
         }
     }
@@ -527,12 +524,12 @@ pub fn update_four_neighbors(
             .filter(|x| explored.get(x).unwrap().reachable)
             .map(|x| explored.get(x).unwrap()),
     );
-    if reachable.len() == 0 {
+    if reachable.is_empty() {
         put_node(
             queue,
             Node {
                 height: 0.0,
-                ix: ix,
+                ix,
                 reference: None,
                 distance: 0.0,
                 reachable: false,
@@ -607,7 +604,7 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
         queue: PQueue::new_with_map(FakeHashMapForGrid::new((grid_shape[0], grid_shape[1]))),
     };
     state.put_node(Node {
-        height: height,
+        height,
         ix: start,
         reference: None,
         distance: 0.0,
@@ -615,18 +612,18 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
         effective_glide_ratio: config.query.glide_ratio,
     });
 
-    while state.queue.len() > 0 {
+    while !state.queue.is_empty() {
         let first = state.queue.pop().unwrap();
         state.explored.insert(first.key, first.item);
 
         let neighbors = get_neighbor_indices(first.key, &config.grid);
         for neighbor in neighbors {
             if !state.explored.contains_key(&neighbor) {
-                update_node(neighbor, &config, &mut state);
+                update_node(neighbor, config, &mut state);
             }
         }
     }
-    return state;
+    state
 }
 
 pub fn ref_paths_intersection(
@@ -642,18 +639,18 @@ pub fn ref_paths_intersection(
         return None;
     }
 
-    if is_straight(l2_diff(ix_1, ref_1.unwrap())) {
-        if is_in_line(ref_2.unwrap(), ix_1, ref_1.unwrap()) {
-            return ref_2;
-        }
+    if is_straight(l2_diff(ix_1, ref_1.unwrap()))
+        && is_in_line(ref_2.unwrap(), ix_1, ref_1.unwrap())
+    {
+        return ref_2;
     }
-    if is_straight(l2_diff(ix_2, ref_2.unwrap())) {
-        if is_in_line(ref_1.unwrap(), ix_2, ref_2.unwrap()) {
-            return ref_1;
-        }
+    if is_straight(l2_diff(ix_2, ref_2.unwrap()))
+        && is_in_line(ref_1.unwrap(), ix_2, ref_2.unwrap())
+    {
+        return ref_1;
     }
 
-    return None;
+    None
 }
 
 pub fn usize_f32(x: usize) -> f32 {
@@ -666,48 +663,6 @@ pub fn u16_f32(x: u16) -> f32 {
 
 pub fn f32_usize(x: f32) -> usize {
     usize::from(x as u16)
-}
-
-pub fn is_line_intersecting_smart(to: &Node, ix: GridIx, config: &SearchConfig) -> bool {
-    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, to.ix);
-    if f32::is_infinite(effective_glide.glide_ratio) {
-        return true;
-    }
-
-    let length = l2_distance(to.ix, ix);
-
-    let grid_indices = Line::new((to.ix.0 as i16, to.ix.1 as i16), (ix.0 as i16, ix.1 as i16));
-
-    let distance = length * config.grid.cell_size;
-    let height_loss = distance * effective_glide.glide_ratio;
-    let final_height = to.height - height_loss;
-
-    let mut real_height = if grid_indices.iterator_reversed() {
-        final_height
-    } else {
-        to.height
-    };
-    let height_step = if grid_indices.iterator_reversed() {
-        height_loss / (grid_indices.num_pixels() - 1) as f32
-    } else {
-        -height_loss / (grid_indices.num_pixels() - 1) as f32
-    };
-
-    if config.query.safety_margin == 0.0 || to.distance + distance <= config.query.start_distance {
-        for (x_i, y_i) in grid_indices.iter() {
-            if real_height < config.grid.heights[(x_i as usize, y_i as usize)] as f32 {
-                return true;
-            }
-            real_height += height_step;
-        }
-    } else if to.distance < config.query.start_distance
-        && to.distance + distance > config.query.start_distance
-    {
-        // TODO
-    } else {
-        // TODO
-    }
-    return false;
 }
 
 pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> bool {
@@ -763,7 +718,7 @@ pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> boo
             }
         }
     }
-    return false;
+    false
 }
 
 fn reindex_node(
@@ -774,10 +729,7 @@ fn reindex_node(
     // TODO: Update instead of copy?
     Node {
         ix: (node.ix.0 - lats.0, node.ix.1 - lons.0),
-        reference: match node.reference {
-            Some((x, y)) => Some((x - lats.0, y - lons.0)),
-            None => None,
-        },
+        reference: node.reference.map(|(x, y)| (x - lats.0, y - lons.0)),
         height: node.height,
         distance: node.distance,
         reachable: node.reachable,
@@ -839,7 +791,7 @@ pub fn reindex(
         ),
     };
 
-    return (new_explored, new_grid, new_start_ix);
+    (new_explored, new_grid, new_start_ix)
 }
 
 pub struct SearchSetup {
@@ -885,16 +837,13 @@ pub fn prepare_search(
         .unwrap_or(height_at_point + query.additional_height)
         .max(height_at_point);
 
-    let config = SearchConfig {
-        grid: grid,
-        query: query,
-    };
+    let config = SearchConfig { grid, query };
 
     SearchSetup {
         ground_height: height_at_point,
         start_height: height,
-        start_ix: start_ix,
-        config: config,
+        start_ix,
+        config,
     }
 }
 
@@ -926,7 +875,7 @@ pub fn search_from_point(
     );
 
     SearchResult {
-        explored: explored,
+        explored,
         height_grid: new_grid,
         ground_height: search_setup.ground_height,
         start_ix: new_start_ix,

@@ -14,7 +14,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             start_distance: 0.0,
             start_height: None,
         };
-        let search_setup = prepare_search(47.42124381683321, 10.985727310180666, 30.0, query);
+        let search_setup = prepare_search(47.4212, 10.9857, 30.0, query);
         b.iter(|| {
             let _result = search(
                 black_box(search_setup.start_ix),

@@ -9,15 +9,15 @@ fn line_iterator(x0: Num, y0: Num, x1: Num, y1: Num, dx: Num, dy: Num, swap: boo
     let y = y0;
 
     LineIter {
-        d: d,
-        dx: dx,
-        dy: dy,
-        y: y,
+        d,
+        dx,
+        dy,
+        y,
         x: x0,
-        x0: x0,
-        x1: x1,
-        swap: swap,
-        yi_plus: yi_plus,
+        x0,
+        x1,
+        swap,
+        yi_plus,
     }
 }
 
@@ -40,16 +40,16 @@ impl Iterator for LineIter {
         if self.x > self.x1 || self.x < self.x0 {
             return None;
         }
-        let r = (self.x.clone(), self.y.clone());
+        let r = (self.x, self.y);
         if self.d > 0 {
             if self.yi_plus {
-                self.y = self.y + 1;
+                self.y += 1;
             } else {
-                self.y = self.y - 1;
+                self.y -= 1;
             }
-            self.d = self.d - 2 * self.dx;
+            self.d -= 2 * self.dx;
         } else {
-            self.d = self.d + 2 * self.dy;
+            self.d += 2 * self.dy;
         }
         self.x = if self.x1 > self.x0 {
             self.x + 1
@@ -74,8 +74,8 @@ pub struct Line {
 impl Line {
     pub fn new(x: (Num, Num), y: (Num, Num)) -> Line {
         Line {
-            x: x,
-            y: y,
+            x,
+            y,
             dx: max(x.1, x.0) - min(x.1, x.0),
             dy: max(y.1, y.0) - min(y.1, y.0),
         }
@@ -96,16 +96,14 @@ impl Line {
                     self.x.0, self.y.0, self.x.1, self.y.1, self.dx, self.dy, false,
                 )
             }
+        } else if self.y.0 > self.y.1 {
+            line_iterator(
+                self.y.1, self.x.1, self.y.0, self.x.0, self.dy, self.dx, true,
+            )
         } else {
-            if self.y.0 > self.y.1 {
-                line_iterator(
-                    self.y.1, self.x.1, self.y.0, self.x.0, self.dy, self.dx, true,
-                )
-            } else {
-                line_iterator(
-                    self.y.0, self.x.0, self.y.1, self.x.1, self.dy, self.dx, true,
-                )
-            }
+            line_iterator(
+                self.y.0, self.x.0, self.y.1, self.x.1, self.dy, self.dx, true,
+            )
         }
     }
 
@@ -130,16 +128,14 @@ impl IntoIterator for Line {
                     self.x.0, self.y.0, self.x.1, self.y.1, self.dx, self.dy, false,
                 )
             }
+        } else if self.y.0 > self.y.1 {
+            line_iterator(
+                self.y.1, self.x.1, self.y.0, self.x.0, self.dy, self.dx, true,
+            )
         } else {
-            if self.y.0 > self.y.1 {
-                line_iterator(
-                    self.y.1, self.x.1, self.y.0, self.x.0, self.dy, self.dx, true,
-                )
-            } else {
-                line_iterator(
-                    self.y.0, self.x.0, self.y.1, self.x.1, self.dy, self.dx, true,
-                )
-            }
+            line_iterator(
+                self.y.0, self.x.0, self.y.1, self.x.1, self.dy, self.dx, true,
+            )
         }
     }
 }

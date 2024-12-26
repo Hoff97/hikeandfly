@@ -95,7 +95,7 @@ struct SearchQueryHashable {
 }
 
 impl SearchQueryHashable {
-    pub fn to_search_query(self) -> SearchQuery {
+    pub fn search_query(self) -> SearchQuery {
         SearchQuery {
             glide_ratio: self.glide_ratio.0,
             trim_speed: self.trim_speed.0,
@@ -116,19 +116,14 @@ fn search_from_point_memoized(
     cell_size: Distance,
     query: SearchQueryHashable,
 ) -> (Vec<Node>, HeightGrid, f32, GridIx) {
-    let search_result = search_from_point(
-        latitude.0,
-        longitude.0,
-        cell_size.0,
-        query.to_search_query(),
-    );
+    let search_result =
+        search_from_point(latitude.0, longitude.0, cell_size.0, query.search_query());
     (
         search_result
             .explored
             .values
             .into_iter()
-            .filter(|x| x.is_some())
-            .map(|x| x.unwrap())
+            .flatten()
             .collect(),
         search_result.height_grid,
         search_result.ground_height,
@@ -136,6 +131,7 @@ fn search_from_point_memoized(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn search_from_request(
     lat: f32,
     lon: f32,
@@ -151,25 +147,20 @@ pub fn search_from_request(
 ) -> (Vec<Node>, HeightGrid, Array2<f32>, Array2<f32>, f32, GridIx) {
     let cell_size = cell_size_opt
         .unwrap_or(CELL_SIZE_DEFAULT)
-        .max(CELL_SIZE_MINIMUM)
-        .min(CELL_SIZE_MAXIMUM);
+        .clamp(CELL_SIZE_MINIMUM, CELL_SIZE_MAXIMUM);
     let glide_number = glide_number_opt
         .unwrap_or(GLIDE_NUMBER_DEFAULT)
-        .max(GLIDE_NUMBER_MINIMUM)
-        .min(GLIDE_NUMBER_MAXIMUM);
+        .clamp(GLIDE_NUMBER_MINIMUM, GLIDE_NUMBER_MAXIMUM);
     let additional_height = additional_height_opt
         .unwrap_or(ADDITIONAL_HEIGHT_DEFAULT)
-        .max(ADDITIONAL_HEIGHT_MINIMUM)
-        .min(ADDITIONAL_HEIGHT_MAXIMUM);
+        .clamp(ADDITIONAL_HEIGHT_MINIMUM, ADDITIONAL_HEIGHT_MAXIMUM);
     let wind_speed = wind_speed_opt
         .unwrap_or(WIND_SPEED_DEFAULT)
-        .max(WIND_SPEED_MINIMUM)
-        .min(WIND_SPEED_MAXIMUM);
+        .clamp(WIND_SPEED_MINIMUM, WIND_SPEED_MAXIMUM);
     let wind_direction = wind_direction_opt.unwrap_or(WIND_DIRECTION_DEFAULT);
     let trim_speed = trim_speed_opt
         .unwrap_or(TRIM_SPEED_DEFAULT)
-        .max(TRIM_SPEED_MINIMUM)
-        .min(TRIM_SPEED_MAXIMUM);
+        .clamp(TRIM_SPEED_MINIMUM, TRIM_SPEED_MAXIMUM);
     let safety_margin = safety_margin_opt
         .unwrap_or(SAFETY_MARGIN_DEFAULT)
         .max(SAFETY_MARGIN_MINIMUM);
@@ -177,15 +168,17 @@ pub fn search_from_request(
         .unwrap_or(START_DISTANCE_DEFAULT)
         .max(START_DISTANCE_MINIMUM);
 
-    let lat_rounded = (lat * 1000.0).round() / 1000.0;
-    let lon_rounded = (lon * 1000.0).round() / 1000.0;
+    let accuracy = 10000.0;
+
+    let lat_rounded = (lat * accuracy).round() / accuracy;
+    let lon_rounded = (lon * accuracy).round() / accuracy;
 
     let (explored, grid, height_at_start, start_ix) = search_from_point_memoized(
         Distance(lat_rounded),
         Distance(lon_rounded),
         Distance(cell_size),
         SearchQueryHashable {
-            start_height: start_height.map(|x| Distance(x)),
+            start_height: start_height.map(Distance),
             additional_height: Distance(additional_height),
             wind_speed: Distance(wind_speed),
             wind_direction: Distance(wind_direction / 180.0 * PI),
@@ -209,14 +202,14 @@ pub fn search_from_request(
         }
     }
 
-    return (
+    (
         explored,
         grid,
         heights,
         node_heights,
         height_at_start,
         start_ix,
-    );
+    )
 }
 
 #[derive(Serialize)]
@@ -242,6 +235,7 @@ struct FlightConeResponse {
     start_height: f32,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[get("/flight_cone?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_flight_cone(
     lat: f32,
@@ -280,7 +274,7 @@ fn get_flight_cone(
         nodes: None,
         cell_size: grid.cell_size,
         angular_resolution: resolution,
-        start_ix: start_ix,
+        start_ix,
         lat: grid.latitudes,
         lon: grid.longitudes,
         min_cell_size: grid.min_cell_size,
@@ -307,6 +301,7 @@ fn get_flight_cone(
     Result::Ok(Json(response))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[get("/flight_cone_bounds?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_flight_cone_bounds(
     lat: f32,
@@ -345,7 +340,7 @@ fn get_flight_cone_bounds(
         nodes: None,
         cell_size: grid.cell_size,
         angular_resolution: resolution,
-        start_ix: start_ix,
+        start_ix,
         lat: grid.latitudes,
         lon: grid.longitudes,
         min_cell_size: grid.min_cell_size,
@@ -363,8 +358,9 @@ const DEFAULT_LERP_COLORS: [[f32; 4]; 3] = [
 ];
 const DEFAULT_LERP_STEPS: [f32; 3] = [0.0, 0.5, 1.0];
 
+#[allow(clippy::too_many_arguments)]
 #[get("/agl_image?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
-fn get_agl_image<'a>(
+fn get_agl_image(
     lat: f32,
     lon: f32,
     cell_size: Option<f32>,
@@ -458,8 +454,9 @@ fn get_agl_image<'a>(
     (ContentType::PNG, c.into_inner())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[get("/height_image?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
-fn get_height_image<'a>(
+fn get_height_image(
     lat: f32,
     lon: f32,
     cell_size: Option<f32>,
@@ -568,14 +565,15 @@ fn interpolate(node: &Node, px: u16, py: u16, heights: &Array2<f32>) -> f32 {
     let x = min((node.ix.0 + px) as usize, heights.shape()[0] - 1);
     let y = min((node.ix.1 + py) as usize, heights.shape()[1] - 1);
     if heights[(x, y)] > -1000.0 {
-        return heights[(x, y)];
+        heights[(x, y)]
     } else {
-        return node.height;
+        node.height
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[get("/kml?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
-fn get_kml<'a>(
+fn get_kml(
     lat: f32,
     lon: f32,
     cell_size: Option<f32>,
