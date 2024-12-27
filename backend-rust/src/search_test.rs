@@ -64,31 +64,13 @@ fn square(start: (usize, usize), end: (usize, usize), height: i16, grid: &mut Ar
     }
 }
 
-fn line(
-    start: (usize, usize),
-    end: (usize, usize),
-    start_height: i16,
-    end_height: i16,
-    grid: &mut Array2<i16>,
-) {
-    let dx = end.0 as isize - start.0 as isize;
-    let dy = end.1 as isize - start.1 as isize;
-    let length = ((dx * dx + dy * dy) as f32).sqrt().ceil() as isize;
-    for i in 0..length {
-        let x = start.0 as isize + (dx * i as isize / length);
-        let y = start.1 as isize + (dy * i as isize / length);
-        grid[[x as usize, y as usize]] =
-            start_height + (end_height - start_height) * i as i16 / length as i16;
-    }
-}
-
 #[test]
 fn test_search_detailed() {
     let heights = Array2::zeros((10, 10));
     let start_height = 80.0;
     let mut config = SearchConfig {
         grid: HeightGrid {
-            heights: heights,
+            heights,
             cell_size: 100.0,
             min_cell_size: 10.0,
             latitudes: (0.0, 30.0),
@@ -153,21 +135,19 @@ fn test_search_detailed() {
     .map(|x| x.chunks(2).map(|x| (x[0], x[1])).collect::<Vec<_>>())
     .collect::<Vec<_>>();
 
-    let result = search((03, 04), start_height, &config);
+    let result = search((3, 4), start_height, &config);
 
     assert_eq!(result.queue.len(), 0);
     let explored = result.explored;
 
     let mut res = vec![vec!["   ".to_string(); 10]; 10];
 
-    for item in explored.values.iter() {
-        if let Some(n) = item {
-            if n.reachable {
-                if let Some(parent) = n.reference {
-                    res[n.ix.1 as usize][n.ix.0 as usize] = format!("{},{}", parent.0, parent.1);
-                } else {
-                    res[n.ix.1 as usize][n.ix.0 as usize] = "xxx".to_string();
-                }
+    for n in explored.values.iter().flatten() {
+        if n.reachable {
+            if let Some(parent) = n.reference {
+                res[n.ix.1 as usize][n.ix.0 as usize] = format!("{},{}", parent.0, parent.1);
+            } else {
+                res[n.ix.1 as usize][n.ix.0 as usize] = "xxx".to_string();
             }
         }
     }
@@ -180,20 +160,18 @@ fn test_search_detailed() {
 
     println!("{}", result_str);
 
-    for item in explored.values {
-        if let Some(n) = item {
-            if n.reachable {
-                if let Some(parent) = n.reference {
-                    if parent != expected_ref[n.ix.1 as usize][n.ix.0 as usize] {
-                        println!("Failed at {:?}", n.ix);
-                    }
-                    assert_eq!(parent, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
-                } else {
-                    assert_eq!(n.ix, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+    for n in explored.values.into_iter().flatten() {
+        if n.reachable {
+            if let Some(parent) = n.reference {
+                if parent != expected_ref[n.ix.1 as usize][n.ix.0 as usize] {
+                    println!("Failed at {:?}", n.ix);
                 }
+                assert_eq!(parent, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
             } else {
-                assert_eq!((0, 0), expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+                assert_eq!(n.ix, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
             }
+        } else {
+            assert_eq!((0, 0), expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
         }
     }
 }

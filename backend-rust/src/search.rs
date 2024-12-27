@@ -115,7 +115,7 @@ impl FakeHashMapForGrid {
     }
 
     fn gridix_to_ix(&self, key: &GridIx) -> usize {
-        key.0 as usize * self.grid_shape.1 + key.1 as usize as usize
+        key.0 as usize * self.grid_shape.1 + key.1 as usize
     }
 }
 
@@ -126,7 +126,7 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     }
 
     fn get(&self, key: &GridIx) -> Option<usize> {
-        let ix = self.gridix_to_ix(&key);
+        let ix = self.gridix_to_ix(key);
         let v = self.positions[ix];
         if v == FakeHashMapPos::MAX {
             return None;
@@ -135,7 +135,7 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     }
 
     fn remove_entry(&mut self, key: &GridIx) {
-        let ix = self.gridix_to_ix(&key);
+        let ix = self.gridix_to_ix(key);
         self.positions[ix] = FakeHashMapPos::MAX;
     }
 
@@ -143,7 +143,7 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
         if key == &(9, 18) {
             println!("Checking key {:?}", key);
         }
-        let ix = self.gridix_to_ix(&key);
+        let ix = self.gridix_to_ix(key);
         let value = self.positions[ix];
         let max_value = FakeHashMapPos::MAX;
         value != max_value
