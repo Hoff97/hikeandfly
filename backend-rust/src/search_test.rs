@@ -82,41 +82,11 @@ fn line(
     }
 }
 
-// Test search with a simple grid
-//   ||00|01|02|03|04|05|06|07|08|09|10|11|12|13|14|
-//---||---------------------------------------------
-// 00||  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-// 01||  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-// 02||  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-// 03||  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-// 04||  |  |  |  |  |  |  |  |35|35|  |  |  |  |  |
-// 05||  |  |  |  |  |  |25|  |35|35|  |  |  |  |  |
-// 06||  |  |  |  |  |30|  |  |  |  |  |  |  |  |  |
-// 07||  |  |  |  |35|  |  |  |  |  |  |60|  |  |  |
-// 08||  |  |  |40|  |  |  |  |  |  |  |60|  |  |  |
-// 09||  |  |  |  |  |  |  |  |  |  |  |60|  |  |  |
-// 10||  |  |  |  |  |  |  |  |  |xx|  |60|  |  |  |
-// 11||  |  |  |  |  |  |  |  |  |  |  |60|  |  |  |
-// 12||  |  |  |40|45|  |  |  |  |  |  |60|  |  |  |
-// 13||  |  |  |  |35|40|  |  |  |  |  |60|  |  |  |
-// 14||  |  |  |  |  |30|35|  |  |  |  |60|  |  |  |
-// 15||  |  |  |  |  |  |25|30|  |  |  |60|  |  |  |
-// 16||  |  |  |  |  |  |  |20|  |  |  |60|  |  |  |
-// 17||  |  |  |  |  |  |  |  |  |  |  |60|  |  |  |
-// 18||  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-// 19||  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-
 #[test]
 fn test_search_detailed() {
-    let mut heights = Array2::zeros((15, 20));
-    square((11, 7), (11, 17), 60, &mut heights);
-    square((8, 4), (9, 5), 35, &mut heights);
-    line((3, 12), (7, 16), 40, 20, &mut heights);
-    line((4, 12), (7, 15), 45, 30, &mut heights);
-
-    line((3, 8), (6, 5), 40, 25, &mut heights);
-
-    let config = SearchConfig {
+    let heights = Array2::zeros((10, 10));
+    let start_height = 80.0;
+    let mut config = SearchConfig {
         grid: HeightGrid {
             heights: heights,
             cell_size: 100.0,
@@ -129,47 +99,75 @@ fn test_search_detailed() {
             trim_speed: 38.0,
             wind_direction: 0.0,
             wind_speed: 0.0,
-            start_height: Some(90.0),
+            start_height: Some(start_height),
             additional_height: 0.0,
             safety_margin: 0.0,
             start_distance: 0.0,
         },
     };
-    let result = search((9, 10), 90.0, &config);
+
+    square((1, 2), (1, 7), 55, &mut config.grid.heights);
+    config.grid.heights[[8, 3]] = 60;
+    config.grid.heights[[7, 4]] = 55;
+    config.grid.heights[[6, 5]] = 50;
+    config.grid.heights[[5, 6]] = 45;
+    config.grid.heights[[8, 4]] = 60;
+    config.grid.heights[[7, 5]] = 55;
+    config.grid.heights[[6, 6]] = 50;
+    config.grid.heights[[5, 7]] = 45;
+    config.grid.heights[[4, 7]] = 40;
+
+    config.grid.heights[[3, 2]] = 75;
+    config.grid.heights[[3, 1]] = 75;
+    config.grid.heights[[3, 0]] = 75;
+    config.grid.heights[[4, 2]] = 75;
+    config.grid.heights[[5, 1]] = 75;
+    // Test search with a simple grid
+    //   ||00|01|02|03|04|05|06|07|08|09|
+    //---||-----------------------------|
+    // 00||  |  |  |75|  |  |  |  |  |  |
+    // 01||  |  |  |75|  |75|  |  |  |  |
+    // 02||  |55|  |75|75|  |  |  |  |  |
+    // 03||  |55|  |  |  |  |  |  |60|  |
+    // 04||  |55|  |xx|  |  |  |55|60|  |
+    // 05||  |55|  |  |  |  |50|55|  |  |
+    // 06||  |55|  |  |  |45|50|  |  |  |
+    // 07||  |55|  |  |40|45|  |  |  |  |
+    // 08||  |  |  |  |  |  |  |  |  |  |
+    // 09||  |  |  |  |  |  |  |  |  |  |
+
+    let expected_ref = vec![
+        //   0     1     2     3     4     5     6     7     8     9
+        vec![2, 1, 2, 1, 2, 3, 0, 0, 6, 0, 6, 0, 6, 2, 3, 4, 3, 4, 3, 4], // 0
+        vec![0, 3, 2, 1, 2, 3, 0, 0, 0, 0, 0, 0, 6, 2, 3, 4, 3, 4, 3, 4], // 1
+        vec![0, 3, 0, 0, 2, 3, 0, 0, 0, 0, 5, 3, 3, 4, 3, 4, 7, 2, 7, 2], // 2
+        vec![3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 6, 3, 0, 0, 9, 2], // 3
+        vec![3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 0, 0, 0, 0, 0, 0], // 4
+        vec![3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0], // 5
+        vec![0, 5, 0, 0, 3, 4, 3, 4, 3, 4, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0], // 6
+        vec![0, 5, 0, 0, 3, 4, 3, 4, 3, 4, 0, 0, 6, 8, 6, 8, 0, 0, 0, 0], // 7
+        vec![2, 8, 2, 8, 3, 4, 3, 4, 3, 4, 4, 8, 4, 8, 4, 8, 0, 0, 0, 0], // 8
+        vec![2, 8, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 6, 9, 6, 9, 0, 0], // 9
+    ]
+    .into_iter()
+    .map(|x| x.chunks(2).map(|x| (x[0], x[1])).collect::<Vec<_>>())
+    .collect::<Vec<_>>();
+
+    let result = search((03, 04), start_height, &config);
 
     assert_eq!(result.queue.len(), 0);
     let explored = result.explored;
-    let mut res = vec![vec![String::from("__"); 15]; 20];
-    let expected_res = "\n
-    __ __ __ __ __ __ __ __ __ __ __ __ __ __ __\n
-    __ __ __ __ __ __ __ __ __ __ __ __ __ __ __\n
-    __ __ __ __ __ __ __ 06 __ __ 09 __ __ __ __\n
-    __ __ __ __ __ __ __ 16 14 09 19 __ __ __ __\n
-    __ __ __ __ __ __ __ 26 ## ## 29 __ __ __ __\n
-    __ __ __ __ __ __ __ 36 39 40 39 36 32 22 __\n
-    __ __ __ __ __ __ __ __ 49 50 49 39 34 32 __\n
-    __ __ __ __ __ __ __ __ 58 60 58 ## 44 40 32\n
-    __ __ __ __ __ __ __ __ 68 70 68 62 54 45 36\n
-    __ 09 19 29 39 49 58 68 76 80 76 68 58 49 39\n
-    __ 10 20 30 40 50 60 70 80 xx 80 70 60 50 40\n
-    __ 09 19 29 39 49 58 68 76 80 76 68 58 49 39\n
-    __ __ __ __ __ __ __ __ 68 70 68 62 54 45 36\n
-    __ __ __ __ __ __ __ __ 58 60 58 ## 44 40 32\n
-    __ __ __ __ __ __ __ __ 49 50 49 ## 34 32 __\n
-    __ __ __ __ __ __ __ __ 39 40 39 ## 24 22 __\n
-    __ __ __ __ __ __ __ __ 29 30 29 ## 14 13 __\n
-    __ __ __ __ __ __ __ __ 19 20 19 ## 04 03 00\n
-    __ __ __ __ __ __ __ __ 09 10 09 __ __ __ __\n
-    __ __ __ __ __ __ __ __ __ __ __ __ __ __ __\n";
-    // 1  2  3  4  5  6  7  8  9  10 11 12 13 14
 
-    for item in explored.values {
+    let mut res = vec![vec!["   ".to_string(); 10]; 10];
+
+    for item in explored.values.iter() {
         if let Some(n) = item {
             if n.reachable {
-                if n.ix == (9, 18) {
-                    println!("{:?}", n.ix);
+                if let Some(parent) = n.reference {
+                    res[n.ix.1 as usize][n.ix.0 as usize] = format!("{},{}", parent.0, parent.1);
+                } else {
+                    res[n.ix.1 as usize][n.ix.0 as usize] = "xxx".to_string();
                 }
-                res[n.ix.1 as usize][n.ix.0 as usize] = format!("{:0>2.0}", n.height);
             }
         }
     }
@@ -182,5 +180,20 @@ fn test_search_detailed() {
 
     println!("{}", result_str);
 
-    assert_eq!(result_str, expected_res);
+    for item in explored.values {
+        if let Some(n) = item {
+            if n.reachable {
+                if let Some(parent) = n.reference {
+                    if parent != expected_ref[n.ix.1 as usize][n.ix.0 as usize] {
+                        println!("Failed at {:?}", n.ix);
+                    }
+                    assert_eq!(parent, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+                } else {
+                    assert_eq!(n.ix, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+                }
+            } else {
+                assert_eq!((0, 0), expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+            }
+        }
+    }
 }
