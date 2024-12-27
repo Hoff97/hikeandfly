@@ -138,7 +138,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             self.siftdown(ix)
         };
 
-        return self.heap.get_mut(new_ix).unwrap();
+        self.heap.get_mut(new_ix).unwrap()
     }
 
     pub fn update_priority_if_less(
@@ -160,7 +160,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
         node.priority = priority;
         let new_ix = self.siftup(ix);
 
-        return self.heap.get_mut(new_ix);
+        self.heap.get_mut(new_ix)
     }
 
     pub fn pop(&mut self) -> Option<HeapNode<P, V, K>> {
