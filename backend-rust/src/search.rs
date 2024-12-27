@@ -665,7 +665,7 @@ pub fn u16_f32(x: u16) -> f32 {
 }
 
 pub fn f32_usize(x: f32) -> usize {
-    usize::from(x as u16)
+    usize::from(x.round() as u16)
 }
 
 pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> bool {
