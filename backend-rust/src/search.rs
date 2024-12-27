@@ -113,15 +113,21 @@ impl FakeHashMapForGrid {
             positions: vec![FakeHashMapPos::MAX; grid_shape.0 * grid_shape.1],
         }
     }
+
+    fn gridix_to_ix(&self, key: &GridIx) -> usize {
+        key.0 as usize * self.grid_shape.1 + key.1 as usize as usize
+    }
 }
 
 impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     fn insert(&mut self, key: GridIx, value: usize) {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] = value as u16;
+        let ix = self.gridix_to_ix(&key);
+        self.positions[ix] = value as u16;
     }
 
     fn get(&self, key: &GridIx) -> Option<usize> {
-        let v = self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize];
+        let ix = self.gridix_to_ix(&key);
+        let v = self.positions[ix];
         if v == FakeHashMapPos::MAX {
             return None;
         }
@@ -129,15 +135,23 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     }
 
     fn remove_entry(&mut self, key: &GridIx) {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] = FakeHashMapPos::MAX;
+        let ix = self.gridix_to_ix(&key);
+        self.positions[ix] = FakeHashMapPos::MAX;
     }
 
     fn contains_key(&self, key: &GridIx) -> bool {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] != FakeHashMapPos::MAX
+        if key == &(9, 18) {
+            println!("Checking key {:?}", key);
+        }
+        let ix = self.gridix_to_ix(&key);
+        let value = self.positions[ix];
+        let max_value = FakeHashMapPos::MAX;
+        value != max_value
     }
 
     fn set(&mut self, key: GridIx, value: usize) {
-        self.positions[key.0 as usize * self.grid_shape.0 + key.1 as usize] = value as u16;
+        let ix = self.gridix_to_ix(&key);
+        self.positions[ix] = value as u16;
     }
 }
 
@@ -157,21 +171,6 @@ pub fn put_node(queue: &mut PQueue, node: Node) {
     } else {
         let prio = node.distance;
         queue.push(node.ix, node, prio);
-    }
-}
-
-impl SearchState {
-    pub fn put_node(&mut self, node: Node) {
-        if self.queue.contains_key(&node.ix) {
-            let item = self
-                .queue
-                .update_priority_if_less(node.ix, node.distance)
-                .unwrap();
-            item.item = node;
-        } else {
-            let prio = node.distance;
-            self.queue.push(node.ix, node, prio);
-        }
     }
 }
 
@@ -367,9 +366,10 @@ pub fn update_one_neighbor(
 
     let total_distance = distance + reference.distance;
 
-    let reachable = config.grid.heights[[ix.0 as usize, ix.1 as usize]] as f32
-        + config.get_safety_margin_at_distance(total_distance)
-        < height;
+    let grid_height = config.grid.heights[[ix.0 as usize, ix.1 as usize]] as f32;
+    let safety_margin = config.get_safety_margin_at_distance(total_distance);
+
+    let reachable = grid_height + safety_margin < height;
 
     put_node(
         queue,
@@ -603,14 +603,17 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
         explored: Explored::new((grid_shape[0], grid_shape[1])),
         queue: PQueue::new_with_map(FakeHashMapForGrid::new((grid_shape[0], grid_shape[1]))),
     };
-    state.put_node(Node {
-        height,
-        ix: start,
-        reference: None,
-        distance: 0.0,
-        reachable: true,
-        effective_glide_ratio: config.query.glide_ratio,
-    });
+    put_node(
+        &mut state.queue,
+        Node {
+            height,
+            ix: start,
+            reference: None,
+            distance: 0.0,
+            reachable: true,
+            effective_glide_ratio: config.query.glide_ratio,
+        },
+    );
 
     while !state.queue.is_empty() {
         let first = state.queue.pop().unwrap();
@@ -688,7 +691,8 @@ pub fn is_line_intersecting(to: &Node, ix: GridIx, config: &SearchConfig) -> boo
 
     if config.query.safety_margin == 0.0 || to.distance + distance <= config.query.start_distance {
         for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
-            if real_height < config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32 {
+            let grid_height = config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32;
+            if real_height < grid_height {
                 return true;
             }
         }
