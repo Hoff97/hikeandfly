@@ -22,7 +22,6 @@ pub struct Node {
     pub reference: Option<GridIx>,
     pub distance: f32,
     pub reachable: bool,
-    pub effective_glide_ratio: f32,
 }
 
 impl Default for Node {
@@ -39,7 +38,6 @@ impl Node {
             reference: None,
             distance: 0.0,
             reachable: false,
-            effective_glide_ratio: 0.0,
         }
     }
 }
@@ -82,14 +80,6 @@ impl GridMap {
 
     fn ix(&self, index: &GridIx) -> usize {
         index.0 as usize * self.grid_shape.1 + index.1 as usize
-    }
-
-    fn get(&self, index: &GridIx) -> Option<&Node> {
-        let ix = self.ix(index);
-        if !self.present[ix] {
-            return None;
-        }
-        Some(&self.values[ix])
     }
 
     fn get_unchecked(&self, index: &GridIx) -> &Node {
@@ -202,8 +192,8 @@ pub struct SearchState {
 pub fn put_node(queue: &mut PQueue, node: Node) {
     if queue.contains_key(&node.ix) {
         let item = queue.update_priority_if_less(node.ix, node.distance);
-        if item.is_some() {
-            item.unwrap().item = node;
+        if let Some(i) = item {
+            i.item = node;
         }
     } else {
         let prio = node.distance;
@@ -352,9 +342,9 @@ pub fn is_in_line(point: &GridIx, start: &GridIx, end: &GridIx) -> bool {
 
 fn get_straight_line_ref<'a>(ix: &GridIx, neighbor: &'a Node, explored: &'a Explored) -> &'a Node {
     let mut n = neighbor;
-    while n.reference.is_some() {
-        if is_straight(n.reference.as_ref().unwrap(), ix) {
-            n = explored.get_unchecked(&n.reference.unwrap())
+    while let Some(reference) = &n.reference {
+        if is_straight(reference, ix) {
+            n = explored.get_unchecked(reference)
         } else {
             break;
         }
@@ -417,7 +407,6 @@ pub fn update_one_neighbor(
             reference: Some(get_straight_line_ref(ix, reference, explored).ix),
             distance: total_distance,
             reachable,
-            effective_glide_ratio: effective_glide.glide_ratio,
         },
     )
 }
@@ -464,17 +453,10 @@ pub fn update_two_neighbors(
                 return;
             }
 
-            let height = explored
-                .get(&ref_path_intersection.unwrap())
-                .unwrap()
-                .height
-                - distance * effective_glide.glide_ratio;
+            let rpi_node = explored.get_unchecked(rpi);
+            let height = rpi_node.height - distance * effective_glide.glide_ratio;
 
-            let total_distance = distance
-                + explored
-                    .get(&ref_path_intersection.unwrap())
-                    .unwrap()
-                    .distance;
+            let total_distance = distance + rpi_node.distance;
 
             let reachable = config.grid.heights[[ix.0 as usize, ix.1 as usize]] as f32
                 + config.get_safety_margin_at_distance(total_distance)
@@ -488,7 +470,6 @@ pub fn update_two_neighbors(
                     reference: *ref_path_intersection,
                     distance: total_distance,
                     reachable,
-                    effective_glide_ratio: effective_glide.glide_ratio,
                 },
             )
         } else {
@@ -504,7 +485,7 @@ pub fn update_two_neighbors(
 }
 
 pub fn update_three_neighbors(
-    explored_neighbors: &Vec<GridIx>,
+    explored_neighbors: &[GridIx],
     ix: &GridIx,
     config: &SearchConfig,
     explored: &Explored,
@@ -525,7 +506,8 @@ pub fn update_three_neighbors(
         let reference_set =
             HashSet::<Option<GridIx>>::from_iter(reachable.iter().map(|x| x.reference));
         if reference_set.len() == 3 {
-            reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap()); // TODO: Sort needed
+            // Sort apparently increases performance
+            reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap());
 
             update_one_neighbor(reachable[0], ix, config, explored, queue, None);
             update_one_neighbor(reachable[1], ix, config, explored, queue, None);
@@ -546,7 +528,7 @@ pub fn update_three_neighbors(
 }
 
 pub fn update_four_neighbors(
-    explored_neighbors: &Vec<GridIx>,
+    explored_neighbors: &[GridIx],
     ix: &GridIx,
     config: &SearchConfig,
     explored: &Explored,
@@ -567,7 +549,6 @@ pub fn update_four_neighbors(
                 reference: None,
                 distance: 0.0,
                 reachable: false,
-                effective_glide_ratio: 0.0,
             },
         );
     } else if reachable.len() < 4 {
@@ -645,7 +626,6 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
             reference: None,
             distance: 0.0,
             reachable: true,
-            effective_glide_ratio: config.query.glide_ratio,
         },
     );
 
