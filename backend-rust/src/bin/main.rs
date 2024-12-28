@@ -119,12 +119,7 @@ fn search_from_point_memoized(
     let search_result =
         search_from_point(latitude.0, longitude.0, cell_size.0, query.search_query());
     (
-        search_result
-            .explored
-            .values
-            .into_iter()
-            .flatten()
-            .collect(),
+        search_result.explored.into_it().collect(),
         search_result.height_grid,
         search_result.ground_height,
         search_result.start_ix,

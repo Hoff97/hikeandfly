@@ -142,7 +142,7 @@ fn test_search_detailed() {
 
     let mut res = vec![vec!["   ".to_string(); 10]; 10];
 
-    for n in explored.values.iter().flatten() {
+    for n in explored.iter() {
         if n.reachable {
             if let Some(parent) = n.reference {
                 res[n.ix.1 as usize][n.ix.0 as usize] = format!("{},{}", parent.0, parent.1);
@@ -160,7 +160,7 @@ fn test_search_detailed() {
 
     println!("{}", result_str);
 
-    for n in explored.values.into_iter().flatten() {
+    for n in explored.iter() {
         if n.reachable {
             if let Some(parent) = n.reference {
                 if parent != expected_ref[n.ix.1 as usize][n.ix.0 as usize] {
