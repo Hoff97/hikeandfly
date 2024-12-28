@@ -9,7 +9,7 @@ use ndarray::{linspace, s};
 
 use crate::{
     height_data::{get_height_at_point, get_height_data_around_point, HeightGrid},
-    pqueue::{MapLike, PriorityQueue},
+    pqueue::{HasPriority, MapLike, PriorityQueue},
 };
 
 pub type GridIxType = u16;
@@ -22,6 +22,18 @@ pub struct Node {
     pub reference: Option<GridIx>,
     pub distance: f32,
     pub reachable: bool,
+}
+
+impl HasPriority for Node {
+    type Priority = f32;
+
+    fn priority(&self) -> &Self::Priority {
+        &self.distance
+    }
+
+    fn priority_mut(&mut self) -> &mut Self::Priority {
+        &mut self.distance
+    }
 }
 
 impl Default for Node {
@@ -187,7 +199,7 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     }
 }
 
-pub type PQueue = PriorityQueue<f32, Node, GridIx, FakeHashMapForGrid>;
+pub type PQueue = PriorityQueue<Node, GridIx, FakeHashMapForGrid>;
 
 pub struct SearchState {
     pub explored: Explored,
@@ -201,8 +213,7 @@ pub fn put_node(queue: &mut PQueue, node: Node) {
             i.item = node;
         }
     } else {
-        let prio = node.distance;
-        queue.push(node.ix, node, prio);
+        queue.push(node.ix, node);
     }
 }
 
@@ -450,7 +461,8 @@ pub fn update_two_neighbors(
         );
         if let Some(rpi) = ref_path_intersection {
             if queue.contains_key(ix)
-                && &queue.get(ix).unwrap().item.reference == ref_path_intersection
+                && &unsafe { queue.get(ix).unwrap_unchecked() }.item.reference
+                    == ref_path_intersection
             {
                 return;
             }
