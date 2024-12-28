@@ -178,14 +178,15 @@ impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQu
         let data_ptr = self.heap.as_mut_ptr();
         unsafe { std::ptr::swap(data_ptr.add(0), data_ptr.add(len - 1)) };
         // TODO: Dont check on length twice here?
-        let element = self.heap.pop().unwrap();
+        let element = unsafe { self.heap.pop().unwrap_unchecked() };
         self.positions.remove_entry(&element.key);
 
         if len == 1 {
             return Some(element);
         }
 
-        self.positions.set(self.heap.first()?.key, 0);
+        self.positions
+            .set(unsafe { self.heap.get_unchecked(0) }.key, 0);
 
         self.siftdown(0);
 

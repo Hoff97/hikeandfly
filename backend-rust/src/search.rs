@@ -461,7 +461,8 @@ pub fn update_two_neighbors(
         );
         if let Some(rpi) = ref_path_intersection {
             if queue.contains_key(ix)
-                && &queue.get(ix).unwrap().item.reference == ref_path_intersection
+                && &unsafe { queue.get(ix).unwrap_unchecked() }.item.reference
+                    == ref_path_intersection
             {
                 return;
             }
