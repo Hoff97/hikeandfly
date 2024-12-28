@@ -128,7 +128,8 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             .get(&key)
             .expect("Update priority called with invalid key");
 
-        let node = self.heap.get_mut(ix).unwrap();
+        // Safety: Positions only contains valid indices.
+        let node = unsafe { self.heap.get_unchecked_mut(ix) };
         let old_priority = node.priority;
         node.priority = priority;
 
@@ -138,7 +139,8 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             self.siftdown(ix)
         };
 
-        self.heap.get_mut(new_ix).unwrap()
+        // Safety: Siftup/Siftdown return a valid index.
+        unsafe { self.heap.get_unchecked_mut(new_ix) }
     }
 
     pub fn update_priority_if_less(
@@ -151,7 +153,8 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             .get(&key)
             .expect("Update priority called with invalid key");
 
-        let node = self.heap.get_mut(ix).unwrap();
+        // Safety: Positions only contains valid indices.
+        let node = unsafe { self.heap.get_unchecked_mut(ix) };
         let old_priority = node.priority;
 
         if old_priority <= priority {
@@ -160,7 +163,8 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
         node.priority = priority;
         let new_ix = self.siftup(ix);
 
-        self.heap.get_mut(new_ix)
+        // Safety: Siftup returns a valid index.
+        unsafe { Some(self.heap.get_unchecked_mut(new_ix)) }
     }
 
     pub fn pop(&mut self) -> Option<HeapNode<P, V, K>> {
@@ -169,7 +173,9 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             return None;
         }
 
+        // TODO: Use swap_unchecked when it's stable.
         self.heap.swap(0, len - 1);
+        // TODO: Dont check on length twice here?
         let element = self.heap.pop().unwrap();
         self.positions.remove_entry(&element.key);
 
@@ -189,13 +195,16 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
     }
 
     pub fn get(&self, key: &K) -> Option<&HeapNode<P, V, K>> {
+        // TODO: Get unsafe variant?
         let position = self.positions.get(key);
-        self.heap.get(position?)
+        // Safety: Positions only contains valid indices.
+        unsafe { Some(self.heap.get_unchecked(position?)) }
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut HeapNode<P, V, K>> {
         let position = self.positions.get(key);
-        self.heap.get_mut(position?)
+        // Safety: Positions only contains valid indices.
+        unsafe { Some(self.heap.get_unchecked_mut(position?)) }
     }
 
     fn siftup(&mut self, mut ix: usize) -> usize {
@@ -206,12 +215,15 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
 
         while ix > 0 {
             let parent_ix = (ix - 1) >> 1;
-            let parent = self.heap.get(parent_ix).unwrap();
+            // Safety: parent_ix is guaranteed to be a valid index since ix > 0
+            // and positions only contains valid indices.
+            let parent = unsafe { self.heap.get_unchecked(parent_ix) };
             let parent_key = parent.key;
             if priority >= parent.priority {
                 break;
             }
 
+            // TODO: Use swap_unchecked when it's stable.
             self.heap.swap(ix, parent_ix);
             self.positions.set(parent_key, ix);
             ix = parent_ix;
@@ -238,14 +250,18 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
             // Set childpos to index of smaller child.
             let right_ix = child_ix + 1;
 
+            // Safety: We already checked that child_ix is less than end_ix.
             if right_ix < end_ix
-                && self.heap.get(right_ix).unwrap().priority
-                    < self.heap.get(child_ix).unwrap().priority
+                && unsafe {
+                    self.heap.get_unchecked(right_ix).priority
+                        < self.heap.get_unchecked(child_ix).priority
+                }
             {
                 child_ix = right_ix
             }
             // Move the smaller child up.
-            let child = self.heap.get(child_ix).unwrap();
+            // Safety: We already checked that child_ix is less than end_ix.
+            let child = unsafe { self.heap.get_unchecked(child_ix) };
             let child_key = child.key;
             let child_priority = child.priority;
 
@@ -253,6 +269,7 @@ impl<P: PartialOrd + Copy, V, K: Eq + Hash + Copy, MapType: MapLike<K, usize>>
                 break;
             }
 
+            // TODO: Use swap_unchecked when it's stable.
             self.heap.swap(ix, child_ix);
             self.positions.set(child_key, ix);
 

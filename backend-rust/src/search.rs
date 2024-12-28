@@ -82,8 +82,8 @@ impl GridMap {
         index.0 as usize * self.grid_shape.1 + index.1 as usize
     }
 
-    fn get_unchecked(&self, index: &GridIx) -> &Node {
-        &self.values[self.ix(index)]
+    unsafe fn get_unchecked(&self, index: &GridIx) -> &Node {
+        self.values.get_unchecked(self.ix(index))
     }
 
     fn contains_key(&self, index: &GridIx) -> bool {
@@ -100,7 +100,12 @@ impl GridMap {
     fn subset(self, lat: GridIx, lon: GridIx) -> GridMap {
         let mut result = GridMap::new(((lat.1 - lat.0 + 1) as usize, (lon.1 - lon.0 + 1) as usize));
         for (mut n, present) in self.values.into_iter().zip(self.present) {
-            if present && n.ix.0 >= lat.0 && n.ix.0 <= lat.1 && n.ix.1 >= lon.0 && n.ix.1 <= lon.1 {
+            if present
+                & (n.ix.0 >= lat.0)
+                & (n.ix.0 <= lat.1)
+                & (n.ix.1 >= lon.0)
+                & (n.ix.1 <= lon.1)
+            {
                 let new_lat = n.ix.0 - lat.0;
                 let new_lon = n.ix.1 - lon.0;
                 reindex_node(&mut n, lat, lon);
@@ -332,10 +337,10 @@ pub fn is_straight(a: &GridIx, b: &GridIx) -> bool {
 }
 
 pub fn is_in_line(point: &GridIx, start: &GridIx, end: &GridIx) -> bool {
-    if point.0 == start.0 && point.0 == end.0 {
-        return point.1 >= min(start.1, end.1) && point.1 <= max(start.1, end.1);
-    } else if point.1 == start.1 && point.1 == end.1 {
-        return point.0 >= min(start.0, end.0) && point.0 <= max(start.0, end.0);
+    if (point.0 == start.0) & (point.0 == end.0) {
+        return (point.1 >= min(start.1, end.1)) & (point.1 <= max(start.1, end.1));
+    } else if (point.1 == start.1) & (point.1 == end.1) {
+        return (point.0 >= min(start.0, end.0)) & (point.0 <= max(start.0, end.0));
     }
     false
 }
@@ -344,7 +349,9 @@ fn get_straight_line_ref<'a>(ix: &GridIx, neighbor: &'a Node, explored: &'a Expl
     let mut n = neighbor;
     while let Some(reference) = &n.reference {
         if is_straight(reference, ix) {
-            n = explored.get_unchecked(reference)
+            // Safety: References are always explored before their children,
+            // so must be in explored.
+            n = unsafe { explored.get_unchecked(reference) };
         } else {
             break;
         }
@@ -368,13 +375,15 @@ pub fn update_one_neighbor(
 
     let mut reference = neighbor;
     if neighbor.reference.is_some()
-        && (config.query.wind_speed >= config.query.trim_speed || do_intersection_check)
+        & ((config.query.wind_speed >= config.query.trim_speed) | do_intersection_check)
     {
-        reference = explored.get_unchecked(&neighbor.reference.unwrap());
+        // We already checked neighbor.reference.is_some()
+        // References are always explored before their children
+        reference = unsafe { explored.get_unchecked(&neighbor.reference.unwrap_unchecked()) };
 
         if let Some(node) = queue.get(ix) {
             let a = &node.item;
-            if a.reference.is_some() && a.reference.unwrap() == reference.ix {
+            if a.reference.is_some() && unsafe { a.reference.unwrap_unchecked() } == reference.ix {
                 return;
             }
         }
@@ -394,7 +403,8 @@ pub fn update_one_neighbor(
 
     let total_distance = distance + reference.distance;
 
-    let grid_height = config.grid.heights[[ix.0 as usize, ix.1 as usize]] as f32;
+    // Safety: ix is guaranteed to be in the grid
+    let grid_height = *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
     let safety_margin = config.get_safety_margin_at_distance(total_distance);
 
     let reachable = grid_height + safety_margin < height;
@@ -431,7 +441,7 @@ pub fn update_two_neighbors(
     explored: &Explored,
     queue: &mut PQueue,
 ) {
-    if neighbor_1.reachable && neighbor_2.reachable {
+    if neighbor_1.reachable & neighbor_2.reachable {
         let ref_path_intersection = ref_paths_intersection(
             &neighbor_1.ix,
             &neighbor_1.reference,
@@ -453,14 +463,17 @@ pub fn update_two_neighbors(
                 return;
             }
 
-            let rpi_node = explored.get_unchecked(rpi);
+            // RPI is a (transitive) parent of both neighbors, so must have
+            // been explored already.
+            let rpi_node = unsafe { explored.get_unchecked(rpi) };
             let height = rpi_node.height - distance * effective_glide.glide_ratio;
 
             let total_distance = distance + rpi_node.distance;
 
-            let reachable = config.grid.heights[[ix.0 as usize, ix.1 as usize]] as f32
-                + config.get_safety_margin_at_distance(total_distance)
-                < height;
+            let grid_height =
+                *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
+            let reachable =
+                grid_height + config.get_safety_margin_at_distance(total_distance) < height;
 
             put_node(
                 queue,
@@ -491,11 +504,12 @@ pub fn update_three_neighbors(
     explored: &Explored,
     queue: &mut PQueue,
 ) {
+    // Safety: We only call with explored neighbors.
     let mut reachable = Vec::from_iter(
         explored_neighbors
             .iter()
-            .filter(|x| explored.get_unchecked(x).reachable)
-            .map(|x| explored.get_unchecked(x)),
+            .filter(|x| unsafe { explored.get_unchecked(x) }.reachable)
+            .map(|x| unsafe { explored.get_unchecked(x) }),
     );
 
     if reachable.len() == 1 {
@@ -534,11 +548,12 @@ pub fn update_four_neighbors(
     explored: &Explored,
     queue: &mut PQueue,
 ) {
+    // Safety: We only call with explored neighbors.
     let mut reachable = Vec::from_iter(
         explored_neighbors
             .iter()
-            .filter(|x| explored.get_unchecked(x).reachable)
-            .map(|x| explored.get_unchecked(x)),
+            .filter(|x| unsafe { explored.get_unchecked(x) }.reachable)
+            .map(|x| unsafe { explored.get_unchecked(x) }),
     );
     if reachable.is_empty() {
         put_node(
@@ -571,7 +586,7 @@ pub fn update_node(ix: &GridIx, config: &SearchConfig, state: &mut SearchState) 
         .collect();
 
     if explored_neighbors.len() == 1 {
-        let neighbor = state.explored.get_unchecked(&explored_neighbors[0]);
+        let neighbor = unsafe { state.explored.get_unchecked(&explored_neighbors[0]) };
 
         update_one_neighbor(
             neighbor,
@@ -582,8 +597,8 @@ pub fn update_node(ix: &GridIx, config: &SearchConfig, state: &mut SearchState) 
             None,
         );
     } else if explored_neighbors.len() == 2 {
-        let neighbor_1 = state.explored.get_unchecked(&explored_neighbors[0]);
-        let neighbor_2 = state.explored.get_unchecked(&explored_neighbors[1]);
+        let neighbor_1 = unsafe { state.explored.get_unchecked(&explored_neighbors[0]) };
+        let neighbor_2 = unsafe { state.explored.get_unchecked(&explored_neighbors[1]) };
 
         update_two_neighbors(
             neighbor_1,
@@ -656,10 +671,10 @@ pub fn ref_paths_intersection<'a>(
         (_, None) => return &None,
         (None, _) => return &None,
         (Some(a), Some(b)) => {
-            if is_straight(ix_1, a) && is_in_line(b, ix_1, a) {
+            if is_straight(ix_1, a) & is_in_line(b, ix_1, a) {
                 return ref_2;
             }
-            if is_straight(ix_2, b) && is_in_line(a, ix_2, b) {
+            if is_straight(ix_2, b) & is_in_line(a, ix_2, b) {
                 return ref_1;
             }
         }
@@ -700,35 +715,39 @@ pub fn is_line_intersecting(to: &Node, ix: &GridIx, config: &SearchConfig) -> bo
         i_len,
     );
 
-    if config.query.safety_margin == 0.0 || to.distance + distance <= config.query.start_distance {
+    if (config.query.safety_margin == 0.0) | (to.distance + distance <= config.query.start_distance)
+    {
         for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
-            let grid_height = config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32;
+            let grid_height =
+                *unsafe { config.grid.heights.uget([f32_usize(x_i), f32_usize(y_i)]) } as f32;
             if real_height < grid_height {
                 return true;
             }
         }
-    } else if to.distance < config.query.start_distance
-        && to.distance + distance > config.query.start_distance
+    } else if (to.distance < config.query.start_distance)
+        & (to.distance + distance > config.query.start_distance)
     {
         let mut cur_distance = to.distance;
         let distance_step = distance / (i_len - 1) as f32;
 
         for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
+            let grid_height =
+                *unsafe { config.grid.heights.uget([f32_usize(x_i), f32_usize(y_i)]) } as f32;
             let check_height = if cur_distance < config.query.start_distance {
                 real_height
             } else {
                 real_height - config.query.safety_margin
             };
-            if check_height < config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32 {
+            if check_height < grid_height {
                 return true;
             }
             cur_distance += distance_step;
         }
     } else {
         for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
-            if real_height - config.query.safety_margin
-                < config.grid.heights[[f32_usize(x_i), f32_usize(y_i)]] as f32
-            {
+            let grid_height =
+                *unsafe { config.grid.heights.uget([f32_usize(x_i), f32_usize(y_i)]) } as f32;
+            if real_height - config.query.safety_margin < grid_height {
                 return true;
             }
         }
