@@ -6,6 +6,10 @@ pub trait MapLike<K, V> {
 
     fn get(&self, key: &K) -> Option<V>;
 
+    /**
+     * # Safety
+     * Only call this when you know the map contains the respective key.
+     */
     unsafe fn get_unsafe(&self, key: &K) -> V;
 
     fn remove_entry(&mut self, key: &K);
@@ -151,6 +155,10 @@ impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQu
         unsafe { self.heap.get_unchecked_mut(new_ix) }
     }
 
+    /**
+     * # Safety
+     * Only call this when you know the queue contains the respective key.
+     */
     pub unsafe fn update_priority_unsafe(
         &mut self,
         key: K,
@@ -173,6 +181,10 @@ impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQu
         unsafe { self.heap.get_unchecked_mut(new_ix) }
     }
 
+    /**
+     * # Safety
+     * Only call this when you know the queue contains the respective key.
+     */
     pub unsafe fn update_priority_if_less_unsafe(
         &mut self,
         key: K,
