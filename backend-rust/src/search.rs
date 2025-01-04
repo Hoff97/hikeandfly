@@ -57,7 +57,7 @@ impl Node {
 pub struct GridMap {
     values: Vec<Node>,
     present: Vec<bool>,
-    grid_shape: (usize, usize),
+    grid_shape: (u16, u16),
 }
 
 pub struct GridMapIter<'a> {
@@ -82,16 +82,17 @@ impl<'a> Iterator for GridMapIter<'a> {
 }
 
 impl GridMap {
-    fn new(grid_shape: (usize, usize)) -> GridMap {
+    fn new(grid_shape: (u16, u16)) -> GridMap {
+        let size = grid_shape.0 as usize * grid_shape.1 as usize;
         GridMap {
-            values: vec![Node::new(); grid_shape.0 * grid_shape.1],
-            present: vec![false; grid_shape.0 * grid_shape.1],
+            values: vec![Node::new(); size],
+            present: vec![false; size],
             grid_shape,
         }
     }
 
     fn ix(&self, index: &GridIx) -> usize {
-        index.0 as usize * self.grid_shape.1 + index.1 as usize
+        (index.0 as u32 * self.grid_shape.1 as u32 + index.1 as u32) as usize
     }
 
     unsafe fn get_unchecked(&self, index: &GridIx) -> &Node {
@@ -100,17 +101,17 @@ impl GridMap {
 
     fn contains_key(&self, index: &GridIx) -> bool {
         let ix = self.ix(index);
-        self.present[ix]
+        *unsafe { self.present.get_unchecked(ix) }
     }
 
     fn insert(&mut self, index: GridIx, value: Node) {
         let ix = self.ix(&index);
-        self.values[ix] = value;
-        self.present[ix] = true;
+        *unsafe { self.values.get_unchecked_mut(ix) } = value;
+        *unsafe { self.present.get_unchecked_mut(ix) } = true;
     }
 
     fn subset(self, lat: GridIx, lon: GridIx) -> GridMap {
-        let mut result = GridMap::new(((lat.1 - lat.0 + 1) as usize, (lon.1 - lon.0 + 1) as usize));
+        let mut result = GridMap::new((lat.1 - lat.0 + 1, lon.1 - lon.0 + 1));
         for (mut n, present) in self.values.into_iter().zip(self.present) {
             if present
                 & (n.ix.0 >= lat.0)
@@ -150,31 +151,32 @@ pub type FakeHashMapPos = u16;
 
 pub struct FakeHashMapForGrid {
     positions: Vec<FakeHashMapPos>,
-    grid_shape: (usize, usize),
+    grid_shape: (u16, u16),
 }
 
 impl FakeHashMapForGrid {
-    pub fn new(grid_shape: (usize, usize)) -> FakeHashMapForGrid {
+    pub fn new(grid_shape: (u16, u16)) -> FakeHashMapForGrid {
         FakeHashMapForGrid {
             grid_shape,
-            positions: vec![FakeHashMapPos::MAX; grid_shape.0 * grid_shape.1],
+            positions: vec![FakeHashMapPos::MAX; grid_shape.0 as usize * grid_shape.1 as usize],
         }
     }
 
     fn gridix_to_ix(&self, key: &GridIx) -> usize {
-        key.0 as usize * self.grid_shape.1 + key.1 as usize
+        (key.0 as u32 * self.grid_shape.1 as u32 + key.1 as u32) as usize
     }
 }
 
 impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     fn insert(&mut self, key: GridIx, value: usize) {
         let ix = self.gridix_to_ix(&key);
-        self.positions[ix] = value as u16;
+        *unsafe { self.positions.get_unchecked_mut(ix) } = value as FakeHashMapPos;
+        //self.positions[ix] = value as u16;
     }
 
     fn get(&self, key: &GridIx) -> Option<usize> {
         let ix = self.gridix_to_ix(key);
-        let v = self.positions[ix];
+        let v = *unsafe { self.positions.get_unchecked(ix) };
         if v == FakeHashMapPos::MAX {
             return None;
         }
@@ -183,19 +185,24 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
 
     fn remove_entry(&mut self, key: &GridIx) {
         let ix = self.gridix_to_ix(key);
-        self.positions[ix] = FakeHashMapPos::MAX;
+        *unsafe { self.positions.get_unchecked_mut(ix) } = FakeHashMapPos::MAX;
     }
 
     fn contains_key(&self, key: &GridIx) -> bool {
         let ix = self.gridix_to_ix(key);
-        let value = self.positions[ix];
+        let value = *unsafe { self.positions.get_unchecked(ix) };
         let max_value = FakeHashMapPos::MAX;
         value != max_value
     }
 
     fn set(&mut self, key: GridIx, value: usize) {
         let ix = self.gridix_to_ix(&key);
-        self.positions[ix] = value as u16;
+        *unsafe { self.positions.get_unchecked_mut(ix) } = value as FakeHashMapPos;
+    }
+
+    unsafe fn get_unsafe(&self, key: &GridIx) -> usize {
+        let ix = self.gridix_to_ix(key);
+        *unsafe { self.positions.get_unchecked(ix) } as usize
     }
 }
 
@@ -208,7 +215,8 @@ pub struct SearchState {
 
 pub fn put_node(queue: &mut PQueue, node: Node) {
     if queue.contains_key(&node.ix) {
-        let item = queue.update_priority_if_less(node.ix, node.distance);
+        // Safety: We already checked above that the queue contains the key
+        let item = unsafe { queue.update_priority_if_less_unsafe(node.ix, node.distance) };
         if let Some(i) = item {
             i.item = node;
         }
@@ -642,8 +650,11 @@ pub fn update_node(ix: &GridIx, config: &SearchConfig, state: &mut SearchState) 
 pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState {
     let grid_shape = config.grid.heights.shape();
     let mut state = SearchState {
-        explored: Explored::new((grid_shape[0], grid_shape[1])),
-        queue: PQueue::new_with_map(FakeHashMapForGrid::new((grid_shape[0], grid_shape[1]))),
+        explored: Explored::new((grid_shape[0] as u16, grid_shape[1] as u16)),
+        queue: PQueue::new_with_map(FakeHashMapForGrid::new((
+            grid_shape[0] as u16,
+            grid_shape[1] as u16,
+        ))),
     };
     put_node(
         &mut state.queue,

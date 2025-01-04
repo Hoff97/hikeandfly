@@ -6,6 +6,12 @@ pub trait MapLike<K, V> {
 
     fn get(&self, key: &K) -> Option<V>;
 
+    /**
+     * # Safety
+     * Only call this when you know the map contains the respective key.
+     */
+    unsafe fn get_unsafe(&self, key: &K) -> V;
+
     fn remove_entry(&mut self, key: &K);
 
     fn contains_key(&self, key: &K) -> bool;
@@ -36,6 +42,10 @@ impl<K: Eq + Hash, V: Clone> MapLike<K, V> for HashMapWrap<K, V> {
 
     fn set(&mut self, key: K, value: V) {
         self.hash_map.insert(key, value);
+    }
+
+    unsafe fn get_unsafe(&self, key: &K) -> V {
+        self.hash_map.get(key).unwrap().clone()
     }
 }
 
@@ -145,6 +155,57 @@ impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQu
         unsafe { self.heap.get_unchecked_mut(new_ix) }
     }
 
+    /**
+     * # Safety
+     * Only call this when you know the queue contains the respective key.
+     */
+    pub unsafe fn update_priority_unsafe(
+        &mut self,
+        key: K,
+        priority: V::Priority,
+    ) -> &mut HeapNode<V, K> {
+        let ix = self.positions.get_unsafe(&key);
+
+        // Safety: Positions only contains valid indices.
+        let node = unsafe { self.heap.get_unchecked_mut(ix) };
+        let old_priority = *node.item.priority();
+        *node.item.priority_mut() = priority;
+
+        let new_ix = if old_priority > priority {
+            self.siftup(ix)
+        } else {
+            self.siftdown(ix)
+        };
+
+        // Safety: Siftup/Siftdown return a valid index.
+        unsafe { self.heap.get_unchecked_mut(new_ix) }
+    }
+
+    /**
+     * # Safety
+     * Only call this when you know the queue contains the respective key.
+     */
+    pub unsafe fn update_priority_if_less_unsafe(
+        &mut self,
+        key: K,
+        priority: V::Priority,
+    ) -> Option<&mut HeapNode<V, K>> {
+        let ix = self.positions.get_unsafe(&key);
+
+        // Safety: Positions only contains valid indices.
+        let node = unsafe { self.heap.get_unchecked_mut(ix) };
+        let old_priority = *node.item.priority();
+
+        if old_priority <= priority {
+            return None;
+        }
+        *node.item.priority_mut() = priority;
+        let new_ix = self.siftup(ix);
+
+        // Safety: Siftup returns a valid index.
+        unsafe { Some(self.heap.get_unchecked_mut(new_ix)) }
+    }
+
     pub fn update_priority_if_less(
         &mut self,
         key: K,
@@ -211,7 +272,7 @@ impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQu
     }
 
     fn siftup(&mut self, mut ix: usize) -> usize {
-        let newitem: &HeapNode<V, K> = self.heap.get(ix).expect("siftup called with invalid index");
+        let newitem = unsafe { self.heap.get_unchecked(ix) };
         let key = newitem.key;
         let priority = *newitem.item.priority();
 
@@ -238,10 +299,7 @@ impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQu
 
     fn siftdown(&mut self, mut ix: usize) -> usize {
         let end_ix = self.len();
-        let newitem = self
-            .heap
-            .get(ix)
-            .expect("siftdown called with invalid index");
+        let newitem = unsafe { self.heap.get_unchecked(ix) };
         let newitem_priority = *newitem.item.priority();
         let newitem_key = newitem.key;
 
