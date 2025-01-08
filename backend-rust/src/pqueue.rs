@@ -135,7 +135,7 @@ impl<V: HasPriority, K, MapType: MapLike<K, usize>> PriorityQueue<V, K, MapType>
     }
 }
 
-impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQueue<V, K, MapType> {
+impl<V: HasPriority, K: Copy, MapType: MapLike<K, usize>> PriorityQueue<V, K, MapType> {
     pub fn push(&mut self, key: K, item: V) {
         self.heap.push(HeapNode { item, key });
 

@@ -109,6 +109,7 @@ pub fn meter_in_arcseconds(latitude: f32) -> f32 {
 #[derive(Clone)]
 pub struct HeightGrid {
     pub heights: Array2<i16>,
+    pub shape: (u16, u16),
     pub cell_size: f32,
     pub min_cell_size: f32,
     pub latitudes: (f32, f32),
@@ -152,6 +153,10 @@ impl HeightGrid {
         let scale_f = factor.min(1.0);
         HeightGrid {
             heights: scale_2d_array(&self.heights.view(), (scale_f, scale_f)),
+            shape: (
+                self.heights.shape()[0] as u16,
+                self.heights.shape()[1] as u16,
+            ),
             cell_size: self.cell_size / scale_f,
             min_cell_size: self.min_cell_size,
             latitudes: self.latitudes,
@@ -271,6 +276,7 @@ pub fn get_height_data_around_point(
     );
 
     HeightGrid {
+        shape: (final_grid.shape()[0] as u16, final_grid.shape()[1] as u16),
         heights: final_grid,
         cell_size: max_resolution,
         min_cell_size: max_resolution,

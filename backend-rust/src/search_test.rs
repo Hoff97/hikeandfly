@@ -70,6 +70,7 @@ fn test_search_detailed() {
     let start_height = 80.0;
     let mut config = SearchConfig {
         grid: HeightGrid {
+            shape: (10, 10),
             heights,
             cell_size: 100.0,
             min_cell_size: 10.0,
@@ -145,9 +146,10 @@ fn test_search_detailed() {
     for n in explored.iter() {
         if n.reachable {
             if let Some(parent) = n.reference {
-                res[n.ix.1 as usize][n.ix.0 as usize] = format!("{},{}", parent.0, parent.1);
+                res[n.ix.pos.1 as usize][n.ix.pos.0 as usize] =
+                    format!("{},{}", parent.pos.0, parent.pos.1);
             } else {
-                res[n.ix.1 as usize][n.ix.0 as usize] = "xxx".to_string();
+                res[n.ix.pos.1 as usize][n.ix.pos.0 as usize] = "xxx".to_string();
             }
         }
     }
@@ -163,15 +165,24 @@ fn test_search_detailed() {
     for n in explored.iter() {
         if n.reachable {
             if let Some(parent) = n.reference {
-                if parent != expected_ref[n.ix.1 as usize][n.ix.0 as usize] {
-                    println!("Failed at {:?}", n.ix);
+                if parent.pos != expected_ref[n.ix.pos.1 as usize][n.ix.pos.0 as usize] {
+                    println!("Failed at {:?}", n.ix.pos);
                 }
-                assert_eq!(parent, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+                assert_eq!(
+                    parent.pos,
+                    expected_ref[n.ix.pos.1 as usize][n.ix.pos.0 as usize]
+                );
             } else {
-                assert_eq!(n.ix, expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+                assert_eq!(
+                    n.ix.pos,
+                    expected_ref[n.ix.pos.1 as usize][n.ix.pos.0 as usize]
+                );
             }
         } else {
-            assert_eq!((0, 0), expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
+            assert_eq!(
+                (0, 0),
+                expected_ref[n.ix.pos.1 as usize][n.ix.pos.0 as usize]
+            );
         }
     }
 }

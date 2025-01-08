@@ -13,7 +13,33 @@ use crate::{
 };
 
 pub type GridIxType = u16;
-pub type GridIx = (GridIxType, GridIxType);
+pub type GridIxT = (GridIxType, GridIxType);
+//pub type GridIx = (GridIxType, GridIxType);
+#[derive(Clone, Copy)]
+pub struct GridIx {
+    pub pos: GridIxT,
+    pub ix: usize,
+}
+
+impl PartialEq for GridIx {
+    fn eq(&self, other: &Self) -> bool {
+        self.ix == other.ix
+    }
+}
+
+impl Eq for GridIx {}
+
+impl GridIx {
+    fn new(pos: GridIxT, ix: usize) -> GridIx {
+        GridIx { pos, ix }
+    }
+    fn from_grid(pos: GridIxT, grid_shape: GridIxT) -> GridIx {
+        GridIx {
+            pos,
+            ix: (pos.0 as usize * grid_shape.1 as usize + pos.1 as usize) as usize,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Node {
@@ -35,7 +61,7 @@ impl Node {
     pub fn new() -> Node {
         Node {
             height: 0.0,
-            ix: (0, 0),
+            ix: GridIx::new((0, 0), 0),
             reference: None,
             distance: 0.0,
             reachable: false,
@@ -71,9 +97,12 @@ impl<'a> Iterator for GridMapIter<'a> {
 }
 
 fn to_ix(grid_shape: (u16, u16), index: usize) -> GridIx {
-    (
-        (index / grid_shape.1 as usize) as u16,
-        (index % grid_shape.1 as usize) as u16,
+    GridIx::new(
+        (
+            (index / grid_shape.1 as usize) as u16,
+            (index % grid_shape.1 as usize) as u16,
+        ),
+        index,
     )
 }
 
@@ -87,38 +116,31 @@ impl GridMap {
         GridMap { values, grid_shape }
     }
 
-    fn ix(&self, index: &GridIx) -> usize {
-        (index.0 as u32 * self.grid_shape.1 as u32 + index.1 as u32) as usize
-    }
-
     unsafe fn get_unchecked(&self, index: &GridIx) -> &Node {
-        self.values.get_unchecked(self.ix(index))
+        self.values.get_unchecked(index.ix)
     }
 
     unsafe fn get_unchecked_mut(&mut self, index: &GridIx) -> &mut Node {
-        self.values.get_unchecked_mut(
-            (index.0 as u32 * self.grid_shape.1 as u32 + index.1 as u32) as usize,
-        )
+        self.values.get_unchecked_mut(index.ix)
     }
 
     fn insert(&mut self, index: GridIx, value: Node) {
-        let ix = self.ix(&index);
-        *unsafe { self.values.get_unchecked_mut(ix) } = value;
+        *unsafe { self.values.get_unchecked_mut(index.ix) } = value;
     }
 
-    fn subset(self, lat: GridIx, lon: GridIx) -> GridMap {
+    fn subset(self, lat: GridIxT, lon: GridIxT) -> GridMap {
         let mut result = GridMap::new((lat.1 - lat.0 + 1, lon.1 - lon.0 + 1));
         for mut n in self.values.into_iter() {
             if n.explored
-                & (n.ix.0 >= lat.0)
-                & (n.ix.0 <= lat.1)
-                & (n.ix.1 >= lon.0)
-                & (n.ix.1 <= lon.1)
+                & (n.ix.pos.0 >= lat.0)
+                & (n.ix.pos.0 <= lat.1)
+                & (n.ix.pos.1 >= lon.0)
+                & (n.ix.pos.1 <= lon.1)
             {
-                let new_lat = n.ix.0 - lat.0;
-                let new_lon = n.ix.1 - lon.0;
-                reindex_node(&mut n, lat, lon);
-                result.insert((new_lat, new_lon), n);
+                let new_lat = n.ix.pos.0 - lat.0;
+                let new_lon = n.ix.pos.1 - lon.0;
+                reindex_node(&mut n, lat, lon, result.grid_shape);
+                result.insert(GridIx::from_grid((new_lat, new_lon), result.grid_shape), n);
             }
         }
         result
@@ -153,22 +175,16 @@ impl FakeHashMapForGrid {
             positions: vec![FakeHashMapPos::MAX; grid_shape.0 as usize * grid_shape.1 as usize],
         }
     }
-
-    fn gridix_to_ix(&self, key: &GridIx) -> usize {
-        (key.0 as u32 * self.grid_shape.1 as u32 + key.1 as u32) as usize
-    }
 }
 
 impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     fn insert(&mut self, key: GridIx, value: usize) {
-        let ix = self.gridix_to_ix(&key);
-        *unsafe { self.positions.get_unchecked_mut(ix) } = value as FakeHashMapPos;
+        *unsafe { self.positions.get_unchecked_mut(key.ix) } = value as FakeHashMapPos;
         //self.positions[ix] = value as u16;
     }
 
     fn get(&self, key: &GridIx) -> Option<usize> {
-        let ix = self.gridix_to_ix(key);
-        let v = *unsafe { self.positions.get_unchecked(ix) };
+        let v = *unsafe { self.positions.get_unchecked(key.ix) };
         if v == FakeHashMapPos::MAX {
             return None;
         }
@@ -176,25 +192,21 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     }
 
     fn remove_entry(&mut self, key: &GridIx) {
-        let ix = self.gridix_to_ix(key);
-        *unsafe { self.positions.get_unchecked_mut(ix) } = FakeHashMapPos::MAX;
+        *unsafe { self.positions.get_unchecked_mut(key.ix) } = FakeHashMapPos::MAX;
     }
 
     fn contains_key(&self, key: &GridIx) -> bool {
-        let ix = self.gridix_to_ix(key);
-        let value = *unsafe { self.positions.get_unchecked(ix) };
+        let value = *unsafe { self.positions.get_unchecked(key.ix) };
         let max_value = FakeHashMapPos::MAX;
         value != max_value
     }
 
     fn set(&mut self, key: GridIx, value: usize) {
-        let ix = self.gridix_to_ix(&key);
-        *unsafe { self.positions.get_unchecked_mut(ix) } = value as FakeHashMapPos;
+        *unsafe { self.positions.get_unchecked_mut(key.ix) } = value as FakeHashMapPos;
     }
 
     unsafe fn get_unsafe(&self, key: &GridIx) -> usize {
-        let ix = self.gridix_to_ix(key);
-        *unsafe { self.positions.get_unchecked(ix) } as usize
+        *unsafe { self.positions.get_unchecked(key.ix) } as usize
     }
 }
 
@@ -306,23 +318,35 @@ impl SearchConfig {
 pub fn get_neighbor_indices(ix: &GridIx, height_grid: &HeightGrid) -> Vec<GridIx> {
     let mut result = Vec::with_capacity(4);
 
-    if ix.0 > 0 {
-        result.push((ix.0 - 1, ix.1));
+    if ix.pos.0 > 0 {
+        result.push(GridIx::from_grid(
+            (ix.pos.0 - 1, ix.pos.1),
+            height_grid.shape,
+        ));
     }
-    if ix.1 > 0 {
-        result.push((ix.0, ix.1 - 1));
+    if ix.pos.1 > 0 {
+        result.push(GridIx::from_grid(
+            (ix.pos.0, ix.pos.1 - 1),
+            height_grid.shape,
+        ));
     }
-    if ix.0 < (height_grid.heights.shape()[0] - 1) as GridIxType {
-        result.push((ix.0 + 1, ix.1));
+    if ix.pos.0 < (height_grid.heights.shape()[0] - 1) as GridIxType {
+        result.push(GridIx::from_grid(
+            (ix.pos.0 + 1, ix.pos.1),
+            height_grid.shape,
+        ));
     }
-    if ix.1 < (height_grid.heights.shape()[1] - 1) as GridIxType {
-        result.push((ix.0, ix.1 + 1));
+    if ix.pos.1 < (height_grid.heights.shape()[1] - 1) as GridIxType {
+        result.push(GridIx::from_grid(
+            (ix.pos.0, ix.pos.1 + 1),
+            height_grid.shape,
+        ));
     }
 
     result
 }
 
-pub fn l2_distance(a: &GridIx, b: &GridIx) -> f32 {
+pub fn l2_distance(a: &GridIxT, b: &GridIxT) -> f32 {
     let ax = a.0 as f32;
     let ay = a.1 as f32;
     let bx = b.0 as f32;
@@ -331,7 +355,7 @@ pub fn l2_distance(a: &GridIx, b: &GridIx) -> f32 {
     ((ax - bx).powi(2) + (ay - by).powi(2)).sqrt()
 }
 
-pub fn l2_diff(a: &GridIx, b: &GridIx) -> (i32, i32) {
+pub fn l2_diff(a: &GridIxT, b: &GridIxT) -> (i32, i32) {
     (a.0 as i32 - b.0 as i32, a.1 as i32 - b.1 as i32)
 }
 
@@ -339,8 +363,8 @@ const PI_2: f32 = f32::consts::PI / 2.0;
 
 fn get_effective_glide_ratio_from_to(
     query: &SearchQuery,
-    start: &GridIx,
-    end: &GridIx,
+    start: &GridIxT,
+    end: &GridIxT,
 ) -> EffectiveGlide {
     if query.wind_speed == 0.0 {
         return EffectiveGlide {
@@ -362,12 +386,12 @@ fn get_effective_glide_ratio_from_to(
     )
 }
 
-pub fn is_straight(a: &GridIx, b: &GridIx) -> bool {
+pub fn is_straight(a: &GridIxT, b: &GridIxT) -> bool {
     // TODO: Bitwise or?
     a.0 == b.0 || a.1 == b.1
 }
 
-pub fn is_in_line(point: &GridIx, start: &GridIx, end: &GridIx) -> bool {
+pub fn is_in_line(point: &GridIxT, start: &GridIxT, end: &GridIxT) -> bool {
     if (point.0 == start.0) & (point.0 == end.0) {
         return (point.1 >= min(start.1, end.1)) & (point.1 <= max(start.1, end.1));
     } else if (point.1 == start.1) & (point.1 == end.1) {
@@ -379,7 +403,7 @@ pub fn is_in_line(point: &GridIx, start: &GridIx, end: &GridIx) -> bool {
 fn get_straight_line_ref<'a>(ix: &GridIx, neighbor: &'a Node, explored: &'a Explored) -> &'a Node {
     let mut n = neighbor;
     while let Some(reference) = &n.reference {
-        if is_straight(reference, ix) {
+        if is_straight(&reference.pos, &ix.pos) {
             // Safety: References are always explored before their children,
             // so must be in explored.
             n = unsafe { explored.get_unchecked(reference) };
@@ -419,7 +443,9 @@ pub fn update_one_neighbor(
 
         if state.queue.contains_key(ix) {
             let a = unsafe { state.explored.get_unchecked(ix) };
-            if a.reference.is_some() && unsafe { a.reference.unwrap_unchecked() } == reference.ix {
+            if a.reference.is_some()
+                && unsafe { a.reference.unwrap_unchecked() }.ix == reference.ix.ix
+            {
                 return;
             }
         }
@@ -429,8 +455,9 @@ pub fn update_one_neighbor(
         }
     }
 
-    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, &reference.ix);
-    let distance = l2_distance(ix, &reference.ix) * config.grid.cell_size;
+    let effective_glide =
+        get_effective_glide_ratio_from_to(&config.query, &ix.pos, &reference.ix.pos);
+    let distance = l2_distance(&ix.pos, &reference.ix.pos) * config.grid.cell_size;
 
     if f32::is_infinite(effective_glide.glide_ratio) {
         return;
@@ -443,8 +470,12 @@ pub fn update_one_neighbor(
     if let Some(r) = put_or_update(state, *ix, total_distance) {
         let height = ref_height - distance * effective_glide.glide_ratio;
         // Safety: ix is guaranteed to be in the grid
-        let grid_height =
-            *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
+        let grid_height = *unsafe {
+            config
+                .grid
+                .heights
+                .uget([ix.pos.0 as usize, ix.pos.1 as usize])
+        } as f32;
         let safety_margin = config.get_safety_margin_at_distance(total_distance);
 
         let reachable = grid_height + safety_margin < height;
@@ -491,9 +522,10 @@ pub fn update_two_neighbors(
                 return;
             }
 
-            let distance = l2_distance(ix, rpi) * config.grid.cell_size;
+            let distance = l2_distance(&ix.pos, &rpi.pos) * config.grid.cell_size;
 
-            let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, rpi);
+            let effective_glide =
+                get_effective_glide_ratio_from_to(&config.query, &ix.pos, &rpi.pos);
 
             if f32::is_infinite(effective_glide.glide_ratio) {
                 return;
@@ -507,8 +539,12 @@ pub fn update_two_neighbors(
             let rpi_node_height = rpi_node.height;
 
             if let Some(r) = put_or_update(state, *ix, total_distance) {
-                let grid_height =
-                    *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
+                let grid_height = *unsafe {
+                    config
+                        .grid
+                        .heights
+                        .uget([ix.pos.0 as usize, ix.pos.1 as usize])
+                } as f32;
                 let height = rpi_node_height - distance * effective_glide.glide_ratio;
                 let reachable =
                     grid_height + config.get_safety_margin_at_distance(total_distance) < height;
@@ -546,7 +582,7 @@ pub fn update_three_neighbors(
         update_two_neighbors(reachable[0].ix, reachable[1].ix, ix, config, state);
     } else if reachable.len() == 3 {
         let reference_set =
-            HashSet::<Option<GridIx>>::from_iter(reachable.iter().map(|x| x.reference));
+            HashSet::<Option<_>>::from_iter(reachable.iter().map(|x| x.reference.map(|y| y.ix)));
         if reference_set.len() == 3 {
             // Sort apparently increases performance
             reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap());
@@ -606,7 +642,7 @@ pub fn update_four_neighbors(
         update_three_neighbors(explored_neighbors, ix, config, state);
     } else if reachable.len() == 4 {
         let reference_set =
-            HashSet::<Option<GridIx>>::from_iter(reachable.iter().map(|x| x.reference));
+            HashSet::<Option<_>>::from_iter(reachable.iter().map(|x| x.reference.map(|y| y.ix)));
         if reference_set.len() == 4 {
             reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap());
             update_one_neighbor(reachable[0].ix, ix, config, state, None);
@@ -638,20 +674,16 @@ pub fn update_node(ix: &GridIx, config: &SearchConfig, state: &mut SearchState) 
     }
 }
 
-pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState {
-    let grid_shape = config.grid.heights.shape();
+pub fn search(start: GridIxT, height: f32, config: &SearchConfig) -> SearchState {
     let mut state = SearchState {
-        explored: Explored::new((grid_shape[0] as u16, grid_shape[1] as u16)),
-        queue: PQueue::new_with_map(FakeHashMapForGrid::new((
-            grid_shape[0] as u16,
-            grid_shape[1] as u16,
-        ))),
+        explored: Explored::new(config.grid.shape),
+        queue: PQueue::new_with_map(FakeHashMapForGrid::new(config.grid.shape)),
     };
     put_node(
         &mut state,
         Node {
             height,
-            ix: start,
+            ix: GridIx::from_grid(start, config.grid.shape),
             reference: None,
             distance: 0.0,
             reachable: true,
@@ -686,10 +718,10 @@ pub fn ref_paths_intersection<'a>(
         (_, None) => return &None,
         (None, _) => return &None,
         (Some(a), Some(b)) => {
-            if is_straight(ix_1, a) & is_in_line(b, ix_1, a) {
+            if is_straight(&ix_1.pos, &a.pos) & is_in_line(&b.pos, &ix_1.pos, &a.pos) {
                 return ref_2;
             }
-            if is_straight(ix_2, b) & is_in_line(a, ix_2, b) {
+            if is_straight(&ix_2.pos, &b.pos) & is_in_line(&a.pos, &ix_2.pos, &b.pos) {
                 return ref_1;
             }
         }
@@ -710,17 +742,17 @@ pub fn f32_usize(x: f32) -> usize {
 }
 
 pub fn is_line_intersecting(to: &Node, ix: &GridIx, config: &SearchConfig) -> bool {
-    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, &to.ix);
+    let effective_glide = get_effective_glide_ratio_from_to(&config.query, &ix.pos, &to.ix.pos);
     if f32::is_infinite(effective_glide.glide_ratio) {
         return true;
     }
 
-    let length = l2_distance(&to.ix, ix);
+    let length = l2_distance(&to.ix.pos, &ix.pos);
 
     let i_len = length.ceil() as usize;
 
-    let x_indices = linspace(u16_f32(to.ix.0), u16_f32(ix.0), i_len);
-    let y_indices = linspace(u16_f32(to.ix.1), u16_f32(ix.1), i_len);
+    let x_indices = linspace(u16_f32(to.ix.pos.0), u16_f32(ix.pos.0), i_len);
+    let y_indices = linspace(u16_f32(to.ix.pos.1), u16_f32(ix.pos.1), i_len);
 
     let distance = length * config.grid.cell_size;
 
@@ -770,16 +802,23 @@ pub fn is_line_intersecting(to: &Node, ix: &GridIx, config: &SearchConfig) -> bo
     false
 }
 
-fn reindex_node(node: &mut Node, lats: (GridIxType, GridIxType), lons: (GridIxType, GridIxType)) {
-    node.ix = (node.ix.0 - lats.0, node.ix.1 - lons.0);
-    node.reference = node.reference.map(|(x, y)| (x - lats.0, y - lons.0));
+fn reindex_node(
+    node: &mut Node,
+    lats: (GridIxType, GridIxType),
+    lons: (GridIxType, GridIxType),
+    grid_shape: (GridIxType, GridIxType),
+) {
+    node.ix = GridIx::from_grid((node.ix.pos.0 - lats.0, node.ix.pos.1 - lons.0), grid_shape);
+    node.reference = node.reference.as_ref().map(|grid_ix| {
+        GridIx::from_grid((grid_ix.pos.0 - lats.0, grid_ix.pos.1 - lons.0), grid_shape)
+    });
 }
 
 pub fn reindex(
     explored: Explored,
     grid: &HeightGrid,
-    start_ix: GridIx,
-) -> (Explored, HeightGrid, GridIx) {
+    start_ix: GridIxT,
+) -> (Explored, HeightGrid, GridIxT) {
     let mut lat_min = GridIxType::MAX;
     let mut lat_max = GridIxType::MIN;
     let mut lon_min = GridIxType::MAX;
@@ -787,10 +826,10 @@ pub fn reindex(
 
     for n in explored.iter() {
         if n.reachable {
-            lat_min = min(lat_min, n.ix.0);
-            lat_max = max(lat_max, n.ix.0);
-            lon_min = min(lon_min, n.ix.1);
-            lon_max = max(lon_max, n.ix.1);
+            lat_min = min(lat_min, n.ix.pos.0);
+            lat_max = max(lat_max, n.ix.pos.0);
+            lon_min = min(lon_min, n.ix.pos.1);
+            lon_max = max(lon_max, n.ix.pos.1);
         }
     }
 
@@ -800,14 +839,20 @@ pub fn reindex(
 
     let new_start_ix = (start_ix.0 - lat_min, start_ix.1 - lon_min);
 
+    let heights = grid
+        .heights
+        .slice(s![
+            (lat_min as usize)..(lat_max as usize + 1),
+            (lon_min as usize)..(lon_max as usize + 1)
+        ])
+        .to_owned();
+
     let new_grid = HeightGrid {
-        heights: grid
-            .heights
-            .slice(s![
-                (lat_min as usize)..(lat_max as usize + 1),
-                (lon_min as usize)..(lon_max as usize + 1)
-            ])
-            .to_owned(),
+        shape: (
+            heights.shape()[0] as GridIxType,
+            heights.shape()[1] as GridIxType,
+        ),
+        heights: heights,
         cell_size: grid.cell_size,
         min_cell_size: grid.min_cell_size,
         latitudes: (
@@ -832,7 +877,7 @@ pub fn reindex(
 pub struct SearchSetup {
     pub ground_height: f32,
     pub start_height: f32,
-    pub start_ix: GridIx,
+    pub start_ix: GridIxT,
     pub config: SearchConfig,
 }
 
@@ -886,7 +931,7 @@ pub struct SearchResult {
     pub explored: Explored,
     pub height_grid: HeightGrid,
     pub ground_height: f32,
-    pub start_ix: GridIx,
+    pub start_ix: GridIxT,
 }
 
 pub fn search_from_point(

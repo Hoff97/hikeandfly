@@ -9,7 +9,7 @@ use std::{
 use backend_rust::{
     colors::{f32_color_to_u8, lerp},
     height_data::{location_supported, HeightGrid},
-    search::{search_from_point, GridIx, Node, SearchQuery},
+    search::{search_from_point, GridIxT, Node, SearchQuery},
 };
 use image::{DynamicImage, GenericImage, ImageFormat, Rgba};
 use quick_xml::{
@@ -115,7 +115,7 @@ fn search_from_point_memoized(
     longitude: Distance,
     cell_size: Distance,
     query: SearchQueryHashable,
-) -> (Vec<Node>, HeightGrid, f32, GridIx) {
+) -> (Vec<Node>, HeightGrid, f32, GridIxT) {
     let search_result =
         search_from_point(latitude.0, longitude.0, cell_size.0, query.search_query());
     (
@@ -139,7 +139,14 @@ pub fn search_from_request(
     trim_speed_opt: Option<f32>,
     safety_margin_opt: Option<f32>,
     start_distance_opt: Option<f32>,
-) -> (Vec<Node>, HeightGrid, Array2<f32>, Array2<f32>, f32, GridIx) {
+) -> (
+    Vec<Node>,
+    HeightGrid,
+    Array2<f32>,
+    Array2<f32>,
+    f32,
+    GridIxT,
+) {
     let cell_size = cell_size_opt
         .unwrap_or(CELL_SIZE_DEFAULT)
         .clamp(CELL_SIZE_MINIMUM, CELL_SIZE_MAXIMUM);
@@ -191,9 +198,9 @@ pub fn search_from_request(
 
     for node in explored.iter() {
         if node.reachable {
-            heights[(node.ix.0 as usize, node.ix.1 as usize)] =
-                node.height - grid.heights[(node.ix.0 as usize, node.ix.1 as usize)] as f32;
-            node_heights[(node.ix.0 as usize, node.ix.1 as usize)] = node.height;
+            heights[(node.ix.pos.0 as usize, node.ix.pos.1 as usize)] =
+                node.height - grid.heights[(node.ix.pos.0 as usize, node.ix.pos.1 as usize)] as f32;
+            node_heights[(node.ix.pos.0 as usize, node.ix.pos.1 as usize)] = node.height;
         }
     }
 
@@ -210,10 +217,10 @@ pub fn search_from_request(
 #[derive(Serialize)]
 
 struct NodeResponse {
-    index: GridIx,
+    index: GridIxT,
     height: i16,
     distance: i32,
-    reference: Option<GridIx>,
+    reference: Option<GridIxT>,
     agl: i16,
 }
 
@@ -225,7 +232,7 @@ struct FlightConeResponse {
     angular_resolution: (f32, f32),
     lat: (f32, f32),
     lon: (f32, f32),
-    start_ix: GridIx,
+    start_ix: GridIxT,
     grid_shape: (usize, usize),
     start_height: f32,
 }
@@ -282,11 +289,12 @@ fn get_flight_cone(
     for node in explored {
         if node.reachable {
             nodes.push(NodeResponse {
-                index: node.ix,
+                index: node.ix.pos,
                 height: node.height as i16,
                 distance: node.distance as i32,
-                reference: node.reference,
-                agl: node.height as i16 - grid.heights[(node.ix.0 as usize, node.ix.1 as usize)],
+                reference: node.reference.map(|x| x.pos),
+                agl: node.height as i16
+                    - grid.heights[(node.ix.pos.0 as usize, node.ix.pos.1 as usize)],
             })
         }
     }
@@ -557,8 +565,8 @@ fn end(name: &str, writer: &mut Writer<Cursor<Vec<u8>>>) {
 }
 
 fn interpolate(node: &Node, px: u16, py: u16, heights: &Array2<f32>) -> f32 {
-    let x = min((node.ix.0 + px) as usize, heights.shape()[0] - 1);
-    let y = min((node.ix.1 + py) as usize, heights.shape()[1] - 1);
+    let x = min((node.ix.pos.0 + px) as usize, heights.shape()[0] - 1);
+    let y = min((node.ix.pos.1 + py) as usize, heights.shape()[1] - 1);
     if heights[(x, y)] > -1000.0 {
         heights[(x, y)]
     } else {
@@ -626,10 +634,10 @@ fn get_kml(
 
     for node in nodes {
         if node.reachable {
-            let x = node.ix.0 as f32 * lat_resolution + height_grid.latitudes.0;
-            let y = node.ix.1 as f32 * lon_resolution + height_grid.longitudes.0;
+            let x = node.ix.pos.0 as f32 * lat_resolution + height_grid.latitudes.0;
+            let y = node.ix.pos.1 as f32 * lon_resolution + height_grid.longitudes.0;
 
-            let agl = heights[(node.ix.0 as usize, node.ix.1 as usize)];
+            let agl = heights[(node.ix.pos.0 as usize, node.ix.pos.1 as usize)];
             let s = ((agl - hmin) / (hmax - hmin)).clamp(0.0, 1.0);
             let color = f32_color_to_u8(lerp(&DEFAULT_LERP_COLORS, &DEFAULT_LERP_STEPS, s));
 
