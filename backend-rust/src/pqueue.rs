@@ -70,6 +70,18 @@ pub trait HasPriority {
     fn priority_mut(&mut self) -> &mut Self::Priority;
 }
 
+impl HasPriority for f32 {
+    type Priority = f32;
+
+    fn priority(&self) -> &Self::Priority {
+        self
+    }
+
+    fn priority_mut(&mut self) -> &mut Self::Priority {
+        self
+    }
+}
+
 #[derive(Debug)]
 pub struct PriorityQueue<V: HasPriority, K, MapType: MapLike<K, usize> = HashMapWrap<K, usize>> {
     heap: Vec<HeapNode<V, K>>,

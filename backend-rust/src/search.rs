@@ -9,7 +9,7 @@ use ndarray::{linspace, s};
 
 use crate::{
     height_data::{get_height_at_point, get_height_data_around_point, HeightGrid},
-    pqueue::{HasPriority, MapLike, PriorityQueue},
+    pqueue::{MapLike, PriorityQueue},
 };
 
 pub type GridIxType = u16;
@@ -22,18 +22,7 @@ pub struct Node {
     pub reference: Option<GridIx>,
     pub distance: f32,
     pub reachable: bool,
-}
-
-impl HasPriority for Node {
-    type Priority = f32;
-
-    fn priority(&self) -> &Self::Priority {
-        &self.distance
-    }
-
-    fn priority_mut(&mut self) -> &mut Self::Priority {
-        &mut self.distance
-    }
+    pub explored: bool,
 }
 
 impl Default for Node {
@@ -50,13 +39,13 @@ impl Node {
             reference: None,
             distance: 0.0,
             reachable: false,
+            explored: false,
         }
     }
 }
 
 pub struct GridMap {
     values: Vec<Node>,
-    present: Vec<bool>,
     grid_shape: (u16, u16),
 }
 
@@ -69,7 +58,7 @@ impl<'a> Iterator for GridMapIter<'a> {
     type Item = &'a Node;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.ix < self.gridmap.values.len() && !self.gridmap.present[self.ix] {
+        while self.ix < self.gridmap.values.len() && !self.gridmap.values[self.ix].explored {
             self.ix += 1;
         }
         if self.ix >= self.gridmap.values.len() {
@@ -81,14 +70,21 @@ impl<'a> Iterator for GridMapIter<'a> {
     }
 }
 
+fn to_ix(grid_shape: (u16, u16), index: usize) -> GridIx {
+    (
+        (index / grid_shape.1 as usize) as u16,
+        (index % grid_shape.1 as usize) as u16,
+    )
+}
+
 impl GridMap {
     fn new(grid_shape: (u16, u16)) -> GridMap {
         let size = grid_shape.0 as usize * grid_shape.1 as usize;
-        GridMap {
-            values: vec![Node::new(); size],
-            present: vec![false; size],
-            grid_shape,
+        let mut values = vec![Node::new(); size];
+        for (index, node) in values.iter_mut().enumerate() {
+            node.ix = to_ix(grid_shape, index);
         }
+        GridMap { values, grid_shape }
     }
 
     fn ix(&self, index: &GridIx) -> usize {
@@ -99,21 +95,21 @@ impl GridMap {
         self.values.get_unchecked(self.ix(index))
     }
 
-    fn contains_key(&self, index: &GridIx) -> bool {
-        let ix = self.ix(index);
-        *unsafe { self.present.get_unchecked(ix) }
+    unsafe fn get_unchecked_mut(&mut self, index: &GridIx) -> &mut Node {
+        self.values.get_unchecked_mut(
+            (index.0 as u32 * self.grid_shape.1 as u32 + index.1 as u32) as usize,
+        )
     }
 
     fn insert(&mut self, index: GridIx, value: Node) {
         let ix = self.ix(&index);
         *unsafe { self.values.get_unchecked_mut(ix) } = value;
-        *unsafe { self.present.get_unchecked_mut(ix) } = true;
     }
 
     fn subset(self, lat: GridIx, lon: GridIx) -> GridMap {
         let mut result = GridMap::new((lat.1 - lat.0 + 1, lon.1 - lon.0 + 1));
-        for (mut n, present) in self.values.into_iter().zip(self.present) {
-            if present
+        for mut n in self.values.into_iter() {
+            if n.explored
                 & (n.ix.0 >= lat.0)
                 & (n.ix.0 <= lat.1)
                 & (n.ix.1 >= lon.0)
@@ -136,11 +132,7 @@ impl GridMap {
     }
 
     pub fn into_it(self) -> impl Iterator<Item = Node> {
-        self.values
-            .into_iter()
-            .zip(self.present)
-            .filter(|(_, p)| *p)
-            .map(|(n, _)| n)
+        self.values.into_iter().filter(|x| x.explored)
     }
 }
 
@@ -206,23 +198,43 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
     }
 }
 
-pub type PQueue = PriorityQueue<Node, GridIx, FakeHashMapForGrid>;
+pub type PQueue = PriorityQueue<f32, GridIx, FakeHashMapForGrid>;
 
 pub struct SearchState {
     pub explored: Explored,
     pub queue: PQueue,
 }
 
-pub fn put_node(queue: &mut PQueue, node: Node) {
-    if queue.contains_key(&node.ix) {
+pub fn put_node(state: &mut SearchState, node: Node) {
+    if state.queue.contains_key(&node.ix) {
         // Safety: We already checked above that the queue contains the key
-        let item = unsafe { queue.update_priority_if_less_unsafe(node.ix, node.distance) };
+        let item = unsafe {
+            state
+                .queue
+                .update_priority_if_less_unsafe(node.ix, node.distance)
+        };
         if let Some(i) = item {
-            i.item = node;
+            i.item = node.distance; // TODO: Needed?
+            state.explored.insert(node.ix, node);
         }
     } else {
-        queue.push(node.ix, node);
+        state.queue.push(node.ix, node.distance);
+        state.explored.insert(node.ix, node);
     }
+}
+
+pub fn put_or_update(state: &mut SearchState, ix: GridIx, distance: f32) -> Option<&mut Node> {
+    if state.queue.contains_key(&ix) {
+        // Safety: We already checked above that the queue contains the key
+        let item = unsafe { state.queue.update_priority_if_less_unsafe(ix, distance) };
+        if item.is_some() {
+            return Some(unsafe { state.explored.get_unchecked_mut(&ix) });
+        }
+    } else {
+        state.queue.push(ix, distance);
+        return Some(unsafe { state.explored.get_unchecked_mut(&ix) });
+    }
+    None
 }
 
 pub struct EffectiveGlide {
@@ -379,14 +391,15 @@ fn get_straight_line_ref<'a>(ix: &GridIx, neighbor: &'a Node, explored: &'a Expl
 }
 
 pub fn update_one_neighbor(
-    neighbor: &Node,
+    neighbor_ix: GridIx,
     ix: &GridIx,
     config: &SearchConfig,
-    explored: &Explored,
-    queue: &mut PQueue,
+    state: &mut SearchState,
     do_intersection_check_opt: Option<bool>,
 ) {
     let do_intersection_check = do_intersection_check_opt.unwrap_or(false);
+
+    let neighbor = unsafe { state.explored.get_unchecked(&neighbor_ix) };
 
     if !neighbor.reachable {
         return;
@@ -398,10 +411,14 @@ pub fn update_one_neighbor(
     {
         // We already checked neighbor.reference.is_some()
         // References are always explored before their children
-        reference = unsafe { explored.get_unchecked(&neighbor.reference.unwrap_unchecked()) };
+        reference = unsafe {
+            state
+                .explored
+                .get_unchecked(&neighbor.reference.unwrap_unchecked())
+        };
 
-        if let Some(node) = queue.get(ix) {
-            let a = &node.item;
+        if state.queue.contains_key(ix) {
+            let a = unsafe { state.explored.get_unchecked(ix) };
             if a.reference.is_some() && unsafe { a.reference.unwrap_unchecked() } == reference.ix {
                 return;
             }
@@ -414,52 +431,52 @@ pub fn update_one_neighbor(
 
     let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, &reference.ix);
     let distance = l2_distance(ix, &reference.ix) * config.grid.cell_size;
-    let height = reference.height - distance * effective_glide.glide_ratio;
 
     if f32::is_infinite(effective_glide.glide_ratio) {
         return;
     }
 
     let total_distance = distance + reference.distance;
+    let straight_line_ref = Some(get_straight_line_ref(ix, reference, &state.explored).ix);
+    let ref_height = reference.height;
 
-    // Safety: ix is guaranteed to be in the grid
-    let grid_height = *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
-    let safety_margin = config.get_safety_margin_at_distance(total_distance);
+    if let Some(r) = put_or_update(state, *ix, total_distance) {
+        let height = ref_height - distance * effective_glide.glide_ratio;
+        // Safety: ix is guaranteed to be in the grid
+        let grid_height =
+            *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
+        let safety_margin = config.get_safety_margin_at_distance(total_distance);
 
-    let reachable = grid_height + safety_margin < height;
+        let reachable = grid_height + safety_margin < height;
 
-    put_node(
-        queue,
-        Node {
-            height,
-            ix: *ix,
-            reference: Some(get_straight_line_ref(ix, reference, explored).ix),
-            distance: total_distance,
-            reachable,
-        },
-    )
+        r.height = height;
+        r.reference = straight_line_ref;
+        r.distance = total_distance;
+        r.reachable = reachable;
+    }
 }
 
 pub fn update_two_with_different_references(
-    neighbor_1: &Node,
-    neighbor_2: &Node,
+    neighbor_1: GridIx,
+    neighbor_2: GridIx,
     ix: &GridIx,
     config: &SearchConfig,
-    explored: &Explored,
-    queue: &mut PQueue,
+    state: &mut SearchState,
 ) {
-    update_one_neighbor(neighbor_1, ix, config, explored, queue, Some(true));
-    update_one_neighbor(neighbor_2, ix, config, explored, queue, Some(true));
+    update_one_neighbor(neighbor_1, ix, config, state, Some(true));
+    update_one_neighbor(neighbor_2, ix, config, state, Some(true));
 }
 
 pub fn update_two_neighbors(
-    neighbor_1: &Node,
-    neighbor_2: &Node,
+    neighbor_1_ix: GridIx,
+    neighbor_2_ix: GridIx,
     ix: &GridIx,
     config: &SearchConfig,
-    explored: &Explored,
-    queue: &mut PQueue,
+    state: &mut SearchState,
 ) {
+    let neighbor_1 = unsafe { state.explored.get_unchecked(&neighbor_1_ix) };
+    let neighbor_2 = unsafe { state.explored.get_unchecked(&neighbor_2_ix) };
+
     if neighbor_1.reachable & neighbor_2.reachable {
         let ref_path_intersection = ref_paths_intersection(
             &neighbor_1.ix,
@@ -468,9 +485,8 @@ pub fn update_two_neighbors(
             &neighbor_2.reference,
         );
         if let Some(rpi) = ref_path_intersection {
-            if queue.contains_key(ix)
-                && &unsafe { queue.get(ix).unwrap_unchecked() }.item.reference
-                    == ref_path_intersection
+            if state.queue.contains_key(ix)
+                && &unsafe { state.explored.get_unchecked(ix) }.reference == ref_path_intersection
             {
                 return;
             }
@@ -485,35 +501,29 @@ pub fn update_two_neighbors(
 
             // RPI is a (transitive) parent of both neighbors, so must have
             // been explored already.
-            let rpi_node = unsafe { explored.get_unchecked(rpi) };
-            let height = rpi_node.height - distance * effective_glide.glide_ratio;
-
+            let rpi_node = unsafe { state.explored.get_unchecked(rpi) };
             let total_distance = distance + rpi_node.distance;
+            let ref_p_deref = *ref_path_intersection;
+            let rpi_node_height = rpi_node.height;
 
-            let grid_height =
-                *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
-            let reachable =
-                grid_height + config.get_safety_margin_at_distance(total_distance) < height;
-
-            put_node(
-                queue,
-                Node {
-                    height,
-                    ix: *ix,
-                    reference: *ref_path_intersection,
-                    distance: total_distance,
-                    reachable,
-                },
-            )
+            if let Some(r) = put_or_update(state, *ix, total_distance) {
+                let grid_height =
+                    *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
+                let height = rpi_node_height - distance * effective_glide.glide_ratio;
+                let reachable =
+                    grid_height + config.get_safety_margin_at_distance(total_distance) < height;
+                r.height = height;
+                r.reference = ref_p_deref;
+                r.distance = total_distance;
+                r.reachable = reachable;
+            }
         } else {
-            update_two_with_different_references(
-                neighbor_1, neighbor_2, ix, config, explored, queue,
-            );
+            update_two_with_different_references(neighbor_1_ix, neighbor_2_ix, ix, config, state);
         }
     } else if neighbor_1.reachable {
-        update_one_neighbor(neighbor_1, ix, config, explored, queue, None);
+        update_one_neighbor(neighbor_1_ix, ix, config, state, None);
     } else if neighbor_2.reachable {
-        update_one_neighbor(neighbor_2, ix, config, explored, queue, None);
+        update_one_neighbor(neighbor_2_ix, ix, config, state, None);
     }
 }
 
@@ -521,21 +531,19 @@ pub fn update_three_neighbors(
     explored_neighbors: &[GridIx],
     ix: &GridIx,
     config: &SearchConfig,
-    explored: &Explored,
-    queue: &mut PQueue,
+    state: &mut SearchState,
 ) {
     // Safety: We only call with explored neighbors.
-    let mut reachable = Vec::from_iter(
-        explored_neighbors
-            .iter()
-            .filter(|x| unsafe { explored.get_unchecked(x) }.reachable)
-            .map(|x| unsafe { explored.get_unchecked(x) }),
-    );
+    let mut reachable: Vec<_> = explored_neighbors
+        .iter()
+        .map(|x| unsafe { state.explored.get_unchecked(x) })
+        .filter(|x| x.reachable)
+        .collect();
 
     if reachable.len() == 1 {
-        update_one_neighbor(reachable[0], ix, config, explored, queue, None);
+        update_one_neighbor(reachable[0].ix, ix, config, state, None);
     } else if reachable.len() == 2 {
-        update_two_neighbors(reachable[0], reachable[1], ix, config, explored, queue);
+        update_two_neighbors(reachable[0].ix, reachable[1].ix, ix, config, state);
     } else if reachable.len() == 3 {
         let reference_set =
             HashSet::<Option<GridIx>>::from_iter(reachable.iter().map(|x| x.reference));
@@ -543,19 +551,32 @@ pub fn update_three_neighbors(
             // Sort apparently increases performance
             reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap());
 
-            update_one_neighbor(reachable[0], ix, config, explored, queue, None);
-            update_one_neighbor(reachable[1], ix, config, explored, queue, None);
-            update_one_neighbor(reachable[2], ix, config, explored, queue, None);
+            let r1 = reachable[0].ix;
+            let r2 = reachable[1].ix;
+            let r3 = reachable[2].ix;
+
+            update_one_neighbor(r1, ix, config, state, None);
+            update_one_neighbor(r2, ix, config, state, None);
+            update_one_neighbor(r3, ix, config, state, None);
         } else if reference_set.len() == 2 {
             if reachable[0].reference == reachable[1].reference {
-                update_two_neighbors(reachable[0], reachable[1], ix, config, explored, queue);
-                update_one_neighbor(reachable[2], ix, config, explored, queue, None);
+                let r1 = reachable[0].ix;
+                let r2 = reachable[1].ix;
+                let r3 = reachable[2].ix;
+                update_two_neighbors(r1, r2, ix, config, state);
+                update_one_neighbor(r3, ix, config, state, None);
             } else if reachable[0].reference == reachable[2].reference {
-                update_two_neighbors(reachable[0], reachable[2], ix, config, explored, queue);
-                update_one_neighbor(reachable[1], ix, config, explored, queue, None);
+                let r1 = reachable[0].ix;
+                let r2 = reachable[1].ix;
+                let r3 = reachable[2].ix;
+                update_two_neighbors(r1, r3, ix, config, state);
+                update_one_neighbor(r2, ix, config, state, None);
             } else {
-                update_two_neighbors(reachable[1], reachable[2], ix, config, explored, queue);
-                update_one_neighbor(reachable[0], ix, config, explored, queue, None);
+                let r1 = reachable[0].ix;
+                let r2 = reachable[1].ix;
+                let r3 = reachable[2].ix;
+                update_two_neighbors(r2, r3, ix, config, state);
+                update_one_neighbor(r1, ix, config, state, None);
             }
         }
     }
@@ -565,35 +586,30 @@ pub fn update_four_neighbors(
     explored_neighbors: &[GridIx],
     ix: &GridIx,
     config: &SearchConfig,
-    explored: &Explored,
-    queue: &mut PQueue,
+    state: &mut SearchState,
 ) {
     // Safety: We only call with explored neighbors.
-    let mut reachable = Vec::from_iter(
-        explored_neighbors
-            .iter()
-            .filter(|x| unsafe { explored.get_unchecked(x) }.reachable)
-            .map(|x| unsafe { explored.get_unchecked(x) }),
-    );
+    let mut reachable: Vec<_> = explored_neighbors
+        .iter()
+        .map(|x| unsafe { state.explored.get_unchecked(x) })
+        .filter(|x| x.reachable)
+        .collect();
+
     if reachable.is_empty() {
-        put_node(
-            queue,
-            Node {
-                height: 0.0,
-                ix: *ix,
-                reference: None,
-                distance: 0.0,
-                reachable: false,
-            },
-        );
+        if let Some(r) = put_or_update(state, *ix, 0.0) {
+            r.height = 0.0;
+            r.reference = None;
+            r.distance = 0.0;
+            r.reachable = false;
+        }
     } else if reachable.len() < 4 {
-        update_three_neighbors(explored_neighbors, ix, config, explored, queue);
+        update_three_neighbors(explored_neighbors, ix, config, state);
     } else if reachable.len() == 4 {
         let reference_set =
             HashSet::<Option<GridIx>>::from_iter(reachable.iter().map(|x| x.reference));
         if reference_set.len() == 4 {
             reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap());
-            update_one_neighbor(reachable[0], ix, config, explored, queue, None);
+            update_one_neighbor(reachable[0].ix, ix, config, state, None);
         }
     }
 }
@@ -602,48 +618,23 @@ pub fn update_node(ix: &GridIx, config: &SearchConfig, state: &mut SearchState) 
     let neighbors = get_neighbor_indices(ix, &config.grid);
     let explored_neighbors: Vec<GridIx> = neighbors
         .into_iter()
-        .filter(|x| state.explored.contains_key(x))
+        .filter(|x| unsafe { state.explored.get_unchecked(x) }.explored)
         .collect();
 
     if explored_neighbors.len() == 1 {
-        let neighbor = unsafe { state.explored.get_unchecked(&explored_neighbors[0]) };
-
-        update_one_neighbor(
-            neighbor,
-            ix,
-            config,
-            &state.explored,
-            &mut state.queue,
-            None,
-        );
+        update_one_neighbor(explored_neighbors[0], ix, config, state, None);
     } else if explored_neighbors.len() == 2 {
-        let neighbor_1 = unsafe { state.explored.get_unchecked(&explored_neighbors[0]) };
-        let neighbor_2 = unsafe { state.explored.get_unchecked(&explored_neighbors[1]) };
-
         update_two_neighbors(
-            neighbor_1,
-            neighbor_2,
+            explored_neighbors[0],
+            explored_neighbors[1],
             ix,
             config,
-            &state.explored,
-            &mut state.queue,
+            state,
         )
     } else if explored_neighbors.len() == 3 {
-        update_three_neighbors(
-            &explored_neighbors,
-            ix,
-            config,
-            &state.explored,
-            &mut state.queue,
-        )
+        update_three_neighbors(&explored_neighbors, ix, config, state)
     } else if explored_neighbors.len() == 4 {
-        update_four_neighbors(
-            &explored_neighbors,
-            ix,
-            config,
-            &state.explored,
-            &mut state.queue,
-        )
+        update_four_neighbors(&explored_neighbors, ix, config, state)
     }
 }
 
@@ -657,22 +648,23 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
         ))),
     };
     put_node(
-        &mut state.queue,
+        &mut state,
         Node {
             height,
             ix: start,
             reference: None,
             distance: 0.0,
             reachable: true,
+            explored: false,
         },
     );
 
     while let Some(first) = state.queue.pop() {
-        state.explored.insert(first.key, first.item);
+        unsafe { state.explored.get_unchecked_mut(&first.key) }.explored = true;
 
         let neighbors = get_neighbor_indices(&first.key, &config.grid);
         for neighbor in neighbors {
-            if !state.explored.contains_key(&neighbor) {
+            if !unsafe { state.explored.get_unchecked(&neighbor) }.explored {
                 update_node(&neighbor, config, &mut state);
             }
         }
