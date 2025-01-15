@@ -1,12 +1,12 @@
 import { Button } from "@blueprintjs/core";
 import { useMap } from "react-leaflet";
-import { GridState, ImageState, PathAndNode, Settings } from "../utils/types";
+import { GridState, ImageState, PathAndNode, SetSettings, Settings } from "../utils/types";
 import { searchFromCurrentLocation } from "../utils/utils";
 
 interface CurrentLocationProps {
     setImageState: (state: ImageState | undefined) => void;
     settings: Settings;
-    setSettings: (settings: Settings) => void;
+    setSettings: SetSettings;
     setGrid: (grid: GridState) => void;
     pathAndNode: PathAndNode;
 }

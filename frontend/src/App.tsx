@@ -34,6 +34,7 @@ function App() {
         windDirection: +(urlParams.get('wind_direction') || 0),
         safetyMargin: +(urlParams.get('safety_margin') || 0),
         startDistance: +(urlParams.get('start_distance') || 50),
+        abortController: undefined,
     });
     const [grid, setGrid] = useState<GridState>({
         loading: "done",
