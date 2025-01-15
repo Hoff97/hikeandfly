@@ -6,6 +6,7 @@ import {
   HeightPoint,
   ImageState,
   PathAndNode,
+  SetSettings,
   Settings,
 } from "./types";
 
@@ -68,7 +69,7 @@ function setupGrid(cone: ConeSearchResponse): GridTile[][] {
 export async function doSearchFromLocation(
   setImageState: (state: ImageState | undefined) => void,
   setGrid: (grid: GridState) => void,
-  setSettings: (settings: Settings) => void,
+  setSettings: SetSettings,
   latLng: LatLng,
   settings: Settings,
   pathAndNode: PathAndNode,
@@ -92,7 +93,21 @@ export async function doSearchFromLocation(
   let url = new URL(window.location.origin + "/flight_cone_bounds");
   url.search = getSearchParams(latLng, settings).toString();
 
-  let response = await fetch(url);
+  if (settings.abortController !== undefined) {
+    settings.abortController.abort();
+  }
+  let controller = new AbortController();
+  setSettings({ ...settings, abortController: controller });
+
+  let response;
+  try {
+    response = await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return;
+    }
+    throw error;
+  }
 
   if (response.status === 404) {
     setGrid({
@@ -105,7 +120,15 @@ export async function doSearchFromLocation(
     return;
   }
 
-  let cone: ConeSearchResponse = await response.json();
+  let cone: ConeSearchResponse;
+  try {
+    cone = await response.json();
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return;
+    }
+    throw error;
+  }
 
   setGrid({
     loading: "grid",
@@ -114,12 +137,15 @@ export async function doSearchFromLocation(
     startPosition: latLng,
   });
 
-  const newSettings = {
-    ...settings,
-    gridSize: cone.cell_size,
-    minGridSize: cone.min_cell_size,
-  };
-  setSettings(newSettings);
+  let newSettings = settings;
+  setSettings((prev) => {
+    newSettings = {
+      ...prev,
+      gridSize: cone.cell_size,
+      minGridSize: cone.min_cell_size,
+    };
+    return newSettings;
+  });
 
   const searchParams = getSearchParams(latLng, settings).toString();
   let heightAglUrl = new URL(window.location.origin + "/agl_image");
@@ -145,9 +171,25 @@ export async function doSearchFromLocation(
   let grid_url = new URL(window.location.origin + "/flight_cone");
   grid_url.search = getSearchParams(latLng, settings).toString();
 
-  let grid_response = await fetch(grid_url);
+  let grid_response;
+  try {
+    grid_response = await fetch(grid_url, { signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return;
+    }
+    throw error;
+  }
 
-  let cone_grid: ConeSearchResponse = await grid_response.json();
+  let cone_grid: ConeSearchResponse;
+  try {
+    cone_grid = await grid_response.json();
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return;
+    }
+    throw error;
+  }
 
   const grid = setupGrid(cone_grid);
   setGrid({
@@ -173,7 +215,7 @@ export function ixToLatLon(ix: number[], response: ConeSearchResponse) {
 export function searchFromCurrentLocation(
   setImageState: (state: ImageState | undefined) => void,
   setGrid: (grid: GridState) => void,
-  setSettings: (settings: Settings) => void,
+  setSettings: SetSettings,
   settings: Settings,
   pathAndNode: PathAndNode,
   map: MapLeaflet

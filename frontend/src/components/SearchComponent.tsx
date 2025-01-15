@@ -1,14 +1,14 @@
 import { LatLng } from "leaflet";
 import { computeHeights, doSearchFromLocation, nodeInGrid, setPath } from "../utils/utils";
 import { useMap, useMapEvents } from "react-leaflet";
-import { GridState, ImageState, PathAndNode, Settings } from "../utils/types";
+import { GridState, ImageState, PathAndNode, SetSettings, Settings } from "../utils/types";
 import { Grid } from "./Grid";
 import { StartMarker } from "./StartMarker";
 
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
     settings: Settings;
-    setSettings: (settings: Settings) => void;
+    setSettings: SetSettings;
     grid: GridState;
     setGrid: (grid: GridState) => void;
     pathAndNode: PathAndNode;

@@ -1,11 +1,11 @@
 import { Section, SectionCard, Slider, Button, Divider, Checkbox } from "@blueprintjs/core";
 import { InfoSign, Share } from "@blueprintjs/icons";
-import { GridState, ImageState, PathAndNode, Settings } from "../utils/types";
+import { GridState, ImageState, PathAndNode, SetSettings, Settings } from "../utils/types";
 import { doSearchFromLocation, getSearchParams, updateSearchParams } from "../utils/utils";
 
 interface SettingsCardProps {
     settings: Settings;
-    setSettings: (settings: Settings) => void;
+    setSettings: SetSettings;
     setImageState: (state: ImageState | undefined) => void;
     setGrid: (grid: GridState) => void;
     grid: GridState;
@@ -113,11 +113,15 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
     }
 
     function clear() {
+        if (settings.abortController !== undefined) {
+            settings.abortController.abort();
+        }
         setGrid({
             ...grid,
             response: undefined,
             startPosition: undefined,
             grid: undefined,
+            loading: "done"
         });
         pathAndNode.setNode(undefined);
         pathAndNode.setPath(undefined);
@@ -126,6 +130,8 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
         pathAndNode.setCursorNode(undefined);
         const newSettings = {
             ...settings,
+            abortController: undefined,
+            lastCall: undefined,
             minGridSize: 30,
             gridSize: Math.round(settings.gridSize / 10) * 10
         };

@@ -11,7 +11,12 @@ export interface Settings {
   windDirection: number;
   safetyMargin: number;
   startDistance: number;
+  abortController: AbortController | undefined;
 }
+
+export type SetSettings = (
+  settings: Settings | ((settings: Settings) => Settings)
+) => void;
 
 export interface GridTile {
   index: number[];
