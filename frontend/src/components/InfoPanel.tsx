@@ -27,6 +27,21 @@ export function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
                         <li>with a <b>constant glide ration</b> even when turning</li>
                         <li>using <b>no thermals</b></li>
                     </ul>
+                    <H4>Controls</H4>
+                    <ul>
+                        <li>
+                            Click on the map to calculate the glide area from that location. Afterwards you can click on any
+                            part of the glide area to see the glide path to that location.
+                        </li>
+                        <li>
+                            Double click on any part of the glide area to start a new calculation from that location.
+                        </li>
+                        <li>
+                            Right click/hold on any part of the glide area to start a new calculation from the clicked location
+                            with the height of the glide area.
+                        </li>
+                    </ul>
+                    <H4>Settings</H4>
                     You can change the following settings:
                     <ul>
                         <li><b>Glide ratio</b>: Meters flown horizontally for every vertical meter lost</li>
