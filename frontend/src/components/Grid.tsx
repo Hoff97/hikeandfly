@@ -51,8 +51,8 @@ export function Grid({ grid, pathAndNode }: GridProps) {
             ) : (
                 <></>
             )}
-            {pathAndNode.node !== undefined ? (
-                <CurrentNode node={pathAndNode.node} grid={grid} />
+            {pathAndNode.node !== undefined && pathAndNode.path !== undefined ? (
+                <CurrentNode node={pathAndNode.node} path={pathAndNode.path} grid={grid} />
             ) : (
                 <></>
             )}
