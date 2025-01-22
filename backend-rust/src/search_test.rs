@@ -1,6 +1,6 @@
 use core::f32;
 
-use crate::height_data::HeightGrid;
+use crate::{height_data::HeightGrid, search::l2_diff};
 
 use super::{get_effective_glide_ratio, search, search_from_point, SearchConfig, SearchQuery};
 
@@ -39,6 +39,11 @@ proptest! {
         assert_relative_eq!(result.speed, speed/2.0f32.sqrt(), max_relative = 0.01);
         assert_relative_eq!(result.glide_ratio, glide_ratio*2.0f32.sqrt(), max_relative = 0.01);
     }
+}
+
+#[test]
+fn test_l2_diff() {
+    assert_eq!(l2_diff(&(5, 3), &(2, 4)), (3, -1));
 }
 
 #[test]
@@ -173,5 +178,9 @@ fn test_search_detailed() {
         } else {
             assert_eq!((0, 0), expected_ref[n.ix.1 as usize][n.ix.0 as usize]);
         }
+    }
+
+    for x in explored.iter_non_explored() {
+        assert_eq!(expected_ref[x.1 as usize][x.0 as usize], (0, 0));
     }
 }

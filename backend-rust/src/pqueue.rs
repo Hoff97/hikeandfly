@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 pub trait MapLike<K, V> {
-    fn insert(&mut self, key: K, value: V);
-
     fn get(&self, key: &K) -> Option<V>;
 
     /**
@@ -24,10 +22,6 @@ pub struct HashMapWrap<K, V> {
 }
 
 impl<K: Eq + Hash, V: Clone> MapLike<K, V> for HashMapWrap<K, V> {
-    fn insert(&mut self, key: K, value: V) {
-        self.hash_map.insert(key, value);
-    }
-
     fn get(&self, key: &K) -> Option<V> {
         self.hash_map.get(key).cloned()
     }
@@ -109,6 +103,13 @@ impl<V: HasPriority, K, MapType: Default + MapLike<K, usize>> PriorityQueue<V, K
             positions: MapType::default(),
         }
     }
+
+    pub fn new_with_capacity(capacity: usize) -> Self {
+        Self {
+            heap: Vec::with_capacity(capacity),
+            positions: MapType::default(),
+        }
+    }
 }
 
 impl<V: HasPriority, K, MapType: Default + MapLike<K, usize>> Default
@@ -138,11 +139,8 @@ impl<V: HasPriority, K, MapType: MapLike<K, usize>> PriorityQueue<V, K, MapType>
 impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQueue<V, K, MapType> {
     pub fn push(&mut self, key: K, item: V) {
         self.heap.push(HeapNode { item, key });
-
         let ix = self.heap.len() - 1;
-
-        self.positions.insert(key, ix);
-
+        // Position gets set by siftup
         self.siftup(ix);
     }
 
@@ -258,9 +256,7 @@ impl<V: HasPriority, K: Eq + Hash + Copy, MapType: MapLike<K, usize>> PriorityQu
             return Some(element);
         }
 
-        self.positions
-            .set(unsafe { self.heap.get_unchecked(0) }.key, 0);
-
+        // Position gets set by siftdown
         self.siftdown(0);
 
         Some(element)

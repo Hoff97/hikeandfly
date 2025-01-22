@@ -7,6 +7,7 @@ edition = "2021"
 byteorder = "1.5.0"
 cached = "0.53.1"
 image = "0.25.2"
+mutants = "0.0.3"
 ndarray = "0.16.1"
 num-traits = "0.2.19"
 quick-xml = "0.36.2"
@@ -17,6 +18,7 @@ serde = { version = "1.0.210", features = ["derive", "serde_derive"] }
 approx = "0.5.1"
 proptest = "1.5.0"
 criterion = { version = "0.5", features = ["html_reports"] }
+cargo-mutants = "25.0.0"
 
 [[bench]]
 name = "search_benchmark"

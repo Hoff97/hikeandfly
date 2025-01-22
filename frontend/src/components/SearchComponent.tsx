@@ -1,4 +1,4 @@
-import { LatLng, LeafletEvent, LeafletMouseEvent } from "leaflet";
+import { LatLng, LeafletMouseEvent } from "leaflet";
 import { computeHeights, doSearchFromLocation, nodeInGrid, setPath } from "../utils/utils";
 import { useMap, useMapEvents } from "react-leaflet";
 import { GridState, ImageState, PathAndNode, SetSettings, Settings } from "../utils/types";

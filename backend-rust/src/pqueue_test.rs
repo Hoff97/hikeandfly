@@ -23,6 +23,13 @@ fn test_pqueue_starts_empty() {
 }
 
 #[test]
+fn test_pqueue_with_capacity() {
+    let pqueue: TestPQueue = PriorityQueue::new_with_capacity(5);
+    assert_eq!(pqueue.len(), 0);
+    assert_eq!(pqueue.capacity(), 5);
+}
+
+#[test]
 fn test_pqueue_only_inserts_in_order() {
     let mut pqueue: TestPQueue = PriorityQueue::new();
 
@@ -40,14 +47,35 @@ fn test_pqueue_only_inserts_in_order() {
 fn test_pqueue_inserts_out_of_order() {
     let mut pqueue: TestPQueue = PriorityQueue::new();
 
-    pqueue.push(0, 0);
-    pqueue.push(3, 3);
     pqueue.push(1, 1);
-    pqueue.push(4, 4);
     pqueue.push(2, 2);
+    pqueue.push(5, 5);
+    pqueue.push(3, 3);
+    pqueue.push(6, 6);
+    pqueue.push(7, 7);
+    pqueue.push(4, 4);
+    pqueue.push(8, 8);
+    pqueue.push(9, 9);
+    pqueue.push(10, 10);
+    pqueue.push(11, 11);
 
     let ordered = pqueue.into_iter().map(|x| x.item).collect::<Vec<usize>>();
-    assert_eq!(ordered, vec![0, 1, 2, 3, 4])
+    assert_eq!(ordered, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+}
+
+#[test]
+fn test_pqueue_inserts_out_of_order_2() {
+    let mut pqueue: TestPQueue = PriorityQueue::new();
+
+    pqueue.push(0, 0);
+    pqueue.push(1, 1);
+    pqueue.push(2, 2);
+    pqueue.push(3, 3);
+    pqueue.push(4, 4);
+    pqueue.push(8, 8);
+
+    let ordered = pqueue.into_iter().map(|x| x.item).collect::<Vec<usize>>();
+    assert_eq!(ordered, vec![0, 1, 2, 3, 4, 8])
 }
 
 #[test]
