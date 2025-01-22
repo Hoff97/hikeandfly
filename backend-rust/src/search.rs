@@ -132,7 +132,7 @@ impl GridMap {
         }
     }
 
-    pub fn iter_non_explored<'a>(&'a self) -> impl Iterator<Item = GridIx> + 'a {
+    pub fn iter_non_explored(&self) -> impl Iterator<Item = GridIx> + '_ {
         self.values.iter().filter(|x| !x.explored).map(|x| x.ix)
     }
 
@@ -178,7 +178,7 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
         // Technically wrong, but we only ever check if the queue contains
         // items that have not yet been explored, while removing only
         // happens when we explore a node.
-        ()
+        
     }
 
     fn contains_key(&self, key: &GridIx) -> bool {
