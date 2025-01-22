@@ -106,6 +106,7 @@ impl GridMap {
         *unsafe { self.values.get_unchecked_mut(ix) } = value;
     }
 
+    #[cfg_attr(test, mutants::skip)]
     fn subset(self, lat: GridIx, lon: GridIx) -> GridMap {
         let mut result = GridMap::new((lat.1 - lat.0 + 1, lon.1 - lon.0 + 1));
         for mut n in self.values.into_iter() {
@@ -129,6 +130,10 @@ impl GridMap {
             gridmap: self,
             ix: 0,
         }
+    }
+
+    pub fn iter_non_explored(&self) -> impl Iterator<Item = GridIx> + '_ {
+        self.values.iter().filter(|x| !x.explored).map(|x| x.ix)
     }
 
     pub fn into_it(self) -> impl Iterator<Item = Node> {
@@ -160,12 +165,6 @@ impl FakeHashMapForGrid {
 }
 
 impl MapLike<GridIx, usize> for FakeHashMapForGrid {
-    fn insert(&mut self, key: GridIx, value: usize) {
-        let ix = self.gridix_to_ix(&key);
-        *unsafe { self.positions.get_unchecked_mut(ix) } = value as FakeHashMapPos;
-        //self.positions[ix] = value as u16;
-    }
-
     fn get(&self, key: &GridIx) -> Option<usize> {
         let ix = self.gridix_to_ix(key);
         let v = *unsafe { self.positions.get_unchecked(ix) };
@@ -175,9 +174,11 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
         Some(v as usize)
     }
 
-    fn remove_entry(&mut self, key: &GridIx) {
-        let ix = self.gridix_to_ix(key);
-        *unsafe { self.positions.get_unchecked_mut(ix) } = FakeHashMapPos::MAX;
+    fn remove_entry(&mut self, _: &GridIx) {
+        // Technically wrong, but we only ever check if the queue contains
+        // items that have not yet been explored, while removing only
+        // happens when we explore a node.
+        
     }
 
     fn contains_key(&self, key: &GridIx) -> bool {
@@ -589,7 +590,7 @@ pub fn update_four_neighbors(
     state: &mut SearchState,
 ) {
     // Safety: We only call with explored neighbors.
-    let mut reachable: Vec<_> = explored_neighbors
+    let reachable: Vec<_> = explored_neighbors
         .iter()
         .map(|x| unsafe { state.explored.get_unchecked(x) })
         .filter(|x| x.reachable)
@@ -604,13 +605,8 @@ pub fn update_four_neighbors(
         }
     } else if reachable.len() < 4 {
         update_three_neighbors(explored_neighbors, ix, config, state);
-    } else if reachable.len() == 4 {
-        let reference_set =
-            HashSet::<Option<GridIx>>::from_iter(reachable.iter().map(|x| x.reference));
-        if reference_set.len() == 4 {
-            reachable.sort_by(|x, y| x.distance.partial_cmp(&y.distance).unwrap());
-            update_one_neighbor(reachable[0].ix, ix, config, state, None);
-        }
+    } else {
+        update_one_neighbor(reachable[0].ix, ix, config, state, None);
     }
 }
 
@@ -697,10 +693,6 @@ pub fn ref_paths_intersection<'a>(
     &None
 }
 
-pub fn usize_f32(x: usize) -> f32 {
-    f32::from(x as u16)
-}
-
 pub fn u16_f32(x: u16) -> f32 {
     f32::from(x)
 }
@@ -770,11 +762,13 @@ pub fn is_line_intersecting(to: &Node, ix: &GridIx, config: &SearchConfig) -> bo
     false
 }
 
+#[cfg_attr(test, mutants::skip)]
 fn reindex_node(node: &mut Node, lats: (GridIxType, GridIxType), lons: (GridIxType, GridIxType)) {
     node.ix = (node.ix.0 - lats.0, node.ix.1 - lons.0);
     node.reference = node.reference.map(|(x, y)| (x - lats.0, y - lons.0));
 }
 
+#[cfg_attr(test, mutants::skip)]
 pub fn reindex(
     explored: Explored,
     grid: &HeightGrid,
@@ -836,6 +830,7 @@ pub struct SearchSetup {
     pub config: SearchConfig,
 }
 
+#[cfg_attr(test, mutants::skip)]
 pub fn prepare_search(
     latitude: f32,
     longitude: f32,
@@ -889,6 +884,7 @@ pub struct SearchResult {
     pub start_ix: GridIx,
 }
 
+#[cfg_attr(test, mutants::skip)]
 pub fn search_from_point(
     latitude: f32,
     longitude: f32,

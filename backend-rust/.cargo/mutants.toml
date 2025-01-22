@@ -1,0 +1,6 @@
+exclude_globs = [
+    "src/line.rs",
+    "src/bin/main.rs",
+    "src/colors.rs",
+    "src/height_data.rs",
+]

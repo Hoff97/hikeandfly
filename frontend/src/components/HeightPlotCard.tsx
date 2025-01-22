@@ -71,9 +71,16 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
     const plotHeight = 400;
 
     let crosshairPostion = 0;
+    let crossHairOffset = 10
+    let crossHairOrientation = "right";
     if (flightHeight !== undefined) {
         crosshairPostion = (flightHeight.y - minFlightHeight) / (maxFlightHeight - minFlightHeight);
         crosshairPostion = Math.max(Math.round((1 - crosshairPostion) * plotHeight * 0.85 - 45), 0);
+
+        if (flightHeight.x > 0.75 * (flightData[0].x + flightData[flightData.length - 1].x)) {
+            crossHairOrientation = "left";
+            crossHairOffset = -10;
+        }
     }
 
     return (
@@ -107,8 +114,8 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                         <LineSeries data={safetyMargin} color={"#66D"} strokeStyle="dashed" />
                         {
                             groundHeight !== undefined && flightHeight !== undefined ? (
-                                <Crosshair values={[groundHeight, flightHeight]} className={'invisibleCrosshair'} orientation="right">
-                                    <div style={{ background: 'black', minWidth: '80px', maxWidth: '110px', transform: `translate(10px, ${crosshairPostion}px)` }}>
+                                <Crosshair values={[groundHeight, flightHeight]} className={'invisibleCrosshair'} orientation={crossHairOrientation as any}>
+                                    <div style={{ background: 'black', minWidth: '80px', maxWidth: '110px', transform: `translate(${crossHairOffset}px, ${crosshairPostion}px)` }}>
                                         Height: {Math.round(flightHeight.y)}m<br />
                                         Ground: {Math.round(groundHeight.y)}m<br />
                                         AGL: {Math.round(flightHeight.y - groundHeight.y)}m
