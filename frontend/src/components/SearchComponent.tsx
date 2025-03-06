@@ -45,7 +45,7 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
 
     useMapEvents({
         click(e) {
-            if (abortEvent(e)) {
+            if (abortEvent(e) || grid.loading !== "done") {
                 return;
             }
 
