@@ -47,7 +47,19 @@ downloadZip "K29" "1"
 downloadZip "K30" "1"
 downloadZip "K31" "1"
 downloadZip "K32" "1"
+
 downloadZip "K33" "1"
+# Remove broken files
+rm -rf ./data/N43E016.hgt
+rm -rf ./data/N43E017.hgt
+
+wget http://viewfinderpanoramas.org/dem3/K33.zip
+unzip K33.zip
+mv K33/N43E016.hgt ./
+mv K33/N43E017.hgt ./
+rm K33.zip
+rm -rf K33/
+
 downloadZip "K34" "1"
 downloadZip "K35" "1"
 
