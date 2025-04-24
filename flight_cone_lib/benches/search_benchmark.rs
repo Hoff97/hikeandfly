@@ -1,6 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-use backend_rust::search::{prepare_search, search, SearchQuery};
+use flight_cone_lib::search::{SearchQuery, prepare_search, search};
 
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("search", |b| {

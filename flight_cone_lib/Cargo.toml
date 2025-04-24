@@ -1,0 +1,21 @@
+[package]
+name = "flight_cone_lib"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+byteorder = "1.5.0"
+cached = "0.53.1"
+ndarray = "0.16.1"
+
+[dev-dependencies]
+approx = "0.5.1"
+proptest = "1.5.0"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "search_benchmark"
+harness = false
+
+#[profile.release]
+#debug = 1

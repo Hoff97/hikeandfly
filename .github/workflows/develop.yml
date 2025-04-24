@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: Run tests
         run: |
-          cd backend-rust
+          cd flight_cone_lib
           ./download_test_data.sh
           cargo test --all-targets
 

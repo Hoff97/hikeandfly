@@ -6,8 +6,8 @@ use std::{
     io::Cursor,
 };
 
-use backend_rust::{
-    colors::{f32_color_to_u8, lerp},
+use backend_rust::colors::{f32_color_to_u8, lerp};
+use flight_cone_lib::{
     height_data::{location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
 };

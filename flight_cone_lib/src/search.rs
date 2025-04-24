@@ -106,7 +106,6 @@ impl GridMap {
         *unsafe { self.values.get_unchecked_mut(ix) } = value;
     }
 
-    #[cfg_attr(test, mutants::skip)]
     fn subset(self, lat: GridIx, lon: GridIx) -> GridMap {
         let mut result = GridMap::new((lat.1 - lat.0 + 1, lon.1 - lon.0 + 1));
         for mut n in self.values.into_iter() {
@@ -178,7 +177,6 @@ impl MapLike<GridIx, usize> for FakeHashMapForGrid {
         // Technically wrong, but we only ever check if the queue contains
         // items that have not yet been explored, while removing only
         // happens when we explore a node.
-        
     }
 
     fn contains_key(&self, key: &GridIx) -> bool {
@@ -762,13 +760,11 @@ pub fn is_line_intersecting(to: &Node, ix: &GridIx, config: &SearchConfig) -> bo
     false
 }
 
-#[cfg_attr(test, mutants::skip)]
 fn reindex_node(node: &mut Node, lats: (GridIxType, GridIxType), lons: (GridIxType, GridIxType)) {
     node.ix = (node.ix.0 - lats.0, node.ix.1 - lons.0);
     node.reference = node.reference.map(|(x, y)| (x - lats.0, y - lons.0));
 }
 
-#[cfg_attr(test, mutants::skip)]
 pub fn reindex(
     explored: Explored,
     grid: &HeightGrid,
@@ -830,7 +826,6 @@ pub struct SearchSetup {
     pub config: SearchConfig,
 }
 
-#[cfg_attr(test, mutants::skip)]
 pub fn prepare_search(
     latitude: f32,
     longitude: f32,
@@ -884,7 +879,6 @@ pub struct SearchResult {
     pub start_ix: GridIx,
 }
 
-#[cfg_attr(test, mutants::skip)]
 pub fn search_from_point(
     latitude: f32,
     longitude: f32,
