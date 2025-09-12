@@ -1,4 +1,4 @@
-import { Button, Drawer } from "@blueprintjs/core";
+import { Button, Drawer, Radio, RadioGroup } from "@blueprintjs/core";
 import { PathAndNode, Settings } from "../utils/types";
 import { useState } from "react";
 
@@ -13,6 +13,7 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
     let [drawerOpen, setDrawerOpen] = useState(false);
     let [groundHeight, setGroundHeight] = useState<LineSeriesPoint | undefined>(undefined);
     let [flightHeight, setFlightHeight] = useState<LineSeriesPoint | undefined>(undefined);
+    let [plotType, setPlotType] = useState<"h" | "agl">("h");
 
     const setFlightHeigthItem = (d: LineSeriesPoint) => {
         setFlightHeight(d);
@@ -36,13 +37,18 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
     const groundData = [];
     let safetyMargin = [];
     for (let point of pathAndNode.heightPoints) {
-        minFlightHeight = Math.min(minFlightHeight, point.height);
-        maxFlightHeight = Math.max(maxFlightHeight, point.height);
-        flightData.push({ x: point.distance, y: point.height, node: point });
-        groundData.push({ x: point.distance, y: point.groundHeight });
+        let height = point.height;
+        if (plotType === "agl") {
+            height = point.height - point.groundHeight;
+        }
+
+        minFlightHeight = Math.min(minFlightHeight, height);
+        maxFlightHeight = Math.max(maxFlightHeight, height);
+        flightData.push({ x: point.distance, y: height, node: point });
+        groundData.push({ x: point.distance, y: plotType === "agl" ? 0 : point.groundHeight });
 
         if (settings.safetyMargin > 0 && point.distance >= settings.startDistance) {
-            safetyMargin.push({ x: point.distance, y: point.height - settings.safetyMargin });
+            safetyMargin.push({ x: point.distance, y: height - settings.safetyMargin });
         }
     }
 
@@ -68,14 +74,17 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
     let Xaxis = XAxis as any;
     let Yaxis = YAxis as any;
 
+    const mobile = window.innerWidth < 600;
     const plotHeight = 400;
+    const drawerSize = plotHeight + (mobile ? 100 : 50); // Increased to 120 for better mobile layout with vertical stacking
 
     let crosshairPostion = 0;
     let crossHairOffset = 10
     let crossHairOrientation = "right";
+    let crossHairVerticalOffset = plotType === "agl" ? 10 : 45;
     if (flightHeight !== undefined) {
         crosshairPostion = (flightHeight.y - minFlightHeight) / (maxFlightHeight - minFlightHeight);
-        crosshairPostion = Math.max(Math.round((1 - crosshairPostion) * plotHeight * 0.85 - 45), 0);
+        crosshairPostion = Math.max(Math.round((1 - crosshairPostion) * plotHeight * 0.85 - crossHairVerticalOffset), 0);
 
         if (flightHeight.x > 0.75 * (flightData[0].x + flightData[flightData.length - 1].x)) {
             crossHairOrientation = "left";
@@ -92,7 +101,7 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                 icon="chart"
                 onClose={close}
                 title="Path height plot"
-                size={plotHeight + 50}
+                size={drawerSize}
                 isOpen={drawerOpen}
                 className="heightPlotDrawer"
                 canEscapeKeyClose={true}
@@ -116,8 +125,13 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                             groundHeight !== undefined && flightHeight !== undefined ? (
                                 <Crosshair values={[groundHeight, flightHeight]} className={'invisibleCrosshair'} orientation={crossHairOrientation as any}>
                                     <div style={{ background: 'black', minWidth: '80px', maxWidth: '110px', transform: `translate(${crossHairOffset}px, ${crosshairPostion}px)` }}>
-                                        Height: {Math.round(flightHeight.y)}m<br />
-                                        Ground: {Math.round(groundHeight.y)}m<br />
+                                        {plotType === "agl" ? (<></>
+                                        ) : (
+                                            <>
+                                                Height: {Math.round(flightHeight.y)}m<br />
+                                                Ground: {Math.round(groundHeight.y)}m<br />
+                                            </>
+                                        )}
                                         AGL: {Math.round(flightHeight.y - groundHeight.y)}m
                                     </div>
                                 </Crosshair>) : <></>
@@ -141,6 +155,15 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                             stroke={3}
                             strokeStyle="dashed" />
                     </XYPlot>
+                    <RadioGroup label="Plot" onChange={(e) => {
+                        setPlotType(e.currentTarget.value as "h" | "agl");
+                        setGroundHeight(undefined);
+                        setFlightHeight(undefined);
+                        pathAndNode.setCursorNode(undefined);
+                    }} selectedValue={plotType} inline={mobile}>
+                        <Radio label="Height" value="h" />
+                        <Radio label="AGL" value="agl" />
+                    </RadioGroup>
                 </div>
             </Drawer>
         </>

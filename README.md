@@ -43,8 +43,6 @@ This might be a bit slow, alternatively, you can use `cargo run --release`.
 `backend-rust/download_data.sh` will download some data for the digital evelation model (DEM). Change `backend-rust/download_data.sh`
 according to your needs if you do not want to download all the data.
 
-There is also an older (and slower) python backend in the `backend` folder.
-
 ## Performance testing
 
 You can run performance tests using
