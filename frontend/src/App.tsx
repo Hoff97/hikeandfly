@@ -109,6 +109,7 @@ function App() {
                     </LayersControl>
                     <SearchComponent
                         setImageState={setImageState}
+                        imageState={imageState}
                         setHoverState={setHoverState}
                         hoverState={hoverState}
                         settings={settings}
