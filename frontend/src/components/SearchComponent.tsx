@@ -7,6 +7,7 @@ import { StartMarker } from "./StartMarker";
 
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
+    imageState: ImageState | undefined;
     setHoverState: (state: HoverState) => void;
     hoverState: HoverState;
     settings: Settings;
@@ -23,8 +24,14 @@ function abortEvent(e: LeafletMouseEvent) {
             (e.originalEvent.target as any).parentElement.classList.contains("locationButton"));
 }
 
-function doHoverSearch(grid: GridState, hoverState: HoverState, settings: Settings, useTimer = true) {
-    return grid.loading !== "grid" && grid.loading !== "image" && ((Date.now() - hoverState.lastHoverSearch) > 200 || !useTimer) && grid.response === undefined && grid.grid === undefined && settings.doLiveHoverSearch;
+function doHoverSearch(grid: GridState, hoverState: HoverState, imageState: ImageState | undefined, settings: Settings, useTimer = true) {
+    return grid.loading !== "grid"
+        && grid.loading !== "image"
+        && ((Date.now() - hoverState.lastHoverSearch) > 200 || !useTimer)
+        && grid.response === undefined
+        && grid.grid === undefined
+        && settings.doLiveHoverSearch
+        && imageState === undefined;
 }
 
 export interface HoverState {
@@ -32,10 +39,13 @@ export interface HoverState {
     lastHoverSearch: number;
 }
 
-export function SearchComponent({ setImageState, setHoverState, hoverState, settings, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
+export function SearchComponent({ setImageState, imageState, setHoverState, hoverState, settings, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
     const map = useMap();
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (imageState !== undefined && hoverState.imageState !== undefined) {
+        setHoverState({ imageState: undefined, lastHoverSearch: hoverState.lastHoverSearch });
+    }
 
     let continueFromLocation = (e: LeafletMouseEvent) => {
         if (abortEvent(e)) {
@@ -77,7 +87,7 @@ export function SearchComponent({ setImageState, setHoverState, hoverState, sett
             pathAndNode.setHeightPoints(heights);
         },
         mousemove(e) {
-            if (abortEvent(e) || !doHoverSearch(grid, hoverState, settings)) {
+            if (abortEvent(e) || !doHoverSearch(grid, hoverState, imageState, settings)) {
                 return;
             }
 
@@ -100,7 +110,7 @@ export function SearchComponent({ setImageState, setHoverState, hoverState, sett
             }, undefined, true);
         },
         move(e) {
-            if (!doHoverSearch(grid, hoverState, settings) || !isMobile) {
+            if (!doHoverSearch(grid, hoverState, imageState, settings) || !isMobile) {
                 return;
             }
 
@@ -167,7 +177,7 @@ export function SearchComponent({ setImageState, setHoverState, hoverState, sett
                 <Grid grid={grid} pathAndNode={pathAndNode}></Grid>
             )
         }
-        {isMobile && settings.doLiveHoverSearch && doHoverSearch(grid, hoverState, settings, false) ? (<>
+        {isMobile && settings.doLiveHoverSearch && doHoverSearch(grid, hoverState, imageState, settings, false) ? (<>
             <CircleMarker
                 center={map.getCenter()}
                 radius={(map.getZoom() / 12) * 10}
