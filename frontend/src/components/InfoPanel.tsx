@@ -24,7 +24,7 @@ export function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
                     This is a tool for calculating the area reachable by a paraglider when
                     starting from a specific location. It assumes that you fly
                     <ul>
-                        <li>with a <b>constant glide ration</b> even when turning</li>
+                        <li>with a <b>constant glide ratio</b> even when turning</li>
                         <li>using <b>no thermals</b></li>
                     </ul>
                     <H4>Controls</H4>
@@ -79,6 +79,11 @@ export function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
                             will likely stop the calculation immediately at the start.
                         </li>
                     </ul>
+                    <H4>Live hover search</H4>
+                    <p>
+                        The live hover search allows you to see the current image and grid information as you move the mouse/center over the map.
+                        This will happen at a reduced resolution of 200 meters.
+                    </p>
                 </p>
                 <H3>Attribution</H3>
                 This page is heavily inspired by <a href="https://hikeandfly.org/">hikeandfly.org</a>. The Digital evalation model comes
