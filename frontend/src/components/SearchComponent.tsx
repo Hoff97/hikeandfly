@@ -177,13 +177,14 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
                 <Grid grid={grid} pathAndNode={pathAndNode}></Grid>
             )
         }
-        {isMobile && settings.doLiveHoverSearch && doHoverSearch(grid, hoverState, imageState, settings, false) ? (<>
-            <CircleMarker
-                center={map.getCenter()}
-                radius={(map.getZoom() / 12) * 10}
-                pathOptions={blackOptions}
-            >
-            </CircleMarker>
-        </>) : (<></>)}
+        {
+            isMobile && settings.doLiveHoverSearch && doHoverSearch(grid, hoverState, imageState, settings, false) ? (<>
+                <CircleMarker
+                    center={map.getCenter()}
+                    radius={(map.getZoom() / 12) * 10}
+                    pathOptions={blackOptions}
+                >
+                </CircleMarker>
+            </>) : (<></>)}
     </>);
 }
