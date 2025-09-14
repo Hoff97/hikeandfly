@@ -11,14 +11,13 @@ import { InfoPanel } from "./components/InfoPanel";
 import { GridState, GridTile, HeightPoint, ImageState, Settings } from "./utils/types";
 import { SettingsCard } from "./components/SettingsCard";
 import { ImageOverlays } from "./components/ImageOverlay";
-import { SearchComponent } from "./components/SearchComponent";
+import { HoverState, SearchComponent } from "./components/SearchComponent";
 import { CurrenLocationPane } from "./components/CurrentLocation";
 import { HeightPlotCard } from "./components/HeightPlotCard";
 
-
-
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
+    const [hoverState, setHoverState] = useState<HoverState>({ imageState: undefined, lastHoverSearch: 0 });
 
     const urlParams = new URLSearchParams(window.location.search);
 
@@ -35,6 +34,7 @@ function App() {
         safetyMargin: +(urlParams.get('safety_margin') || 0),
         startDistance: +(urlParams.get('start_distance') || 50),
         abortController: undefined,
+        doLiveHoverSearch: false
     });
     const [grid, setGrid] = useState<GridState>({
         loading: "done",
@@ -101,9 +101,16 @@ function App() {
                         ) : (
                             <></>
                         )}
+                        {hoverState.imageState !== undefined ? (
+                            <ImageOverlays state={hoverState.imageState}></ImageOverlays>
+                        ) : (
+                            <></>
+                        )}
                     </LayersControl>
                     <SearchComponent
                         setImageState={setImageState}
+                        setHoverState={setHoverState}
+                        hoverState={hoverState}
                         settings={settings}
                         grid={grid}
                         setGrid={setGrid}
