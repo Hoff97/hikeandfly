@@ -239,9 +239,10 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
                         onChange={setSafetyMargin} value={settings.safetyMargin}
                         labelStepSize={40} stepSize={10}></Slider>
                     Start distance (m):
-                    <Slider initialValue={0} min={0} max={300}
+                    <Slider initialValue={0} min={0} max={1000}
                         onChange={setStartDistance} value={settings.startDistance}
-                        labelStepSize={50} stepSize={10}></Slider>
+                        labelStepSize={200} stepSize={10}></Slider>
+                    <Divider />
                     {grid.response !== undefined ?
                         <>
                             <Button text="Clear" onClick={clear} className="marginRight" />
@@ -253,7 +254,9 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
                                 className="marginRight"
                                 text="Share">
                             </Button>
-                        </> : <></>}
+                        </> : <>
+                            <Checkbox checked={settings.doLiveHoverSearch} label="Live hover area" onChange={e => setSettings({ ...settings, doLiveHoverSearch: e.target.checked })} />
+                        </>}
                 </SectionCard>
             </Section>
             <br />

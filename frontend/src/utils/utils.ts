@@ -73,11 +73,14 @@ export async function doSearchFromLocation(
   latLng: LatLng,
   settings: Settings,
   pathAndNode: PathAndNode,
-  map: MapLeaflet | undefined
+  map: MapLeaflet | undefined,
+  imageOnly: boolean = false
 ) {
   latLng = latLng.wrap();
 
-  setImageState(undefined);
+  if (!imageOnly) {
+    setImageState(undefined);
+  }
   setGrid({
     loading: "image",
     grid: undefined,
@@ -96,6 +99,7 @@ export async function doSearchFromLocation(
   if (settings.abortController !== undefined) {
     settings.abortController.abort();
   }
+
   let controller = new AbortController();
   setSettings({ ...settings, abortController: controller });
 
@@ -138,6 +142,7 @@ export async function doSearchFromLocation(
   });
 
   let newSettings = settings;
+
   setSettings((prev) => {
     newSettings = {
       ...prev,
@@ -164,6 +169,10 @@ export async function doSearchFromLocation(
   });
   if (map !== undefined) {
     map.flyToBounds(bounds);
+  }
+
+  if (imageOnly) {
+    return;
   }
 
   updateSearchParams(latLng, newSettings);

@@ -7,6 +7,8 @@ import { StartMarker } from "./StartMarker";
 
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
+    setHoverState: (state: HoverState) => void;
+    hoverState: HoverState;
     settings: Settings;
     setSettings: SetSettings;
     grid: GridState;
@@ -21,7 +23,16 @@ function abortEvent(e: LeafletMouseEvent) {
             (e.originalEvent.target as any).parentElement.classList.contains("locationButton"));
 }
 
-export function SearchComponent({ setImageState, settings, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
+function doHoverSearch(grid: GridState, hoverState: HoverState, settings: Settings) {
+    return grid.loading !== "grid" && grid.loading !== "image" && (Date.now() - hoverState.lastHoverSearch) > 100 && grid.response === undefined && grid.grid === undefined && settings.doLiveHoverSearch;
+}
+
+export interface HoverState {
+    imageState: ImageState | undefined;
+    lastHoverSearch: number;
+}
+
+export function SearchComponent({ setImageState, setHoverState, hoverState, settings, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
     const map = useMap();
 
     let continueFromLocation = (e: LeafletMouseEvent) => {
@@ -51,6 +62,8 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
 
             let node = nodeInGrid(e.latlng, grid);
 
+            setHoverState({ imageState: undefined, lastHoverSearch: hoverState.lastHoverSearch });
+
             if (node === undefined) {
                 doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
                 return;
@@ -60,6 +73,28 @@ export function SearchComponent({ setImageState, settings, setSettings, grid, se
             pathAndNode.setFixed(true);
             let heights = computeHeights(nodes, grid);
             pathAndNode.setHeightPoints(heights);
+        },
+        mousemove(e) {
+            if (abortEvent(e) || !doHoverSearch(grid, hoverState, settings)) {
+                return;
+            }
+
+            doSearchFromLocation(
+                (is) => { setHoverState({ imageState: is, lastHoverSearch: Date.now() }); },
+                (g) => { }, (g) => { }, e.latlng, {
+                ...settings, gridSize: 200
+            }, {
+                path: undefined,
+                node: undefined,
+                fixed: true,
+                heightPoints: undefined,
+                cursorNode: undefined,
+                setPath: (_) => { },
+                setNode: (_) => { },
+                setFixed: (_) => { },
+                setHeightPoints: (_) => { },
+                setCursorNode: (_) => { },
+            }, undefined, true);
         },
         contextmenu(e) {
             continueFromLocation(e);

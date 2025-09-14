@@ -12,6 +12,7 @@ export interface Settings {
   safetyMargin: number;
   startDistance: number;
   abortController: AbortController | undefined;
+  doLiveHoverSearch: boolean;
 }
 
 export type SetSettings = (
