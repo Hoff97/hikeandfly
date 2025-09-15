@@ -22,6 +22,7 @@ pub struct Node {
     pub reference: Option<GridIx>,
     pub distance: f32,
     pub reachable: bool,
+    pub in_safety_margin: bool,
     pub explored: bool,
 }
 
@@ -39,6 +40,7 @@ impl Node {
             reference: None,
             distance: 0.0,
             reachable: false,
+            in_safety_margin: true,
             explored: false,
         }
     }
@@ -222,15 +224,29 @@ pub fn put_node(state: &mut SearchState, node: Node) {
     }
 }
 
-pub fn put_or_update(state: &mut SearchState, ix: GridIx, distance: f32) -> Option<&mut Node> {
+pub fn put_or_update(
+    state: &mut SearchState,
+    ix: GridIx,
+    distance: f32,
+    neighbor_in_safety_margin: bool,
+) -> Option<&mut Node> {
+    let prio_distance = if !neighbor_in_safety_margin {
+        distance
+    } else {
+        distance + 1000000.0
+    };
     if state.queue.contains_key(&ix) {
         // Safety: We already checked above that the queue contains the key
-        let item = unsafe { state.queue.update_priority_if_less_unsafe(ix, distance) };
+        let item = unsafe {
+            state
+                .queue
+                .update_priority_if_less_unsafe(ix, prio_distance)
+        };
         if item.is_some() {
             return Some(unsafe { state.explored.get_unchecked_mut(&ix) });
         }
     } else {
-        state.queue.push(ix, distance);
+        state.queue.push(ix, prio_distance);
         return Some(unsafe { state.explored.get_unchecked_mut(&ix) });
     }
     None
@@ -423,7 +439,11 @@ pub fn update_one_neighbor(
             }
         }
 
-        if is_line_intersecting(reference, ix, config) {
+        let line_intersects = is_line_intersecting_safety(reference, ix, config);
+
+        if (!neighbor.in_safety_margin && line_intersects != LineInSafety::Clear)
+            || line_intersects == LineInSafety::Intersecting
+        {
             reference = neighbor;
         }
     }
@@ -439,19 +459,23 @@ pub fn update_one_neighbor(
     let straight_line_ref = Some(get_straight_line_ref(ix, reference, &state.explored).ix);
     let ref_height = reference.height;
 
-    if let Some(r) = put_or_update(state, *ix, total_distance) {
+    let neighbor_in_safety_margin = neighbor.in_safety_margin;
+
+    if let Some(r) = put_or_update(state, *ix, total_distance, neighbor_in_safety_margin) {
         let height = ref_height - distance * effective_glide.glide_ratio;
         // Safety: ix is guaranteed to be in the grid
         let grid_height =
             *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
         let safety_margin = config.get_safety_margin_at_distance(total_distance);
 
-        let reachable = grid_height + safety_margin < height;
+        let reachable = grid_height <= height;
+        let in_safety_margin = grid_height + safety_margin > height && reachable;
 
         r.height = height;
         r.reference = straight_line_ref;
         r.distance = total_distance;
         r.reachable = reachable;
+        r.in_safety_margin = in_safety_margin || neighbor_in_safety_margin;
     }
 }
 
@@ -505,16 +529,21 @@ pub fn update_two_neighbors(
             let ref_p_deref = *ref_path_intersection;
             let rpi_node_height = rpi_node.height;
 
-            if let Some(r) = put_or_update(state, *ix, total_distance) {
+            let neighbors_in_safety_margin =
+                neighbor_1.in_safety_margin | neighbor_2.in_safety_margin;
+            if let Some(r) = put_or_update(state, *ix, total_distance, neighbors_in_safety_margin) {
                 let grid_height =
                     *unsafe { config.grid.heights.uget([ix.0 as usize, ix.1 as usize]) } as f32;
                 let height = rpi_node_height - distance * effective_glide.glide_ratio;
-                let reachable =
-                    grid_height + config.get_safety_margin_at_distance(total_distance) < height;
+                let reachable = grid_height < height;
+                let in_safety_margin =
+                    grid_height + config.get_safety_margin_at_distance(total_distance) > height
+                        && reachable;
                 r.height = height;
                 r.reference = ref_p_deref;
                 r.distance = total_distance;
                 r.reachable = reachable;
+                r.in_safety_margin = in_safety_margin || neighbors_in_safety_margin;
             }
         } else {
             update_two_with_different_references(neighbor_1_ix, neighbor_2_ix, ix, config, state);
@@ -595,11 +624,12 @@ pub fn update_four_neighbors(
         .collect();
 
     if reachable.is_empty() {
-        if let Some(r) = put_or_update(state, *ix, 0.0) {
+        if let Some(r) = put_or_update(state, *ix, 0.0, false) {
             r.height = 0.0;
             r.reference = None;
             r.distance = 0.0;
             r.reachable = false;
+            r.in_safety_margin = true;
         }
     } else if reachable.len() < 4 {
         update_three_neighbors(explored_neighbors, ix, config, state);
@@ -649,6 +679,7 @@ pub fn search(start: GridIx, height: f32, config: &SearchConfig) -> SearchState 
             reference: None,
             distance: 0.0,
             reachable: true,
+            in_safety_margin: false,
             explored: false,
         },
     );
@@ -758,6 +789,79 @@ pub fn is_line_intersecting(to: &Node, ix: &GridIx, config: &SearchConfig) -> bo
         }
     }
     false
+}
+
+#[derive(PartialEq, Eq)]
+pub enum LineInSafety {
+    Intersecting,
+    InSafetyMargin,
+    Clear,
+}
+
+pub fn is_line_intersecting_safety(to: &Node, ix: &GridIx, config: &SearchConfig) -> LineInSafety {
+    let effective_glide = get_effective_glide_ratio_from_to(&config.query, ix, &to.ix);
+    if f32::is_infinite(effective_glide.glide_ratio) {
+        return LineInSafety::Intersecting;
+    }
+
+    let length = l2_distance(&to.ix, ix);
+
+    let i_len = length.ceil() as usize;
+
+    let x_indices = linspace(u16_f32(to.ix.0), u16_f32(ix.0), i_len);
+    let y_indices = linspace(u16_f32(to.ix.1), u16_f32(ix.1), i_len);
+
+    let distance = length * config.grid.cell_size;
+
+    let real_heights = linspace(
+        to.height,
+        to.height - distance * effective_glide.glide_ratio,
+        i_len,
+    );
+
+    let mut ret = LineInSafety::Clear;
+
+    if (config.query.safety_margin == 0.0) | (to.distance + distance <= config.query.start_distance)
+    {
+        for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
+            let grid_height =
+                *unsafe { config.grid.heights.uget([f32_usize(x_i), f32_usize(y_i)]) } as f32;
+            if real_height < grid_height {
+                return LineInSafety::Intersecting;
+            }
+        }
+    } else if (to.distance < config.query.start_distance)
+        & (to.distance + distance > config.query.start_distance)
+    {
+        let mut cur_distance = to.distance;
+        let distance_step = distance / (i_len - 1) as f32;
+
+        for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
+            let grid_height =
+                *unsafe { config.grid.heights.uget([f32_usize(x_i), f32_usize(y_i)]) } as f32;
+            if real_height < grid_height {
+                return LineInSafety::Intersecting;
+            }
+            if cur_distance >= config.query.start_distance
+                && real_height - config.query.safety_margin < grid_height
+            {
+                ret = LineInSafety::InSafetyMargin;
+            }
+            cur_distance += distance_step;
+        }
+    } else {
+        for ((x_i, y_i), real_height) in zip(zip(x_indices, y_indices), real_heights) {
+            let grid_height =
+                *unsafe { config.grid.heights.uget([f32_usize(x_i), f32_usize(y_i)]) } as f32;
+            if real_height < grid_height {
+                return LineInSafety::Intersecting;
+            }
+            if real_height - config.query.safety_margin < grid_height {
+                ret = LineInSafety::InSafetyMargin;
+            }
+        }
+    }
+    ret
 }
 
 fn reindex_node(node: &mut Node, lats: (GridIxType, GridIxType), lons: (GridIxType, GridIxType)) {

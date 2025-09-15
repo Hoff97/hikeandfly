@@ -2,7 +2,7 @@ import { Button, Drawer, Radio, RadioGroup } from "@blueprintjs/core";
 import { PathAndNode, Settings } from "../utils/types";
 import { useState } from "react";
 
-import { Crosshair, HorizontalGridLines, LineSeries, LineSeriesPoint, MarkSeries, VerticalGridLines, XAxis, XYPlot, YAxis } from "react-vis";
+import { AreaSeries, Crosshair, DiscreteColorLegend, HorizontalGridLines, LineSeries, LineSeriesPoint, MarkSeries, VerticalGridLines, XAxis, XYPlot, YAxis } from "react-vis";
 
 interface HeightPlotCardProps {
     pathAndNode: PathAndNode;
@@ -33,9 +33,11 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
 
     let minFlightHeight = 100000;
     let maxFlightHeight = -1000;
+    let maxDistance = 0;
     const flightData = [];
     const groundData = [];
     let safetyMargin = [];
+    let start_safety_margin = undefined;
     for (let point of pathAndNode.heightPoints) {
         let height = point.height;
         if (plotType === "agl") {
@@ -44,11 +46,21 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
 
         minFlightHeight = Math.min(minFlightHeight, height);
         maxFlightHeight = Math.max(maxFlightHeight, height);
+        maxDistance = Math.max(maxDistance, point.distance);
         flightData.push({ x: point.distance, y: height, node: point });
         groundData.push({ x: point.distance, y: plotType === "agl" ? 0 : point.groundHeight });
 
+        let safety_margin_eps = 14.0;
+        if (start_safety_margin === undefined && point.height - settings.safetyMargin + safety_margin_eps < point.groundHeight && point.distance >= settings.startDistance) {
+            start_safety_margin = point.distance;
+        }
+
         if (settings.safetyMargin > 0 && point.distance >= settings.startDistance) {
-            safetyMargin.push({ x: point.distance, y: height - settings.safetyMargin });
+            if (plotType === "agl") {
+                safetyMargin.push({ x: point.distance, y: settings.safetyMargin });
+            } else {
+                safetyMargin.push({ x: point.distance, y: height - settings.safetyMargin });
+            }
         }
     }
 
@@ -92,6 +104,31 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
         }
     }
 
+    let colorLegendItems = [
+        {
+            title: 'Flight path',
+            color: 'green'
+        },
+        {
+            title: 'Ground',
+            color: 'red'
+        }
+    ];
+    if (settings.safetyMargin > 0) {
+        colorLegendItems.push({
+            title: 'Safety margin',
+            color: 'blue'
+        });
+    }
+    if (start_safety_margin !== undefined) {
+        colorLegendItems.push({
+            title: 'Area in safety margin',
+            color: 'rgba(200,170,50,1.0)'
+        });
+    }
+
+    const legendPositionRight = Math.round(window.visualViewport!.width * 0.1) + (mobile ? 0 : 50);
+
     return (
         <>
             <div className="heightPlotButton">
@@ -109,11 +146,18 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                 hasBackdrop={false}
                 position={"bottom"}>
                 <div className={"heightPlotDrawerBody"}>
-                    <XYPlot height={plotHeight} width={window.innerWidth * 0.8} >
+                    <XYPlot height={plotHeight} width={window.innerWidth * 0.8}>
                         <VerticalGridLines />
                         <HorizontalGridLines />
                         <Xaxis title={"Distance (m)"} position="middle" />
                         <Yaxis title={"Height (m)"} position="middle" />
+                        {
+                            start_safety_margin !== undefined ? (
+                                <AreaSeries
+                                    data={[{ x: start_safety_margin, y: maxFlightHeight }, { x: maxDistance, y: maxFlightHeight }]}
+                                    color={"rgba(200,170,50,0.2)"}
+                                />
+                            ) : <></>}
                         <LineSeries data={flightData} color={"green"}
                             onNearestX={setFlightHeigthItem} />
                         <LineSeries data={groundData}
@@ -155,6 +199,13 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                             stroke={3}
                             strokeStyle="dashed" />
                     </XYPlot>
+                    <DiscreteColorLegend
+                        items={colorLegendItems}
+                        orientation="vertical"
+                        width={150}
+                        // @ts-ignore
+                        style={{ position: 'absolute', right: `${legendPositionRight}px`, top: '40px' }}
+                    />
                     <RadioGroup label="Plot" onChange={(e) => {
                         setPlotType(e.currentTarget.value as "h" | "agl");
                         setGroundHeight(undefined);
