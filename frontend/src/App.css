@@ -101,3 +101,7 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     stroke-width: 0;
     width: 0px;
 }
+
+.rv-discrete-color-legend-item {
+    padding: 0px;
+}

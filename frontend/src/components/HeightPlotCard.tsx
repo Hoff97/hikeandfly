@@ -2,7 +2,7 @@ import { Button, Drawer, Radio, RadioGroup } from "@blueprintjs/core";
 import { PathAndNode, Settings } from "../utils/types";
 import { useState } from "react";
 
-import { AreaSeries, Crosshair, HorizontalGridLines, LineSeries, LineSeriesPoint, MarkSeries, VerticalGridLines, XAxis, XYPlot, YAxis } from "react-vis";
+import { AreaSeries, Crosshair, DiscreteColorLegend, HorizontalGridLines, LineSeries, LineSeriesPoint, MarkSeries, VerticalGridLines, XAxis, XYPlot, YAxis } from "react-vis";
 
 interface HeightPlotCardProps {
     pathAndNode: PathAndNode;
@@ -50,9 +50,8 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
         flightData.push({ x: point.distance, y: height, node: point });
         groundData.push({ x: point.distance, y: plotType === "agl" ? 0 : point.groundHeight });
 
-        let safety_margin_eps = 20.0;
+        let safety_margin_eps = 14.0;
         if (start_safety_margin === undefined && point.height - settings.safetyMargin + safety_margin_eps < point.groundHeight && point.distance >= settings.startDistance) {
-            console.log("In safety margin");
             start_safety_margin = point.distance;
         }
 
@@ -105,6 +104,31 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
         }
     }
 
+    let colorLegendItems = [
+        {
+            title: 'Flight path',
+            color: 'green'
+        },
+        {
+            title: 'Ground',
+            color: 'red'
+        }
+    ];
+    if (settings.safetyMargin > 0) {
+        colorLegendItems.push({
+            title: 'Safety margin',
+            color: 'blue'
+        });
+    }
+    if (start_safety_margin !== undefined) {
+        colorLegendItems.push({
+            title: 'Area in safety margin',
+            color: 'rgba(200,170,50,1.0)'
+        });
+    }
+
+    const legendPositionRight = Math.round(window.visualViewport!.width * 0.1) + (mobile ? 0 : 50);
+
     return (
         <>
             <div className="heightPlotButton">
@@ -122,7 +146,7 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                 hasBackdrop={false}
                 position={"bottom"}>
                 <div className={"heightPlotDrawerBody"}>
-                    <XYPlot height={plotHeight} width={window.innerWidth * 0.8} >
+                    <XYPlot height={plotHeight} width={window.innerWidth * 0.8}>
                         <VerticalGridLines />
                         <HorizontalGridLines />
                         <Xaxis title={"Distance (m)"} position="middle" />
@@ -175,6 +199,13 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                             stroke={3}
                             strokeStyle="dashed" />
                     </XYPlot>
+                    <DiscreteColorLegend
+                        items={colorLegendItems}
+                        orientation="vertical"
+                        width={150}
+                        // @ts-ignore
+                        style={{ position: 'absolute', right: `${legendPositionRight}px`, top: '40px' }}
+                    />
                     <RadioGroup label="Plot" onChange={(e) => {
                         setPlotType(e.currentTarget.value as "h" | "agl");
                         setGroundHeight(undefined);
