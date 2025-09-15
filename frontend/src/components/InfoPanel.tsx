@@ -72,7 +72,8 @@ export function InfoPanel({ isOpen, setIsOpen }: InfoPanelProps) {
                     <ul>
                         <li>
                             <b>Safety margin</b>: You can set a custom safety margin. The reachable area will then be calculated assuming you can not
-                            fly closer to the terrain <b>vertically</b> than this safety margin.
+                            fly closer to the terrain <b>vertically</b> than this safety margin. The area only reachable by flying into the margin
+                            will be displayed in a darker color. In the height plot it will be indicated by a yellow area.
                         </li>
                         <li>
                             <b>Start distance</b>: The safety margin will be ignored below this start distance. It makes sense setting this, as otherwise the tool

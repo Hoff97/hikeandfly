@@ -126,6 +126,16 @@ fn search_from_point_memoized(
     )
 }
 
+pub struct SearchFromRequestResult {
+    explored: Vec<Node>,
+    height_grid: HeightGrid,
+    heights: Array2<f32>,
+    node_heights: Array2<f32>,
+    height_at_start: f32,
+    start_ix: GridIx,
+    in_safety_margin: Array2<bool>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn search_from_request(
     lat: f32,
@@ -139,7 +149,7 @@ pub fn search_from_request(
     trim_speed_opt: Option<f32>,
     safety_margin_opt: Option<f32>,
     start_distance_opt: Option<f32>,
-) -> (Vec<Node>, HeightGrid, Array2<f32>, Array2<f32>, f32, GridIx) {
+) -> SearchFromRequestResult {
     let cell_size = cell_size_opt
         .unwrap_or(CELL_SIZE_DEFAULT)
         .clamp(CELL_SIZE_MINIMUM, CELL_SIZE_MAXIMUM);
@@ -188,23 +198,27 @@ pub fn search_from_request(
         Array2::from_elem((grid.heights.shape()[0], grid.heights.shape()[1]), -1000.0);
     let mut node_heights =
         Array2::from_elem((grid.heights.shape()[0], grid.heights.shape()[1]), -1000.0);
+    let mut in_safety_margin =
+        Array2::from_elem((grid.heights.shape()[0], grid.heights.shape()[1]), false);
 
     for node in explored.iter() {
         if node.reachable {
             heights[(node.ix.0 as usize, node.ix.1 as usize)] =
                 node.height - grid.heights[(node.ix.0 as usize, node.ix.1 as usize)] as f32;
             node_heights[(node.ix.0 as usize, node.ix.1 as usize)] = node.height;
+            in_safety_margin[(node.ix.0 as usize, node.ix.1 as usize)] = node.in_safety_margin;
         }
     }
 
-    (
+    SearchFromRequestResult {
         explored,
-        grid,
+        height_grid: grid,
         heights,
         node_heights,
         height_at_start,
         start_ix,
-    )
+        in_safety_margin,
+    }
 }
 
 #[derive(Serialize)]
@@ -249,7 +263,7 @@ fn get_flight_cone(
         return Result::Err(Status::NotFound);
     }
 
-    let (explored, grid, _, _, height_at_start, start_ix) = search_from_request(
+    let search_from_request_result = search_from_request(
         lat,
         lon,
         cell_size,
@@ -262,6 +276,11 @@ fn get_flight_cone(
         safety_margin,
         start_distance,
     );
+
+    let grid = search_from_request_result.height_grid;
+    let explored = search_from_request_result.explored;
+    let height_at_start = search_from_request_result.height_at_start;
+    let start_ix = search_from_request_result.start_ix;
 
     let resolution = grid.get_angular_resolution();
 
@@ -315,7 +334,7 @@ fn get_flight_cone_bounds(
         return Result::Err(Status::NotFound);
     }
 
-    let (_, grid, _, _, height_at_start, start_ix) = search_from_request(
+    let search_from_request_result = search_from_request(
         lat,
         lon,
         cell_size,
@@ -328,6 +347,10 @@ fn get_flight_cone_bounds(
         safety_margin,
         start_distance,
     );
+
+    let grid = search_from_request_result.height_grid;
+    let height_at_start = search_from_request_result.height_at_start;
+    let start_ix = search_from_request_result.start_ix;
 
     let resolution = grid.get_angular_resolution();
 
@@ -351,6 +374,11 @@ const DEFAULT_LERP_COLORS: [[f32; 4]; 3] = [
     [180.0, 190.0, 0.0, 255.0],
     [0.0, 150.0, 255.0, 255.0],
 ];
+const SAFETY_MARGIN_LERP_COLORS: [[f32; 4]; 3] = [
+    [255.0 / 5.0 * 3.0, 0.0, 0.0, 255.0],
+    [180.0 / 5.0 * 3.0, 190.0 / 5.0 * 3.0, 0.0, 255.0],
+    [0.0, 150.0 / 5.0 * 3.0, 255.0 / 5.0 * 3.0, 255.0],
+];
 const DEFAULT_LERP_STEPS: [f32; 3] = [0.0, 0.5, 1.0];
 
 #[allow(clippy::too_many_arguments)]
@@ -368,7 +396,7 @@ fn get_agl_image(
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (_, _, heights, _, _, _) = search_from_request(
+    let search_from_request_result = search_from_request(
         lat,
         lon,
         cell_size,
@@ -381,6 +409,9 @@ fn get_agl_image(
         safety_margin,
         start_distance,
     );
+
+    let heights = search_from_request_result.heights;
+    let in_safety_margin = search_from_request_result.in_safety_margin;
 
     let mut imgx = heights.shape()[0];
     let mut imgy = heights.shape()[1];
@@ -406,6 +437,8 @@ fn get_agl_image(
         }
     }
 
+    hmin = hmin.max(safety_margin.unwrap_or(0.0));
+
     if x_lower == usize::MAX {
         imgx = 1;
         imgy = 1;
@@ -419,6 +452,8 @@ fn get_agl_image(
     }
 
     let heights_sub = heights.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
+    let safety_margin_sub =
+        in_safety_margin.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
 
     let mut img = DynamicImage::new_rgba8(imgy as u32, imgx as u32);
 
@@ -428,16 +463,29 @@ fn get_agl_image(
             let ix = (x, y);
             if heights_sub[ix] > 0.0 {
                 let agl = heights_sub[ix];
-                let s = (agl - hmin) / (hmax - hmin);
-                img.put_pixel(
-                    y as u32,
-                    (imgx - x) as u32 - 1,
-                    Rgba(f32_color_to_u8(lerp(
-                        &DEFAULT_LERP_COLORS,
-                        &DEFAULT_LERP_STEPS,
-                        s,
-                    ))),
-                );
+                let s = ((agl - hmin) / (hmax - hmin)).clamp(0.0, 1.0);
+
+                if safety_margin_sub[ix] {
+                    img.put_pixel(
+                        y as u32,
+                        (imgx - x) as u32 - 1,
+                        Rgba(f32_color_to_u8(lerp(
+                            &SAFETY_MARGIN_LERP_COLORS,
+                            &DEFAULT_LERP_STEPS,
+                            s,
+                        ))),
+                    );
+                } else {
+                    img.put_pixel(
+                        y as u32,
+                        (imgx - x) as u32 - 1,
+                        Rgba(f32_color_to_u8(lerp(
+                            &DEFAULT_LERP_COLORS,
+                            &DEFAULT_LERP_STEPS,
+                            s,
+                        ))),
+                    );
+                }
             } else {
                 img.put_pixel(y as u32, (imgx - x) as u32 - 1, Rgba([255, 255, 255, 0]));
             }
@@ -464,7 +512,7 @@ fn get_height_image(
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (_, _, _, heights, _, _) = search_from_request(
+    let search_from_request_result = search_from_request(
         lat,
         lon,
         cell_size,
@@ -477,6 +525,8 @@ fn get_height_image(
         safety_margin,
         start_distance,
     );
+
+    let heights = search_from_request_result.node_heights;
 
     let mut imgx = heights.shape()[0];
     let mut imgy = heights.shape()[1];
@@ -581,7 +631,7 @@ fn get_kml(
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> (ContentType, Vec<u8>) {
-    let (nodes, height_grid, heights, node_heights, _, _) = search_from_request(
+    let search_from_request_result = search_from_request(
         lat,
         lon,
         cell_size,
@@ -594,6 +644,11 @@ fn get_kml(
         safety_margin,
         start_distance,
     );
+
+    let heights = search_from_request_result.heights;
+    let node_heights = search_from_request_result.node_heights;
+    let height_grid = search_from_request_result.height_grid;
+    let nodes = search_from_request_result.explored;
 
     let imgx = heights.shape()[0];
     let imgy = heights.shape()[1];
