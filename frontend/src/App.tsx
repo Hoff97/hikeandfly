@@ -26,7 +26,7 @@ function App() {
         startHeight: (startHeight !== null ? (+startHeight) : undefined),
         additionalHeight: +(urlParams.get('additional_height') || 5),
         glideNumber: +(urlParams.get('glide_number') || 6.5),
-        gridSize: +(urlParams.get('cell_size') || 100),
+        gridSize: +(urlParams.get('cell_size') || 50),
         minGridSize: 30,
         trimSpeed: +(urlParams.get('trim_speed') || 37),
         windSpeed: +(urlParams.get('wind_speed') || 0),
