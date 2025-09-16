@@ -527,6 +527,7 @@ fn get_height_image(
     );
 
     let heights = search_from_request_result.node_heights;
+    let safety_margin = search_from_request_result.in_safety_margin;
 
     let mut imgx = heights.shape()[0];
     let mut imgy = heights.shape()[1];
@@ -556,6 +557,7 @@ fn get_height_image(
     imgy = (y_upper - y_lower) + 1;
 
     let heights_sub = heights.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
+    let safety_margin_sub = safety_margin.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
 
     let mut img = DynamicImage::new_rgba8(imgy as u32, imgx as u32);
 
@@ -566,15 +568,28 @@ fn get_height_image(
             if heights_sub[ix] > 0.0 {
                 let height = heights_sub[ix];
                 let s = (height - hmin) / (hmax - hmin);
-                img.put_pixel(
-                    y as u32,
-                    (imgx - x) as u32 - 1,
-                    Rgba(f32_color_to_u8(lerp(
-                        &DEFAULT_LERP_COLORS,
-                        &DEFAULT_LERP_STEPS,
-                        s,
-                    ))),
-                );
+
+                if safety_margin_sub[ix] {
+                    img.put_pixel(
+                        y as u32,
+                        (imgx - x) as u32 - 1,
+                        Rgba(f32_color_to_u8(lerp(
+                            &SAFETY_MARGIN_LERP_COLORS,
+                            &DEFAULT_LERP_STEPS,
+                            s,
+                        ))),
+                    );
+                } else {
+                    img.put_pixel(
+                        y as u32,
+                        (imgx - x) as u32 - 1,
+                        Rgba(f32_color_to_u8(lerp(
+                            &DEFAULT_LERP_COLORS,
+                            &DEFAULT_LERP_STEPS,
+                            s,
+                        ))),
+                    );
+                }
             } else {
                 img.put_pixel(y as u32, (imgx - x) as u32 - 1, Rgba([255, 255, 255, 0]));
             }
