@@ -89,18 +89,22 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
             };
             setSettings(settings);
         }
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+        if (!preview) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     }
     const setTrimSpeed = (value: number, preview: boolean = false) => {
         setSettings({
             ...settings,
             trimSpeed: value,
         });
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+        if (settings.windSpeed > 0) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     };
     const setWindSpeed = (value: number, preview: boolean = false) => {
         settings = {
@@ -118,9 +122,11 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
             windDirection: value,
         };
         setSettings(settings);
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+        if (settings.windSpeed > 0) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     }
     const setSafetyMargin = (value: number, preview: boolean = false) => {
         settings = {
@@ -138,9 +144,12 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
             startDistance: value,
         };
         setSettings(settings);
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+
+        if (settings.safetyMargin > 0) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     }
 
     function rerun(preview: boolean = false) {
