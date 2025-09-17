@@ -13,6 +13,7 @@ export interface Settings {
   startDistance: number;
   abortController: AbortController | undefined;
   doLiveHoverSearch: boolean;
+  fastInternet: boolean;
 }
 
 export type SetSettings = (

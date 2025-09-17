@@ -68,7 +68,7 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
     const setGlideNumber = (value: number, preview: boolean = false) => {
         settings = {
             ...settings,
-            glideNumber: value,
+            glideNumber: preview ? value : Math.round(value * 2) / 2,
         };
         setSettings(settings);
         setTimeout(() => {
@@ -89,23 +89,27 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
             };
             setSettings(settings);
         }
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+        if (!preview) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     }
     const setTrimSpeed = (value: number, preview: boolean = false) => {
         setSettings({
             ...settings,
             trimSpeed: value,
         });
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+        if (settings.windSpeed > 0) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     };
     const setWindSpeed = (value: number, preview: boolean = false) => {
         settings = {
             ...settings,
-            windSpeed: value,
+            windSpeed: preview ? value : Math.round(value / 5) * 5,
         };
         setSettings(settings);
         setTimeout(() => {
@@ -115,17 +119,19 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
     const setWindDirection = (value: number, preview: boolean = false) => {
         settings = {
             ...settings,
-            windDirection: value,
+            windDirection: preview ? value : Math.round(value / 15) * 15,
         };
         setSettings(settings);
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+        if (settings.windSpeed > 0) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     }
     const setSafetyMargin = (value: number, preview: boolean = false) => {
         settings = {
             ...settings,
-            safetyMargin: value,
+            safetyMargin: preview ? value : Math.round(value / 10) * 10,
         };
         setSettings(settings);
         setTimeout(() => {
@@ -138,15 +144,18 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
             startDistance: value,
         };
         setSettings(settings);
-        setTimeout(() => {
-            rerun(preview);
-        }, 0);
+
+        if (settings.safetyMargin > 0) {
+            setTimeout(() => {
+                rerun(preview);
+            }, 0);
+        }
     }
 
     function rerun(preview: boolean = false) {
         if (grid.startPosition !== undefined) {
             if (preview) {
-                let searchSettings = { ...settings, gridSize: 200 };
+                let searchSettings = { ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200 };
                 doSearchFromLocation(setImageState, (g) => { }, (s) => { }, grid.startPosition, searchSettings, pathAndNode, undefined, preview);
             } else {
                 doSearchFromLocation(setImageState, setGrid, setSettings, grid.startPosition, settings, pathAndNode, undefined, preview);
@@ -209,7 +218,7 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
                         onChange={(v) => setGlideNumber(v, true)}
                         value={settings.glideNumber}
                         labelStepSize={2}
-                        stepSize={0.5}
+                        stepSize={settings.fastInternet ? 0.1 : 0.5}
                     ></Slider>
                     Grid size (m):
                     <Slider
@@ -264,12 +273,12 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
                         onChange={(v) => setWindSpeed(v, true)}
                         value={settings.windSpeed}
                         labelStepSize={10}
-                        stepSize={5}
+                        stepSize={settings.fastInternet ? 1 : 5}
                     ></Slider>
                     Wind direction (°):
                     <Slider initialValue={0} min={0} max={360}
                         onRelease={setWindDirection} onChange={(v) => setWindDirection(v, true)} value={settings.windDirection}
-                        labelStepSize={90} stepSize={15}></Slider>
+                        labelStepSize={90} stepSize={settings.fastInternet ? 5 : 15}></Slider>
                     Trim speed (km/h):
                     <Slider
                         initialValue={20}
@@ -285,16 +294,16 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
                     Safety margin (m):
                     <Slider initialValue={0} min={0} max={200}
                         onRelease={setSafetyMargin} onChange={(v) => setSafetyMargin(v, true)} value={settings.safetyMargin}
-                        labelStepSize={40} stepSize={10}></Slider>
+                        labelStepSize={40} stepSize={settings.fastInternet ? 1 : 10}></Slider>
                     Start distance (m):
                     <Slider initialValue={0} min={0} max={1000}
                         onRelease={setStartDistance} onChange={(v) => setStartDistance(v, true)} value={settings.startDistance}
                         labelStepSize={200} stepSize={10}></Slider>
                     <Divider />
+                    <Checkbox checked={settings.fastInternet} label="Fast internet" onChange={e => setSettings({ ...settings, fastInternet: e.target.checked })} />
                     {grid.response !== undefined ?
                         <>
                             <Button text="Clear" onClick={clear} className="marginRight" />
-                            <Button text="Rerun" onClick={() => rerun(false)} className="marginRight" />
                             <a href={kmlUrl} download="glideArea.kml" className="marginRight"><Button text="KML File" /></a>
                             <Button
                                 icon={<Share />}
