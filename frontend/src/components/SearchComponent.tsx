@@ -27,7 +27,7 @@ function abortEvent(e: LeafletMouseEvent) {
 function doHoverSearch(grid: GridState, hoverState: HoverState, imageState: ImageState | undefined, settings: Settings, useTimer = true) {
     return grid.loading !== "grid"
         && grid.loading !== "image"
-        && ((Date.now() - hoverState.lastHoverSearch) > 200 || !useTimer)
+        && ((Date.now() - hoverState.lastHoverSearch) > (settings.fastInternet ? 50 : 200) || !useTimer)
         && grid.response === undefined
         && grid.grid === undefined
         && settings.doLiveHoverSearch
@@ -95,7 +95,7 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
             doSearchFromLocation(
                 (is) => { setHoverState({ imageState: is, lastHoverSearch: Date.now() }); },
                 (g) => { }, (g) => { }, e.latlng, {
-                ...settings, gridSize: 200
+                ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200
             }, {
                 path: undefined,
                 node: undefined,
@@ -118,7 +118,7 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
             doSearchFromLocation(
                 (is) => { setHoverState({ imageState: is, lastHoverSearch: Date.now() }); },
                 (g) => { }, (g) => { }, map.getCenter(), {
-                ...settings, gridSize: 200
+                ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200
             }, {
                 path: undefined,
                 node: undefined,
