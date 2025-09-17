@@ -135,7 +135,7 @@ export async function doSearchFromLocation(
   }
 
   setGrid({
-    loading: "grid",
+    loading: imageOnly ? "done" : "grid",
     grid: undefined,
     response: cone,
     startPosition: latLng,
