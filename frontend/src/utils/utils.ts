@@ -50,13 +50,16 @@ export function getSearchParams(
   return new URLSearchParams(dict);
 }
 
-function setupGrid(cone: ConeSearchResponse): GridTile[][] {
-  if (cone.nodes === undefined) {
-    return [];
+function updateGrid(
+  cone: ConeSearchResponse,
+  grid: GridTile[][] | undefined,
+  nodes: GridTile[] | undefined
+) {
+  if (nodes === undefined || grid === undefined) {
+    return;
   }
 
-  const grid = new Array(cone.grid_shape[0]);
-  for (let node of cone.nodes) {
+  for (let node of nodes) {
     if (grid[node.index[0]] === undefined) {
       grid[node.index[0]] = new Array(cone.grid_shape[1]);
     }
@@ -81,12 +84,13 @@ export async function doSearchFromLocation(
   if (!imageOnly) {
     setImageState(undefined);
   }
-  setGrid({
+  let grid: GridState = {
     loading: "image",
     grid: undefined,
     response: undefined,
     startPosition: undefined,
-  });
+  };
+  setGrid(grid);
   pathAndNode.setNode(undefined);
   pathAndNode.setPath(undefined);
   pathAndNode.setFixed(false);
@@ -114,12 +118,8 @@ export async function doSearchFromLocation(
   }
 
   if (response.status === 404) {
-    setGrid({
-      loading: "done",
-      grid: undefined,
-      response: undefined,
-      startPosition: undefined,
-    });
+    grid.loading = "done";
+    setGrid(grid);
     alert("Location not yet supported!");
     return;
   }
@@ -134,12 +134,10 @@ export async function doSearchFromLocation(
     throw error;
   }
 
-  setGrid({
-    loading: imageOnly ? "done" : "grid",
-    grid: undefined,
-    response: cone,
-    startPosition: latLng,
-  });
+  grid.loading = imageOnly ? "done" : "grid";
+  grid.response = cone;
+  grid.startPosition = latLng;
+  setGrid(grid);
 
   let newSettings = settings;
 
@@ -180,33 +178,30 @@ export async function doSearchFromLocation(
   let grid_url = new URL(window.location.origin + "/flight_cone");
   grid_url.search = getSearchParams(latLng, settings).toString();
 
-  let grid_response;
-  try {
-    grid_response = await fetch(grid_url, { signal: controller.signal });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      return;
-    }
-    throw error;
+  grid.grid = new Array(cone.grid_shape[0]);
+  for (let i = 0; i < cone.grid_shape[0]; i++) {
+    grid.grid[i] = new Array(cone.grid_shape[1]);
   }
-
-  let cone_grid: ConeSearchResponse;
-  try {
-    cone_grid = await grid_response.json();
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      return;
-    }
-    throw error;
-  }
-
-  const grid = setupGrid(cone_grid);
-  setGrid({
-    loading: "done",
-    grid: grid,
-    response: cone,
-    startPosition: latLng,
+  setGrid(grid);
+  const socket = new WebSocket(
+    `ws://${grid_url.host}/flight_cone_ws?${grid_url.searchParams.toString()}`
+  );
+  let total = 0;
+  controller.signal.addEventListener("abort", () => {
+    socket.close();
   });
+  socket.onmessage = (event) => {
+    console.log("Received data");
+    let nodes = JSON.parse(event.data) as GridTile[];
+    total += nodes.length;
+    updateGrid(cone, grid.grid, nodes);
+    setGrid(grid);
+  };
+  socket.onclose = () => {
+    console.log("WebSocket closed with total nodes", total);
+    grid.loading = "done";
+    setGrid(grid);
+  };
 }
 
 export function ixToLatLon(ix: number[], response: ConeSearchResponse) {

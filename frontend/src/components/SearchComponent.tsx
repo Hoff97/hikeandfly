@@ -76,8 +76,10 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
 
             setHoverState({ imageState: undefined, lastHoverSearch: hoverState.lastHoverSearch });
 
-            if (node === undefined) {
+            if (node === undefined && grid.grid === undefined) {
                 doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
+                return;
+            } else if (node === undefined) {
                 return;
             }
 
