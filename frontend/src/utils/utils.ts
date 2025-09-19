@@ -184,7 +184,9 @@ export async function doSearchFromLocation(
   }
   setGrid(grid);
   const socket = new WebSocket(
-    `ws://${grid_url.host}/flight_cone_ws?${grid_url.searchParams.toString()}`
+    `${window.location.protocol === "https:" ? "wss" : "ws"}://${
+      grid_url.host
+    }/flight_cone_ws?${grid_url.searchParams.toString()}`
   );
   let total = 0;
   controller.signal.addEventListener("abort", () => {
