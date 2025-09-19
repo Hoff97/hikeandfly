@@ -319,7 +319,7 @@ fn get_flight_cone(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[get("/flight_cone_ws?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+#[get("/flight_cone_ws/ws?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_flight_cone_stream(
     ws: WebSocket,
     lat: f32,
