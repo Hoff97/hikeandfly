@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 use core::f32;
 use std::{
     cmp::{max, min},
@@ -5,6 +6,8 @@ use std::{
     hash::{Hash, Hasher},
     io::Cursor,
 };
+
+use rocket_ws::{Stream, WebSocket};
 
 use backend_rust::{
     colors::{f32_color_to_u8, lerp},
@@ -313,6 +316,64 @@ fn get_flight_cone(
     response.nodes = Some(nodes);
 
     Result::Ok(Json(response))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[get("/flight_cone_ws?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+fn get_flight_cone_stream(
+    ws: WebSocket,
+    lat: f32,
+    lon: f32,
+    cell_size: Option<f32>,
+    glide_number: Option<f32>,
+    additional_height: Option<f32>,
+    start_height: Option<f32>,
+    wind_speed: Option<f32>,
+    wind_direction: Option<f32>,
+    trim_speed: Option<f32>,
+    safety_margin: Option<f32>,
+    start_distance: Option<f32>,
+) -> Stream!['static] {
+    let search_from_request_result = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        start_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+        safety_margin,
+        start_distance,
+    );
+
+    let grid = search_from_request_result.height_grid;
+    let explored = search_from_request_result.explored;
+
+    let mut nodes = vec![];
+
+    for node in explored {
+        if node.reachable {
+            nodes.push(NodeResponse {
+                index: node.ix,
+                height: node.height as i16,
+                distance: node.distance as i32,
+                reference: node.reference,
+                agl: node.height as i16 - grid.heights[(node.ix.0 as usize, node.ix.1 as usize)],
+            })
+        }
+    }
+
+    nodes.sort_by(|a, b| a.distance.cmp(&b.distance));
+
+    Stream! { ws =>
+        let chunk_size = 20000;
+        for i in (0..nodes.len()).step_by(chunk_size) {
+            let response_str = serde_json::to_string(&nodes[i..(i + chunk_size).min(nodes.len())]).unwrap();
+            yield rocket_ws::Message::Text(response_str);
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -797,6 +858,7 @@ fn rocket() -> _ {
     rocket::build()
         .mount("/", routes![index])
         .mount("/", routes![get_flight_cone])
+        .mount("/", routes![get_flight_cone_stream])
         .mount("/", routes![get_flight_cone_bounds])
         .mount("/", routes![get_agl_image])
         .mount("/", routes![get_height_image])
