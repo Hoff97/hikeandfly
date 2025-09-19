@@ -56,8 +56,10 @@ function updateGrid(
   nodes: GridTile[] | undefined
 ) {
   if (nodes === undefined || grid === undefined) {
-    return;
+    return 0;
   }
+
+  let maxDistance = 0;
 
   for (let node of nodes) {
     if (grid[node.index[0]] === undefined) {
@@ -65,8 +67,9 @@ function updateGrid(
     }
 
     grid[node.index[0]][node.index[1]] = node;
+    maxDistance = Math.max(maxDistance, node.distance);
   }
-  return grid;
+  return maxDistance;
 }
 
 export async function doSearchFromLocation(
@@ -87,6 +90,7 @@ export async function doSearchFromLocation(
   let grid: GridState = {
     loading: "image",
     grid: undefined,
+    maxLoadDistance: undefined,
     response: undefined,
     startPosition: undefined,
   };
@@ -193,16 +197,14 @@ export async function doSearchFromLocation(
     socket.close();
   });
   socket.onmessage = (event) => {
-    console.log("Received data");
     let nodes = JSON.parse(event.data) as GridTile[];
     total += nodes.length;
-    updateGrid(cone, grid.grid, nodes);
-    setGrid(grid);
+    let newDistance = updateGrid(cone, grid.grid, nodes);
+    setGrid({ ...grid, maxLoadDistance: newDistance });
   };
   socket.onclose = () => {
     console.log("WebSocket closed with total nodes", total);
-    grid.loading = "done";
-    setGrid(grid);
+    setGrid({ ...grid, loading: "done", maxLoadDistance: undefined });
   };
 }
 

@@ -1,6 +1,6 @@
 import { LatLng, LeafletMouseEvent } from "leaflet";
 import { computeHeights, doSearchFromLocation, nodeInGrid, setPath } from "../utils/utils";
-import { CircleMarker, useMap, useMapEvents } from "react-leaflet";
+import { Circle, CircleMarker, useMap, useMapEvents } from "react-leaflet";
 import { GridState, ImageState, PathAndNode, SetSettings, Settings } from "../utils/types";
 import { Grid } from "./Grid";
 import { StartMarker } from "./StartMarker";
@@ -76,10 +76,8 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
 
             setHoverState({ imageState: undefined, lastHoverSearch: hoverState.lastHoverSearch });
 
-            if (node === undefined && grid.grid === undefined) {
+            if (node === undefined) {
                 doSearchFromLocation(setImageState, setGrid, setSettings, e.latlng, settings, pathAndNode, map);
-                return;
-            } else if (node === undefined) {
                 return;
             }
 
@@ -172,7 +170,25 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
         fillOpacity: 0.5,
     };
 
+    const loadedOptions = {
+        color: "green",
+        weight: 2.0,
+        opacity: 1.0,
+        fillColor: "white",
+        fillOpacity: 0.1,
+    };
+
+    console.log(grid.startPosition, grid.maxLoadDistance)
+
     return (<>
+        {grid.startPosition !== undefined && grid.maxLoadDistance !== undefined ? (
+            <Circle
+                center={grid.startPosition}
+                radius={grid.maxLoadDistance}
+                pathOptions={loadedOptions}
+            >
+            </Circle>
+        ) : (<></>)}
         {grid.response === undefined ? <></> : <StartMarker response={grid.response} settings={settings}></StartMarker>}
         {
             grid === undefined ? (<></>) : (
