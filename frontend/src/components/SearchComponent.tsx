@@ -178,8 +178,6 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
         fillOpacity: 0.1,
     };
 
-    console.log(grid.startPosition, grid.maxLoadDistance)
-
     return (<>
         {grid.startPosition !== undefined && grid.maxLoadDistance !== undefined ? (
             <Circle

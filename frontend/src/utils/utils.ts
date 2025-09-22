@@ -6,6 +6,7 @@ import {
   HeightPoint,
   ImageState,
   PathAndNode,
+  ReducedNodeResponse,
   SetSettings,
   Settings,
 } from "./types";
@@ -50,26 +51,97 @@ export function getSearchParams(
   return new URLSearchParams(dict);
 }
 
+function get_effective_glide_ratio(
+  effective_wind_angle: number,
+  wind_speed: number,
+  trim_speed: number,
+  glide_ratio: number
+) {
+  let side_wind = Math.sin(effective_wind_angle) * wind_speed;
+  let back_wind = Math.cos(effective_wind_angle) * wind_speed;
+
+  let rs = trim_speed * trim_speed - side_wind * side_wind;
+  if (rs <= 0) {
+    return parseFloat("inf");
+  }
+
+  let rest_speed = Math.sqrt(rs);
+
+  let effective_speed = rest_speed + back_wind;
+  if (effective_speed <= 0.0) {
+    return parseFloat("inf");
+  }
+
+  let effective_glide_ratio = glide_ratio / (effective_speed / trim_speed);
+
+  return effective_glide_ratio;
+}
+
 function updateGrid(
   cone: ConeSearchResponse,
   grid: GridTile[][] | undefined,
-  nodes: GridTile[] | undefined
+  nodes: ReducedNodeResponse[] | undefined,
+  settings: Settings,
+  lastReference: number[] | undefined
 ) {
   if (nodes === undefined || grid === undefined) {
-    return 0;
+    return { maxDistance: 0, lastReference: lastReference };
   }
 
   let maxDistance = 0;
 
-  for (let node of nodes) {
-    if (grid[node.index[0]] === undefined) {
-      grid[node.index[0]] = new Array(cone.grid_shape[1]);
-    }
+  for (let reducedResp of nodes) {
+    let insertedNode: GridTile = {
+      index: reducedResp.i,
+      height: 0,
+      distance: 0,
+      reference: [],
+      agl: 0,
+    };
+    grid[reducedResp.i[0]][reducedResp.i[1]] = insertedNode;
 
-    grid[node.index[0]][node.index[1]] = node;
-    maxDistance = Math.max(maxDistance, node.distance);
+    if (reducedResp.r === undefined && lastReference === undefined) {
+      insertedNode.height = cone.start_height;
+      insertedNode.distance = 0;
+      insertedNode.agl = insertedNode.height - reducedResp.g;
+      // @ts-ignore
+      insertedNode.reference = undefined;
+      continue;
+    } else if (reducedResp.r === undefined && lastReference !== undefined) {
+      insertedNode.reference = lastReference;
+    } else {
+      lastReference = reducedResp.r;
+      // @ts-ignore
+      insertedNode.reference = reducedResp.r;
+    }
+    let ref = grid[insertedNode.reference[0]][insertedNode.reference[1]];
+
+    let diff = [
+      insertedNode.index[0] - ref.index[0],
+      insertedNode.index[1] - ref.index[1],
+    ];
+    let angle = Math.atan2(diff[0], diff[1]);
+    let effective_wind_angle = -settings.windDirection + Math.PI / 2 - angle;
+
+    let ref_distance =
+      Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1]) * cone.cell_size;
+    let newDistance = ref.distance + ref_distance;
+    insertedNode.distance = newDistance;
+
+    let effective_glide_ratio = get_effective_glide_ratio(
+      effective_wind_angle,
+      settings.windSpeed,
+      settings.trimSpeed,
+      1 / settings.glideNumber
+    );
+    let height_loss = ref_distance * effective_glide_ratio;
+    let newHeight = ref.height - height_loss;
+    insertedNode.height = newHeight;
+    insertedNode.agl = insertedNode.height - reducedResp.g;
+
+    maxDistance = Math.max(maxDistance, insertedNode.distance);
   }
-  return maxDistance;
+  return { maxDistance: maxDistance, lastReference: lastReference };
 }
 
 export async function doSearchFromLocation(
@@ -196,11 +268,13 @@ export async function doSearchFromLocation(
   controller.signal.addEventListener("abort", () => {
     socket.close();
   });
+  let lastReference: number[] | undefined = undefined;
   socket.onmessage = (event) => {
-    let nodes = JSON.parse(event.data) as GridTile[];
+    let nodes = JSON.parse(event.data) as ReducedNodeResponse[];
     total += nodes.length;
-    let newDistance = updateGrid(cone, grid.grid, nodes);
-    setGrid({ ...grid, maxLoadDistance: newDistance });
+    let result = updateGrid(cone, grid.grid, nodes, settings, lastReference);
+    lastReference = result.lastReference;
+    setGrid({ ...grid, maxLoadDistance: result.maxDistance });
   };
   socket.onclose = () => {
     console.log("WebSocket closed with total nodes", total);
@@ -234,7 +308,6 @@ export function searchFromCurrentLocation(
 
   navigator.geolocation.getCurrentPosition(
     (position) => {
-      console.log(position);
       if (position.coords.altitude !== null) {
         const newSettings: Settings = {
           ...settings,
@@ -317,7 +390,7 @@ export function setPath(
 
   let current = node;
   let path = [];
-  while (current.reference !== null) {
+  while (current.reference !== undefined) {
     let latlng = new LatLng(0, 0);
     if (grid.response !== undefined) {
       latlng = ixToLatLon(current.index, grid.response);
