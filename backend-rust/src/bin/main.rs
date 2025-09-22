@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 use core::f32;
 use std::{
-    cmp::{max, min},
+    cmp::{max, min, Ordering},
     f32::consts::PI,
     hash::{Hash, Hasher},
     io::Cursor,
@@ -235,6 +235,17 @@ struct NodeResponse {
 }
 
 #[derive(Serialize)]
+struct ReducedNodeResponse {
+    // Index of the node in the grid
+    i: GridIx,
+    // Ground height at this node
+    g: i16,
+    // Reference to another node (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r: Option<GridIx>,
+}
+
+#[derive(Serialize)]
 struct FlightConeResponse {
     nodes: Option<Vec<NodeResponse>>,
     cell_size: f32,
@@ -352,25 +363,59 @@ fn get_flight_cone_stream(
     let explored = search_from_request_result.explored;
 
     let mut nodes = vec![];
+    let mut distances = std::collections::HashMap::<GridIx, f32>::new();
 
     for node in explored {
         if node.reachable {
-            nodes.push(NodeResponse {
-                index: node.ix,
-                height: node.height as i16,
-                distance: node.distance as i32,
-                reference: node.reference,
-                agl: node.height as i16 - grid.heights[(node.ix.0 as usize, node.ix.1 as usize)],
-            })
+            distances.insert(node.ix, node.distance);
+            nodes.push(node);
         }
     }
 
-    nodes.sort_by(|a, b| a.distance.cmp(&b.distance));
+    // Group nodes by reference, sort by distance of the reference
+    let groups = nodes.iter().fold(
+        std::collections::HashMap::<Option<GridIx>, Vec<&Node>>::new(),
+        |mut acc, node| {
+            acc.entry(node.reference).or_default().push(node);
+            acc
+        },
+    );
+    let mut groups = groups
+        .into_iter()
+        .map(|(a, b)| (a.map(|ix| distances[&ix]).unwrap_or(-1.0), b))
+        .collect::<Vec<_>>();
+    groups.sort_by(|a, b| {
+        if a.0 < b.0 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    });
+    let returned_nodes = groups
+        .into_iter()
+        .flat_map(|(_, v)| v)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut last_reference = None;
 
     Stream! { ws =>
         let chunk_size = 20000;
-        for i in (0..nodes.len()).step_by(chunk_size) {
-            let response_str = serde_json::to_string(&nodes[i..(i + chunk_size).min(nodes.len())]).unwrap();
+        for i in (0..returned_nodes.len()).step_by(chunk_size) {
+            let n = returned_nodes[i..(i + chunk_size).min(returned_nodes.len())].iter().map(|node| {
+                let reference = if node.reference == last_reference {
+                    None
+                } else {
+                    last_reference = node.reference;
+                    node.reference
+                };
+                ReducedNodeResponse {
+                    i: node.ix,
+                    g: grid.heights[(node.ix.0 as usize, node.ix.1 as usize)] as i16,
+                    r: reference,
+                }
+            }).collect::<Vec<_>>();
+            let response_str = serde_json::to_string(&n).unwrap();
             yield rocket_ws::Message::Text(response_str);
         }
     }

@@ -20,6 +20,12 @@ export type SetSettings = (
   settings: Settings | ((settings: Settings) => Settings)
 ) => void;
 
+export interface ReducedNodeResponse {
+  i: number[];
+  g: number;
+  r: number[] | undefined;
+}
+
 export interface GridTile {
   index: number[];
   height: number;
