@@ -393,7 +393,16 @@ fn get_flight_cone_stream(
     });
     let returned_nodes = groups
         .into_iter()
-        .flat_map(|(_, v)| v)
+        .flat_map(|(_, mut v)| {
+            v.sort_by(|a, b| {
+                if a.distance < b.distance {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            });
+            v
+        })
         .cloned()
         .collect::<Vec<_>>();
 
