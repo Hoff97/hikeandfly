@@ -1,3 +1,4 @@
+import { ReactCanvasOverlay } from "../leaflet/ReactCanvasOverlay";
 import { ImageState } from "../utils/types";
 
 import {
@@ -15,6 +16,7 @@ export function ImageOverlays({ state }: { state: ImageState }) {
                     opacity={0.5}
                     className="gridImage"
                 ></ImageOverlay>
+                <ReactCanvasOverlay bounds={state.bounds} elementId="canvas-overlay" opacity={0.4} key={state.heightAGLUrl.toString()} />
             </LayersControl.Overlay>
             <LayersControl.Overlay name="Height above see level">
                 <ImageOverlay

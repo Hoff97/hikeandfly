@@ -39,7 +39,6 @@ function App() {
     });
     const [grid, setGrid] = useState<GridState>({
         loading: "done",
-        maxLoadDistance: undefined,
         grid: undefined,
         response: undefined,
         startPosition: undefined

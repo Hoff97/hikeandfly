@@ -82,13 +82,12 @@ function updateGrid(
   grid: GridTile[][] | undefined,
   nodes: ReducedNodeResponse[] | undefined,
   settings: Settings,
-  lastReference: number[] | undefined
+  lastReference: number[] | undefined,
+  ctx: CanvasRenderingContext2D
 ) {
   if (nodes === undefined || grid === undefined) {
-    return { maxDistance: 0, lastReference: lastReference };
+    return lastReference;
   }
-
-  let maxDistance = 0;
 
   for (let reducedResp of nodes) {
     let insertedNode: GridTile = {
@@ -139,9 +138,37 @@ function updateGrid(
     insertedNode.height = newHeight;
     insertedNode.agl = insertedNode.height - reducedResp.g;
 
-    maxDistance = Math.max(maxDistance, insertedNode.distance);
+    let x = insertedNode.index[1];
+    let y = cone.grid_shape[0] - insertedNode.index[0] - 1;
+    ctx.clearRect(x, y, 1, 1);
   }
-  return { maxDistance: maxDistance, lastReference: lastReference };
+  return lastReference;
+}
+
+async function loadImageData(imageSRC: URL) {
+  let { ctx, img } = await drawImageToCanvas(imageSRC);
+  let imageData = ctx.getImageData(0, 0, img.width, img.height);
+  return { imageData, img };
+}
+
+async function drawImageToCanvas(imageSRC: URL) {
+  let p = new Promise<HTMLImageElement>((resolve, reject) => {
+    var img = new Image();
+    img.src = imageSRC.toString();
+    img.onload = () => resolve(img);
+  });
+
+  let img = await p;
+
+  let canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  var ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    throw new Error("Could not get canvas context");
+  }
+  ctx.drawImage(img, 0, 0);
+  return { ctx, img, canvas };
 }
 
 export async function doSearchFromLocation(
@@ -162,7 +189,6 @@ export async function doSearchFromLocation(
   let grid: GridState = {
     loading: "image",
     grid: undefined,
-    maxLoadDistance: undefined,
     response: undefined,
     startPosition: undefined,
   };
@@ -236,11 +262,13 @@ export async function doSearchFromLocation(
     new LatLng(cone.lat[0], cone.lon[0]),
     new LatLng(cone.lat[1], cone.lon[1])
   );
-  setImageState({
+  let imageState: ImageState = {
     heightAGLUrl: heightAglUrl.toString(),
     heightUrl: heightUrl.toString(),
+    overlayUrl: undefined,
     bounds,
-  });
+  };
+  setImageState(imageState);
   if (map !== undefined) {
     map.flyToBounds(bounds);
   }
@@ -250,6 +278,23 @@ export async function doSearchFromLocation(
   }
 
   updateSearchParams(latLng, newSettings);
+  const { imageData, img } = await loadImageData(heightAglUrl);
+  let canvas = document.getElementById("canvas-overlay") as HTMLCanvasElement;
+  canvas.width = img.width;
+  canvas.height = img.height;
+  var ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    throw new Error("Could not get canvas context");
+  }
+  ctx.fillStyle = "rgba(0,0,0,255)";
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    if (imageData.data[i] !== 0) {
+      let ix = i / 4;
+      let x = ix % img.width | 0;
+      let y = Math.floor(ix / img.width);
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
 
   let grid_url = new URL(window.location.origin + "/flight_cone");
   grid_url.search = getSearchParams(latLng, settings).toString();
@@ -272,13 +317,20 @@ export async function doSearchFromLocation(
   socket.onmessage = (event) => {
     let nodes = JSON.parse(event.data) as ReducedNodeResponse[];
     total += nodes.length;
-    let result = updateGrid(cone, grid.grid, nodes, settings, lastReference);
-    lastReference = result.lastReference;
-    setGrid({ ...grid, maxLoadDistance: result.maxDistance });
+    lastReference = updateGrid(
+      cone,
+      grid.grid,
+      nodes,
+      settings,
+      lastReference,
+      // @ts-ignore
+      ctx
+    );
+    setGrid(grid);
   };
   socket.onclose = () => {
     console.log("WebSocket closed with total nodes", total);
-    setGrid({ ...grid, loading: "done", maxLoadDistance: undefined });
+    setGrid({ ...grid, loading: "done" });
   };
 }
 

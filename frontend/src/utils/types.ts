@@ -48,7 +48,6 @@ export interface ConeSearchResponse {
 
 export interface GridState {
   loading: "done" | "grid" | "image";
-  maxLoadDistance: number | undefined;
   response: ConeSearchResponse | undefined;
   startPosition: LatLng | undefined;
   grid: GridTile[][] | undefined;
@@ -56,6 +55,7 @@ export interface GridState {
 
 export interface ImageState {
   heightAGLUrl: string;
+  overlayUrl: string | undefined;
   heightUrl: string;
   bounds: LatLngBounds;
 }
