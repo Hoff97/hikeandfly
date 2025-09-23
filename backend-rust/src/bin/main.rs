@@ -238,8 +238,6 @@ struct NodeResponse {
 struct ReducedNodeResponse {
     // Index of the node in the grid
     i: GridIx,
-    // Ground height at this node
-    g: i16,
     // Reference to another node (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     r: Option<GridIx>,
@@ -420,7 +418,6 @@ fn get_flight_cone_stream(
                 };
                 ReducedNodeResponse {
                     i: node.ix,
-                    g: grid.heights[(node.ix.0 as usize, node.ix.1 as usize)] as i16,
                     r: reference,
                 }
             }).collect::<Vec<_>>();
@@ -716,6 +713,90 @@ fn get_height_image(
     (ContentType::PNG, c.into_inner())
 }
 
+#[allow(clippy::too_many_arguments)]
+#[get("/raw_height_image?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
+fn get_raw_height_image(
+    lat: f32,
+    lon: f32,
+    cell_size: Option<f32>,
+    glide_number: Option<f32>,
+    additional_height: Option<f32>,
+    start_height: Option<f32>,
+    wind_speed: Option<f32>,
+    wind_direction: Option<f32>,
+    trim_speed: Option<f32>,
+    safety_margin: Option<f32>,
+    start_distance: Option<f32>,
+) -> (ContentType, Vec<u8>) {
+    let search_from_request_result = search_from_request(
+        lat,
+        lon,
+        cell_size,
+        glide_number,
+        additional_height,
+        start_height,
+        wind_speed,
+        wind_direction,
+        trim_speed,
+        safety_margin,
+        start_distance,
+    );
+
+    let heights = search_from_request_result.heights;
+
+    let mut imgx = heights.shape()[0];
+    let mut imgy = heights.shape()[1];
+
+    let mut hmin = f32::MAX;
+    let mut hmax = f32::MIN;
+    let mut x_lower = usize::MAX;
+    let mut x_upper = usize::MIN;
+    let mut y_lower = usize::MAX;
+    let mut y_upper = usize::MIN;
+
+    for x in 0..imgx {
+        for y in 0..imgy {
+            if heights[(x, y)] > 0.0 {
+                hmin = hmin.min(heights[(x, y)]);
+                hmax = hmax.max(heights[(x, y)]);
+
+                x_lower = min(x_lower, x);
+                x_upper = max(x_upper, x);
+                y_lower = min(y_lower, y);
+                y_upper = max(y_upper, y);
+            }
+        }
+    }
+
+    imgx = (x_upper - x_lower) + 1;
+    imgy = (y_upper - y_lower) + 1;
+
+    let heights_sub = heights.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
+
+    let mut img = DynamicImage::new_rgb8(imgy as u32, imgx as u32);
+
+    // Iterate over the coordinates and pixels of the image
+    for x in 0..imgx {
+        for y in 0..imgy {
+            let ix = (x, y);
+            if heights_sub[ix] > 0.0 {
+                let height = heights_sub[ix].round() as i32;
+                img.put_pixel(
+                    y as u32,
+                    (imgx - x) as u32 - 1,
+                    Rgba([(height / 256) as u8, (height % 256) as u8, 255, 255]),
+                );
+            } else {
+                img.put_pixel(y as u32, (imgx - x) as u32 - 1, Rgba([255, 255, 0, 255]));
+            }
+        }
+    }
+
+    let mut c = Cursor::new(Vec::new());
+    img.write_to(&mut c, ImageFormat::Png).expect("");
+    (ContentType::PNG, c.into_inner())
+}
+
 fn single_element(name: &str, content: &str, writer: &mut Writer<Cursor<Vec<u8>>>) {
     start(name, writer);
     writer
@@ -913,6 +994,7 @@ fn rocket() -> _ {
         .mount("/", routes![index])
         .mount("/", routes![get_flight_cone])
         .mount("/", routes![get_flight_cone_stream])
+        .mount("/", routes![get_raw_height_image])
         .mount("/", routes![get_flight_cone_bounds])
         .mount("/", routes![get_agl_image])
         .mount("/", routes![get_height_image])
