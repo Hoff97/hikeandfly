@@ -77,13 +77,28 @@ function get_effective_glide_ratio(
   return effective_glide_ratio;
 }
 
+function getHeightAt(
+  ix: number[],
+  heightData: ImageData,
+  gridShape: number[]
+): number {
+  let x = ix[1];
+  let y = gridShape[0] - ix[0] - 1;
+
+  let a = heightData.data[(y * gridShape[1] + x) * 4];
+  let b = heightData.data[(y * gridShape[1] + x) * 4 + 1];
+
+  return a * 256 + b;
+}
+
 function updateGrid(
   cone: ConeSearchResponse,
   grid: GridTile[][] | undefined,
   nodes: ReducedNodeResponse[] | undefined,
   settings: Settings,
   lastReference: number[] | undefined,
-  ctx: CanvasRenderingContext2D
+  ctx: CanvasRenderingContext2D,
+  heightData: ImageData
 ) {
   if (nodes === undefined || grid === undefined) {
     return lastReference;
@@ -100,9 +115,16 @@ function updateGrid(
     grid[reducedResp.i[0]][reducedResp.i[1]] = insertedNode;
 
     if (reducedResp.r === undefined && lastReference === undefined) {
-      insertedNode.height = cone.start_height;
+      insertedNode.height =
+        settings.startHeight !== undefined
+          ? settings.startHeight
+          : cone.start_height + settings.additionalHeight;
       insertedNode.distance = 0;
-      insertedNode.agl = insertedNode.height - reducedResp.g;
+      insertedNode.agl = getHeightAt(
+        reducedResp.i,
+        heightData,
+        cone.grid_shape
+      );
       // @ts-ignore
       insertedNode.reference = undefined;
       continue;
@@ -136,7 +158,7 @@ function updateGrid(
     let height_loss = ref_distance * effective_glide_ratio;
     let newHeight = ref.height - height_loss;
     insertedNode.height = newHeight;
-    insertedNode.agl = insertedNode.height - reducedResp.g;
+    insertedNode.agl = getHeightAt(reducedResp.i, heightData, cone.grid_shape);
 
     let x = insertedNode.index[1];
     let y = cone.grid_shape[0] - insertedNode.index[0] - 1;
@@ -169,6 +191,85 @@ async function drawImageToCanvas(imageSRC: URL) {
   }
   ctx.drawImage(img, 0, 0);
   return { ctx, img, canvas };
+}
+
+const default_lerp_colors = [
+  [255.0, 0.0, 0.0, 255.0],
+  [180.0, 190.0, 0.0, 255.0],
+  [0.0, 150.0, 255.0, 255.0],
+];
+const default_lerp_steps = [0.0, 0.5, 1.0];
+
+function lerp_f32(a: number, b: number, s: number): number {
+  return a + (b - a) * s;
+}
+
+function lerp_color(a: number[], b: number[], s: number): number[] {
+  return [
+    lerp_f32(a[0], b[0], s),
+    lerp_f32(a[1], b[1], s),
+    lerp_f32(a[2], b[2], s),
+    lerp_f32(a[3], b[3], s),
+  ];
+}
+
+function lerp(lerp_colors: number[][], steps: number[], s: number): number[] {
+  for (let i = 0; i < steps.length - 1; i++) {
+    if (s >= steps[i] && s < steps[i + 1]) {
+      return lerp_color(
+        lerp_colors[i],
+        lerp_colors[i + 1],
+        (s - steps[i]) / (steps[i + 1] - steps[i])
+      );
+    }
+  }
+  return lerp_colors[steps.length - 1];
+}
+
+function drawAGLImage(aglData: ImageData) {
+  let canvas = document.createElement("canvas");
+  canvas.width = aglData.width;
+  canvas.height = aglData.height;
+  var ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    throw new Error("Could not get canvas context");
+  }
+
+  let hmin = 1000000.0;
+  let hmax = -1.0;
+  for (let x = 0; x < aglData.width; x++) {
+    for (let y = 0; y < aglData.height; y++) {
+      if (aglData.data[(y * aglData.width + x) * 4 + 2] === 0) {
+        continue;
+      }
+      let a = aglData.data[(y * aglData.width + x) * 4];
+      let b = aglData.data[(y * aglData.width + x) * 4 + 1];
+      let height = a * 256 + b;
+      hmin = Math.min(hmin, height);
+      hmax = Math.max(hmax, height);
+    }
+  }
+
+  for (let x = 0; x < aglData.width; x++) {
+    for (let y = 0; y < aglData.height; y++) {
+      if (aglData.data[(y * aglData.width + x) * 4 + 2] === 0) {
+        continue;
+      }
+      let a = aglData.data[(y * aglData.width + x) * 4];
+      let b = aglData.data[(y * aglData.width + x) * 4 + 1];
+      let height = a * 256 + b;
+
+      let color = lerp(
+        default_lerp_colors,
+        default_lerp_steps,
+        (height - hmin) / (hmax - hmin)
+      );
+      ctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${color[3]})`;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  return canvas.toDataURL();
 }
 
 export async function doSearchFromLocation(
@@ -253,32 +354,44 @@ export async function doSearchFromLocation(
   });
 
   const searchParams = getSearchParams(latLng, settings).toString();
-  let heightAglUrl = new URL(window.location.origin + "/agl_image");
-  heightAglUrl.search = searchParams;
-  let heightUrl = new URL(window.location.origin + "/height_image");
-  heightUrl.search = searchParams;
+
+  if (imageOnly) {
+    let heightAglUrl = new URL(window.location.origin + "/agl_image");
+    heightAglUrl.search = searchParams;
+    let heightUrl = new URL(window.location.origin + "/height_image");
+    heightUrl.search = searchParams;
+
+    const bounds = new LatLngBounds(
+      new LatLng(cone.lat[0], cone.lon[0]),
+      new LatLng(cone.lat[1], cone.lon[1])
+    );
+    let imageState: ImageState = {
+      heightAGLUrl: heightAglUrl.toString(),
+      bounds,
+    };
+    setImageState(imageState);
+    if (map !== undefined) {
+      map.flyToBounds(bounds);
+    }
+    return;
+  }
+
+  let rawHeightUrl = new URL(window.location.origin + "/raw_height_image");
+  rawHeightUrl.search = searchParams;
+  let { imageData, img } = await loadImageData(rawHeightUrl);
 
   const bounds = new LatLngBounds(
     new LatLng(cone.lat[0], cone.lon[0]),
     new LatLng(cone.lat[1], cone.lon[1])
   );
   let imageState: ImageState = {
-    heightAGLUrl: heightAglUrl.toString(),
-    heightUrl: heightUrl.toString(),
-    overlayUrl: undefined,
+    heightAGLUrl: drawAGLImage(imageData),
     bounds,
   };
   setImageState(imageState);
-  if (map !== undefined) {
-    map.flyToBounds(bounds);
-  }
-
-  if (imageOnly) {
-    return;
-  }
-
   updateSearchParams(latLng, newSettings);
-  const { imageData, img } = await loadImageData(heightAglUrl);
+  await new Promise((r) => setTimeout(r, 100));
+
   let canvas = document.getElementById("canvas-overlay") as HTMLCanvasElement;
   canvas.width = img.width;
   canvas.height = img.height;
@@ -288,7 +401,7 @@ export async function doSearchFromLocation(
   }
   ctx.fillStyle = "rgba(0,0,0,255)";
   for (let i = 0; i < imageData.data.length; i += 4) {
-    if (imageData.data[i] !== 0) {
+    if (imageData.data[i + 2] !== 0) {
       let ix = i / 4;
       let x = ix % img.width | 0;
       let y = Math.floor(ix / img.width);
@@ -324,7 +437,8 @@ export async function doSearchFromLocation(
       settings,
       lastReference,
       // @ts-ignore
-      ctx
+      ctx,
+      imageData
     );
     setGrid(grid);
   };

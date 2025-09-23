@@ -22,7 +22,6 @@ export type SetSettings = (
 
 export interface ReducedNodeResponse {
   i: number[];
-  g: number;
   r: number[] | undefined;
 }
 
@@ -55,8 +54,6 @@ export interface GridState {
 
 export interface ImageState {
   heightAGLUrl: string;
-  overlayUrl: string | undefined;
-  heightUrl: string;
   bounds: LatLngBounds;
 }
 
