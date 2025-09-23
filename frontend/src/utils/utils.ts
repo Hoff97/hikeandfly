@@ -227,7 +227,7 @@ function lerp(lerp_colors: number[][], steps: number[], s: number): number[] {
 }
 
 function drawAGLImage(aglData: ImageData) {
-  let canvas = document.createElement("canvas");
+  let canvas = document.getElementById("canvas-image") as HTMLCanvasElement;
   canvas.width = aglData.width;
   canvas.height = aglData.height;
   var ctx = canvas.getContext("2d");
@@ -269,7 +269,7 @@ function drawAGLImage(aglData: ImageData) {
     }
   }
 
-  return canvas.toDataURL();
+  return;
 }
 
 export async function doSearchFromLocation(
@@ -385,12 +385,13 @@ export async function doSearchFromLocation(
     new LatLng(cone.lat[1], cone.lon[1])
   );
   let imageState: ImageState = {
-    heightAGLUrl: drawAGLImage(imageData),
+    heightAGLUrl: undefined,
     bounds,
   };
   setImageState(imageState);
   updateSearchParams(latLng, newSettings);
   await new Promise((r) => setTimeout(r, 100));
+  drawAGLImage(imageData);
 
   let canvas = document.getElementById("canvas-overlay") as HTMLCanvasElement;
   canvas.width = img.width;
