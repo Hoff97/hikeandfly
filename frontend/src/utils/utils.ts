@@ -141,8 +141,10 @@ function updateGrid(
       insertedNode.index[0] - ref.index[0],
       insertedNode.index[1] - ref.index[1],
     ];
+
+    let windDir = (settings.windDirection / 180.0) * Math.PI;
     let angle = Math.atan2(diff[0], diff[1]);
-    let effective_wind_angle = -settings.windDirection + Math.PI / 2 - angle;
+    let effective_wind_angle = windDir + angle + Math.PI / 2;
 
     let ref_distance =
       Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1]) * cone.cell_size;
