@@ -743,6 +743,7 @@ fn get_raw_height_image(
     );
 
     let heights = search_from_request_result.heights;
+    let in_safety_margin = search_from_request_result.in_safety_margin;
 
     let mut imgx = heights.shape()[0];
     let mut imgy = heights.shape()[1];
@@ -772,6 +773,8 @@ fn get_raw_height_image(
     imgy = (y_upper - y_lower) + 1;
 
     let heights_sub = heights.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
+    let safety_margin_sub =
+        in_safety_margin.slice(s![x_lower..(x_upper + 1), y_lower..(y_upper + 1)]);
 
     let mut img = DynamicImage::new_rgb8(imgy as u32, imgx as u32);
 
@@ -781,10 +784,16 @@ fn get_raw_height_image(
             let ix = (x, y);
             if heights_sub[ix] > 0.0 {
                 let height = heights_sub[ix].round() as i32;
+                let safety_margin = safety_margin_sub[ix];
                 img.put_pixel(
                     y as u32,
                     (imgx - x) as u32 - 1,
-                    Rgba([(height / 256) as u8, (height % 256) as u8, 255, 255]),
+                    Rgba([
+                        (height / 256) as u8,
+                        (height % 256) as u8,
+                        if safety_margin { 128 } else { 255 },
+                        255,
+                    ]),
                 );
             } else {
                 img.put_pixel(y as u32, (imgx - x) as u32 - 1, Rgba([255, 255, 0, 255]));
