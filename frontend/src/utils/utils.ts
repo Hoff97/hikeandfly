@@ -202,6 +202,19 @@ const diffs = [
   [180.0 - 255.0, 190.0 - 0.0, 0.0 - 0.0],
   [0.0 - 180.0, 150.0 - 190.0, 255.0 - 0.0],
 ];
+const safety_margin_lerp_colors = [
+  [(255.0 / 5.0) * 3.0, 0.0, 0.0],
+  [(180.0 / 5.0) * 3.0, (190.0 / 5.0) * 3.0, 0.0],
+  [0.0, (150.0 / 5.0) * 3.0, (255.0 / 5.0) * 3.0],
+];
+const safety_margin_diffs = [
+  [((180.0 - 255.0) / 5.0) * 3.0, ((190.0 - 0.0) / 5.0) * 3.0, 0.0 - 0.0],
+  [
+    0.0 - (180.0 / 5.0) * 3.0,
+    ((150.0 - 190.0) / 5.0) * 3.0,
+    ((255.0 - 0.0) / 5.0) * 3.0,
+  ],
+];
 const default_lerp_steps = [0.0, 0.5, 1.0];
 const step_diffs = [0.5 - 0.0, 1.0 - 0.5];
 
@@ -278,10 +291,11 @@ function drawAGLImage(aglData: ImageData) {
       let a = aglData.data[ix];
       let b = aglData.data[ix + 1];
       let height = (a << 8) + b;
+      let safety_margin = aglData.data[ix + 2] === 128;
 
       let color = lerp(
-        default_lerp_colors,
-        diffs,
+        safety_margin ? safety_margin_lerp_colors : default_lerp_colors,
+        safety_margin ? safety_margin_diffs : diffs,
         default_lerp_steps,
         (height - hmin) / hdiff
       );

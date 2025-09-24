@@ -50,6 +50,20 @@ img.gridImage {
     -ms-interpolation-mode: nearest-neighbor;
 }
 
+canvas#canvas-image {
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: pixelated;
+    -ms-interpolation-mode: nearest-neighbor;
+}
+
+canvas#canvas-overlay {
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: pixelated;
+    -ms-interpolation-mode: nearest-neighbor;
+}
+
 .right {
     position: absolute;
     right: 0px;
