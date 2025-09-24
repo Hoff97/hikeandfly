@@ -194,32 +194,41 @@ async function drawImageToCanvas(imageSRC: URL) {
 }
 
 const default_lerp_colors = [
-  [255.0, 0.0, 0.0, 255.0],
-  [180.0, 190.0, 0.0, 255.0],
-  [0.0, 150.0, 255.0, 255.0],
+  [255.0, 0.0, 0.0],
+  [180.0, 190.0, 0.0],
+  [0.0, 150.0, 255.0],
+];
+const diffs = [
+  [180.0 - 255.0, 190.0 - 0.0, 0.0 - 0.0],
+  [0.0 - 180.0, 150.0 - 190.0, 255.0 - 0.0],
 ];
 const default_lerp_steps = [0.0, 0.5, 1.0];
+const step_diffs = [0.5 - 0.0, 1.0 - 0.5];
 
-function lerp_f32(a: number, b: number, s: number): number {
-  return a + (b - a) * s;
+function lerp_f32(a: number, d: number, s: number): number {
+  return a + d * s;
 }
 
-function lerp_color(a: number[], b: number[], s: number): number[] {
+function lerp_color(a: number[], d: number[], s: number): number[] {
   return [
-    lerp_f32(a[0], b[0], s),
-    lerp_f32(a[1], b[1], s),
-    lerp_f32(a[2], b[2], s),
-    lerp_f32(a[3], b[3], s),
+    lerp_f32(a[0], d[0], s),
+    lerp_f32(a[1], d[1], s),
+    lerp_f32(a[2], d[2], s),
   ];
 }
 
-function lerp(lerp_colors: number[][], steps: number[], s: number): number[] {
+function lerp(
+  lerp_colors: number[][],
+  diffs: number[][],
+  steps: number[],
+  s: number
+): number[] {
   for (let i = 0; i < steps.length - 1; i++) {
     if (s >= steps[i] && s < steps[i + 1]) {
       return lerp_color(
         lerp_colors[i],
-        lerp_colors[i + 1],
-        (s - steps[i]) / (steps[i + 1] - steps[i])
+        diffs[i],
+        (s - steps[i]) / step_diffs[i]
       );
     }
   }
@@ -237,37 +246,56 @@ function drawAGLImage(aglData: ImageData) {
 
   let hmin = 1000000.0;
   let hmax = -1.0;
-  for (let x = 0; x < aglData.width; x++) {
-    for (let y = 0; y < aglData.height; y++) {
-      if (aglData.data[(y * aglData.width + x) * 4 + 2] === 0) {
+
+  let ix = 0;
+  for (let y = 0; y < aglData.height; y++) {
+    for (let x = 0; x < aglData.width; x++) {
+      if (aglData.data[ix + 2] === 0) {
+        ix = ix + 4;
         continue;
       }
-      let a = aglData.data[(y * aglData.width + x) * 4];
-      let b = aglData.data[(y * aglData.width + x) * 4 + 1];
-      let height = a * 256 + b;
+      let a = aglData.data[ix];
+      let b = aglData.data[ix + 1];
+      let height = (a << 8) + b;
       hmin = Math.min(hmin, height);
       hmax = Math.max(hmax, height);
+
+      ix = ix + 4;
     }
   }
 
-  for (let x = 0; x < aglData.width; x++) {
-    for (let y = 0; y < aglData.height; y++) {
-      if (aglData.data[(y * aglData.width + x) * 4 + 2] === 0) {
+  let hdiff = hmax - hmin;
+
+  let imageData = ctx.createImageData(aglData.width, aglData.height);
+
+  ix = 0;
+  for (let y = 0; y < aglData.height; y++) {
+    for (let x = 0; x < aglData.width; x++) {
+      if (aglData.data[ix + 2] === 0) {
+        ix = ix + 4;
         continue;
       }
-      let a = aglData.data[(y * aglData.width + x) * 4];
-      let b = aglData.data[(y * aglData.width + x) * 4 + 1];
-      let height = a * 256 + b;
+      let a = aglData.data[ix];
+      let b = aglData.data[ix + 1];
+      let height = (a << 8) + b;
 
       let color = lerp(
         default_lerp_colors,
+        diffs,
         default_lerp_steps,
-        (height - hmin) / (hmax - hmin)
+        (height - hmin) / hdiff
       );
-      ctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${color[3]})`;
-      ctx.fillRect(x, y, 1, 1);
+
+      imageData.data[ix] = color[0];
+      imageData.data[ix + 1] = color[1];
+      imageData.data[ix + 2] = color[2];
+      imageData.data[ix + 3] = 255;
+
+      ix = ix + 4;
     }
   }
+
+  ctx.putImageData(imageData, 0, 0);
 
   return;
 }
