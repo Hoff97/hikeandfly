@@ -112,7 +112,7 @@ impl SearchQueryHashable {
     }
 }
 
-#[cached]
+#[cached(size = 1000, time = 3600, time_refresh = true, sync_writes = false)]
 fn search_from_point_memoized(
     latitude: Distance,
     longitude: Distance,
@@ -782,7 +782,7 @@ fn get_raw_height_image(
     for x in 0..imgx {
         for y in 0..imgy {
             let ix = (x, y);
-            if heights_sub[ix] > 0.0 {
+            if heights_sub[ix] >= 0.0 {
                 let height = heights_sub[ix].round() as i32;
                 let safety_margin = safety_margin_sub[ix];
                 img.put_pixel(
