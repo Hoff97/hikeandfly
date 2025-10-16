@@ -44,7 +44,7 @@ pub fn location_supported(latitude: f32, longitude: f32) -> bool {
     File::open(file_name).is_ok()
 }
 
-#[cached]
+#[cached(size = 80)]
 pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
     let file_name = get_file_name(latitude, longitude);
     let file = File::open(file_name).expect("Could not open hgt file");
