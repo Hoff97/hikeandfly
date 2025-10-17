@@ -11,7 +11,13 @@ pub struct PrefixTrie {
     id: usize,
 }
 
-unsafe impl Sync for PrefixTrie {}
+//unsafe impl Sync for PrefixTrie {}
+
+impl Default for PrefixTrie {
+    fn default() -> Self {
+        PrefixTrie::new()
+    }
+}
 
 impl PrefixTrie {
     pub fn new() -> Self {
@@ -25,9 +31,9 @@ impl PrefixTrie {
 
     pub fn insert(&mut self, word: &str) {
         let mut current = self;
-        for (i, c) in word.chars().into_iter().enumerate() {
+        for (i, c) in word.chars().enumerate() {
             current.lengths.insert(word.len() - i);
-            current = current.children.entry(c).or_insert_with(PrefixTrie::new);
+            current = current.children.entry(c).or_default();
         }
         current.lengths.insert(0);
     }
@@ -38,7 +44,7 @@ impl PrefixTrie {
         self.ordered_lengths = lengths;
         let mut max_id = max_id.unwrap_or(0);
         self.id = max_id;
-        max_id = max_id + 1;
+        max_id += 1;
         for child in self.children.values_mut() {
             max_id = child.finalize(Some(max_id));
         }
@@ -94,13 +100,12 @@ impl PrefixTrie {
 
         Box::new(self.children.iter().flat_map(move |(c, child)| {
             let suffixes = child.childs_of_lengths(length - 1);
-            let ret = suffixes.map(move |suffix| {
+            suffixes.map(move |suffix| {
                 let mut s = String::new();
                 s.push(*c);
                 s.push_str(&suffix);
                 s
-            });
-            ret
+            })
         }))
     }
 
@@ -109,14 +114,14 @@ impl PrefixTrie {
         word: &'a str,
         distance: usize,
         continuations: bool,
-    ) -> PrefixTrieMaxDistanceIterator {
-        return PrefixTrieMaxDistanceIterator {
+    ) -> PrefixTrieMaxDistanceIterator<'a> {
+        PrefixTrieMaxDistanceIterator {
             current_distance: 0,
             max_distance: distance,
             inner_iterator: self.find_with_exact_edit_distance_stack(word, 0, continuations, None),
             beginning_stack: (self, word, String::new()),
-            continuations: continuations,
-        };
+            continuations,
+        }
     }
 
     pub fn find_with_exact_edit_distance_stack<'a>(
@@ -126,11 +131,11 @@ impl PrefixTrie {
         continuations: bool,
         visited: Option<HashMap<(usize, &'a str, String), usize>>,
     ) -> PrefixTrieExactDistanceIterator<'a> {
-        return PrefixTrieExactDistanceIterator {
+        PrefixTrieExactDistanceIterator {
             stack: vec![(self, word, distance, String::new(), vec![])],
-            continuations: continuations,
-            visited: visited.unwrap_or_else(HashMap::new),
-        };
+            continuations,
+            visited: visited.unwrap_or_default(),
+        }
     }
 }
 
@@ -204,17 +209,15 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
             let mut to_return: Option<Self::Item> = None;
 
             let p = prefix.clone();
-            if distance == 0 && word.is_empty() {
-                if node.lengths.contains(&0) {
-                    if self.continuations {
-                        to_return = Some(Box::new(std::iter::once(p)));
-                    } else {
-                        println!(
-                            "Found exact match with modifications: {:?} {:?}",
-                            p, modifications
-                        );
-                        return Some(Box::new(std::iter::once(p)));
-                    }
+            if distance == 0 && word.is_empty() && node.lengths.contains(&0) {
+                if self.continuations {
+                    to_return = Some(Box::new(std::iter::once(p)));
+                } else {
+                    println!(
+                        "Found exact match with modifications: {:?} {:?}",
+                        p, modifications
+                    );
+                    return Some(Box::new(std::iter::once(p)));
                 }
             }
 
@@ -265,20 +268,11 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                     }
                 }
 
-                self.stack.push((
-                    node,
-                    rest,
-                    distance - 1,
-                    {
-                        let new_prefix = prefix.clone();
-                        new_prefix
-                    },
-                    {
-                        let mut new_mods = modifications.clone();
-                        new_mods.push(Modification::Deletion(c));
-                        new_mods
-                    },
-                ));
+                self.stack.push((node, rest, distance - 1, prefix.clone(), {
+                    let mut new_mods = modifications.clone();
+                    new_mods.push(Modification::Deletion(c));
+                    new_mods
+                }));
 
                 for child in &node.children {
                     if *child.0 != c
@@ -338,6 +332,12 @@ pub struct SearchIndex<T> {
     elements: HashMap<String, T>,
 }
 
+impl<T> Default for SearchIndex<T> {
+    fn default() -> Self {
+        SearchIndex::new()
+    }
+}
+
 impl<T> SearchIndex<T> {
     pub fn new() -> Self {
         SearchIndex {
@@ -356,7 +356,7 @@ impl<T> SearchIndex<T> {
     }
 
     pub fn search(&self, key: &str) -> Option<&T> {
-        if self.trie.search(&key) {
+        if self.trie.search(key) {
             self.elements.get(key)
         } else {
             None
@@ -364,7 +364,7 @@ impl<T> SearchIndex<T> {
     }
 
     pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = &'a T> + 'a> {
-        let keys = self.trie.continuations(&prefix);
+        let keys = self.trie.continuations(prefix);
         Box::new(keys.filter_map(move |found| self.elements.get(&found)))
     }
 

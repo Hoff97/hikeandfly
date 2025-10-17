@@ -68,60 +68,61 @@ IGNORED_NAMES = ["name:loc", "name:ko", "name:cs"]
 def preprocess_data():
     i = 0
 
+    files = ["data/photon-dump-switzerland-liechtenstein-0.7-latest.jsonl"]
+
     result = []
 
-    file = open("data/photon-dump-switzerland-liechtenstein-0.7-latest.jsonl", "r")
-    for line in file:
-        i += 1
-        if i % 100000 == 0:
-            print(f"Processed {i} objects")
-        object_data = json.loads(line)
+    for f in files:
+        file = open(f, "r")
+        for line in file:
+            i += 1
+            if i % 100000 == 0:
+                print(f"Processed {i} objects")
+            object_data = json.loads(line)
 
-        if object_data["type"] in ("NominatimDumpFile", "CountryInfo"):
-            continue
-
-        if object_data["type"] == "Place":
-            content = object_data["content"][0]
-
-            if "name" not in content:
+            if object_data["type"] in ("NominatimDumpFile", "CountryInfo"):
                 continue
-            elif "geometry" not in content:
-                if any(
-                    cat == ignore
-                    or (ignore.endswith(".*") and cat.startswith(ignore[:-2]))
-                    for cat in content.get("categories", [])
-                    for ignore in IGNORED_UNNAMED_CATEGORIES
-                ):
+
+            if object_data["type"] == "Place":
+                content = object_data["content"][0]
+
+                if "name" not in content:
                     continue
-                print(content)
-                raise ValueError("Missing name or geometry in Place object")
+                elif "geometry" not in content:
+                    if any(
+                        cat == ignore
+                        or (ignore.endswith(".*") and cat.startswith(ignore[:-2]))
+                        for cat in content.get("categories", [])
+                        for ignore in IGNORED_UNNAMED_CATEGORIES
+                    ):
+                        continue
+                    print(content)
+                    raise ValueError("Missing name or geometry in Place object")
 
-            name = ""
-            if any(n in content for n in USED_NAMES):
-                for n in USED_NAMES:
-                    if n in content["name"]:
-                        name = content["name"][n]
-                        break
-            elif any(n in content["name"] for n in IGNORED_NAMES):
-                continue
+                name = ""
+                if any(n in content for n in USED_NAMES):
+                    for n in USED_NAMES:
+                        if n in content["name"]:
+                            name = content["name"][n]
+                            break
+                elif any(n in content["name"] for n in IGNORED_NAMES):
+                    continue
+                else:
+                    print(content)
+                    print(content["name"])
+                    raise ValueError("No valid name field found in Place object")
+
+                geometry = content["geometry"]
+                centroid = content.get("centroid", None)
+                center = find_geometry_center(geometry, centroid)
+                result.append({"name": name, "center": center})
             else:
-                print(content)
-                print(content["name"])
-                raise ValueError("No valid name field found in Place object")
-
-            geometry = content["geometry"]
-            centroid = content.get("centroid", None)
-            center = find_geometry_center(geometry, centroid)
-            result.append({"name": name, "center": center})
-        else:
-            raise ValueError(f"Unsupported object type: {object_data['type']}")
+                raise ValueError(f"Unsupported object type: {object_data['type']}")
 
     df = pl.DataFrame(result)
-    df.write_ndjson("data/preprocessed_search_data_switzerland.jsonl")
+    df.write_ndjson("data/search_data.jsonl")
 
-    print(
-        f"Wrote {len(result)} entries to data/preprocessed_search_data_switzerland.jsonl"
-    )
+    print(f"Wrote {len(result)} entries to data/search_data.jsonl")
 
 
 if __name__ == "__main__":

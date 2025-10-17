@@ -1012,7 +1012,7 @@ fn search_index() -> &'static SearchIndex<Location> {
     INSTANCE.get_or_init(|| {
         println!("Building search index...");
         let mut ix = SearchIndex::new();
-        let r = File::open("data/switzerland.jsonl").unwrap();
+        let r = File::open("data/search_data.jsonl").unwrap();
         let reader = BufReader::new(r);
         for line in reader.lines() {
             let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
