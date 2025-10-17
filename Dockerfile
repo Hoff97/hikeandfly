@@ -1,9 +1,9 @@
-FROM node:20.5.1 AS frontend_build
+FROM node:23.9.0 AS frontend_build
 
 WORKDIR /app
 
 COPY ./frontend/package.json ./
-COPY ./frontend/package-lock.json ./
+#COPY ./frontend/package-lock.json ./
 
 RUN npm install
 
