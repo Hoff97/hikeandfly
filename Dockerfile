@@ -3,7 +3,7 @@ FROM node:23.9.0 AS frontend_build
 WORKDIR /app
 
 COPY ./frontend/package.json ./
-COPY ./frontend/package-lock.json ./
+#COPY ./frontend/package-lock.json ./
 
 RUN npm install
 
