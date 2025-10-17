@@ -68,7 +68,6 @@ function App() {
                         /> : <></>
                     }
                 </div>
-                <SearchCard></SearchCard>
                 <InfoPanel isOpen={isInfoOpen} setIsOpen={setIsisInfoOpen}></InfoPanel>
                 <SettingsCard
                     settings={settings}
@@ -126,6 +125,7 @@ function App() {
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}
                         setSettings={setSettings}></CurrenLocationPane>
+                    <SearchCard></SearchCard>
                 </MapContainer>
             </OverlaysProvider>
         </div>

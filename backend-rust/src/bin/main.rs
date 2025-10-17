@@ -1028,9 +1028,9 @@ fn search_index() -> &'static SearchIndex<Location> {
 fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
     let ix = search_index();
 
-    println!("Searching for {}", query);
     let q = query.as_str().to_ascii_lowercase();
     let result = ix.find_with_max_edit_distance(&q, 2, true).take(10);
+
     Result::Ok(Json(
         result
             .map(|x| Location {
