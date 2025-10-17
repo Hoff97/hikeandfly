@@ -43,6 +43,14 @@
     overflow: scroll;
 }
 
+.search-card {
+    position: absolute;
+    top: 10px;
+    left: 50px;
+    width: 350px;
+    z-index: 500;
+}
+
 img.gridImage {
     image-rendering: -moz-crisp-edges;
     image-rendering: -webkit-optimize-contrast;
