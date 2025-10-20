@@ -374,10 +374,7 @@ impl<T> SearchIndex<PrefixTrieBuilder, T> {
 
     pub fn insert(&mut self, key: &str, element: T) {
         self.trie.insert(key);
-        let entry = self
-            .elements
-            .entry(key.to_string())
-            .or_insert_with(Vec::new);
+        let entry = self.elements.entry(key.to_string()).or_default();
         entry.push(element);
     }
 
