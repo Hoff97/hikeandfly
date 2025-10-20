@@ -1007,8 +1007,8 @@ struct Location {
     center: Vec<f32>,
 }
 
-fn search_index() -> &'static SearchIndex<PrefixTrie, Location> {
-    static INSTANCE: OnceCell<SearchIndex<PrefixTrie, Location>> = OnceCell::new();
+fn search_index() -> &'static SearchIndex<PrefixTrie, Vec<f32>> {
+    static INSTANCE: OnceCell<SearchIndex<PrefixTrie, Vec<f32>>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         println!("Building search index...");
         let mut ix = SearchIndex::new();
@@ -1023,7 +1023,7 @@ fn search_index() -> &'static SearchIndex<PrefixTrie, Location> {
                 let reader = BufReader::new(r);
                 for line in reader.lines() {
                     let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
-                    ix.insert(location.name.to_ascii_lowercase().as_str(), location);
+                    ix.insert(location.name.as_str(), location.center);
                 }
             }
         }
@@ -1037,13 +1037,15 @@ fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
     let ix = search_index();
 
     let q = query.as_str().to_ascii_lowercase();
-    let result = ix.find_with_max_edit_distance(&q, 2, true).take(10);
+    let result = ix
+        .find_with_max_edit_distance(&q, (query.len() / 4).min(255).max(2) as u8, true)
+        .take(10);
 
     Result::Ok(Json(
         result
             .map(|x| Location {
-                name: x.1.name.clone(),
-                center: x.1.center.clone(),
+                name: x.0,
+                center: x.1.clone(),
             })
             .collect(),
     ))

@@ -17,7 +17,7 @@ fn test_prefix_trie_search() {
     for word in &words {
         prefix_trie_builder.insert(word);
     }
-    let trie = prefix_trie_builder.finalize(None);
+    let trie = prefix_trie_builder.finalize();
 
     assert!(trie.search("Hello"));
     assert!(trie.search("helium"));
@@ -35,27 +35,6 @@ struct Location {
 }
 
 #[test]
-fn test_prefix_trie_branching_factor() {
-    let mut prefix_trie_builder = PrefixTrieBuilder::new();
-    let r = File::open("data/search_data_germany.jsonl").unwrap();
-    let reader = BufReader::new(r);
-    for line in reader.lines() {
-        let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
-        prefix_trie_builder.insert(location.name.to_ascii_lowercase().as_str());
-    }
-    let trie = prefix_trie_builder.finalize(None);
-
-    let mut m = HashMap::new();
-    trie.branching_factor_counts(&mut m);
-    let mut vec = m
-        .iter()
-        .map(|(k, v)| (*k, *v))
-        .collect::<Vec<(usize, usize)>>();
-    vec.sort_by_key(|x| x.0);
-    println!("Branching factor counts: {:?}", vec);
-}
-
-#[test]
 fn test_prefix_trie_continuations() {
     let words = vec![
         "hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
@@ -64,10 +43,10 @@ fn test_prefix_trie_continuations() {
     for word in &words {
         prefix_trie_builder.insert(word);
     }
-    let trie = prefix_trie_builder.finalize(None);
+    let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
-        trie.continuations("he").collect::<Vec<_>>(),
+        trie.continuations("he", 0).collect::<Vec<_>>(),
         vec!["her", "hero", "hello", "helium"]
     );
 }
@@ -79,7 +58,7 @@ fn test_prefix_trie_exact_edit_distance_stack() {
     for word in &words {
         prefix_trie_builder.insert(word);
     }
-    let trie = prefix_trie_builder.finalize(None);
+    let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 1, false, None)
@@ -103,7 +82,7 @@ fn test_prefix_trie_exact_edit_distance_stack_2() {
     for word in &words {
         prefix_trie_builder.insert(word);
     }
-    let trie = prefix_trie_builder.finalize(None);
+    let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
@@ -122,7 +101,7 @@ fn test_prefix_trie_max_edit_distance() {
     for word in &words {
         prefix_trie_builder.insert(word);
     }
-    let trie = prefix_trie_builder.finalize(None);
+    let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_max_edit_distance("her", 2, false)
@@ -141,7 +120,7 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
     for word in &words {
         prefix_trie_builder.insert(word);
     }
-    let trie = prefix_trie_builder.finalize(None);
+    let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_max_edit_distance("hello", 2, true)
