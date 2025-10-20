@@ -53,6 +53,24 @@ IGNORED_UNNAMED_CATEGORIES = [
     "osm.amenity.*",
 ]
 
+IGNORED_CATEGORIES = [
+    "osm.building.yes",
+    "osm.place.house",
+    "osm.building.house",
+    "osm.building.apartments",
+    "osm.building.residential",
+    "osm.highway.path",
+    "osm.amenity.doctors",
+    "osm.information.board",
+    "osm.shop.*",
+    "osm.office.company",
+    "osm.boundary.*",
+    "osm.aerialway.*",
+    "osm.lock.*",
+    "osm.highway.*",
+    "osm.building.terrace",
+]
+
 USED_NAMES = [
     "name",
     "name:de",
@@ -90,7 +108,7 @@ def preprocess_data():
         file = open(f"data/{f}", "r")
         for line in file:
             i += 1
-            if i % 100000 == 0:
+            if i % 100_000 == 0:
                 print(f"   Processed {i} objects")
             object_data = json.loads(line)
 
@@ -99,6 +117,14 @@ def preprocess_data():
 
             if object_data["type"] == "Place":
                 content = object_data["content"][0]
+
+                if any(
+                    cat == ignore
+                    or (ignore.endswith(".*") and cat.startswith(ignore[:-2]))
+                    for cat in content.get("categories", [])
+                    for ignore in IGNORED_CATEGORIES
+                ):
+                    continue
 
                 for x in content.get("categories", []):
                     categories[x] += 1
@@ -132,18 +158,42 @@ def preprocess_data():
                 geometry = content["geometry"]
                 centroid = content.get("centroid", None)
                 center = find_geometry_center(geometry, centroid)
-                result.append({"name": name, "center": center})
+                result.append(
+                    {
+                        "name": name,
+                        "center": center,
+                        "categories": content.get("categories", []),
+                    }
+                )
             else:
                 raise ValueError(f"Unsupported object type: {object_data['type']}")
-
-        df = pl.DataFrame(result)
-        df.write_ndjson(f"data/search_data_{region}.jsonl")
-
-        print(f"Wrote {len(result)} entries to data/search_data_{region}.jsonl")
 
         c = list(categories.items())
         c.sort(key=lambda x: x[1], reverse=True)
         print(f"Found categories: {c}")
+        categories_contained_once = [k for k, v in categories.items() if v == 1]
+
+        second_level = defaultdict(int)
+        for name, count in categories.items():
+            splitted = name.split(".")
+            second_level[".".join(splitted[:2])] += count
+        sl = list(second_level.items())
+        sl.sort(key=lambda x: x[1], reverse=True)
+        print(f"Found categories: {sl}")
+
+        df = pl.DataFrame(result)
+        df = df.filter(
+            pl.col("categories")
+            .list.set_intersection(categories_contained_once)
+            .list.len()
+            == 0
+        )
+        print(df)
+        df.write_ndjson(f"data/augmented_search_data_{region}.jsonl")
+        df = df.drop("categories")
+        df.write_ndjson(f"data/search_data_{region}.jsonl")
+
+        print(f"Wrote {len(df)} entries to data/search_data_{region}.jsonl")
 
 
 if __name__ == "__main__":

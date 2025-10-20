@@ -19,29 +19,62 @@ impl PrefixTrieBuilder {
     pub fn insert(&mut self, word: &str) {
         let mut current = self;
         for (i, c) in word.chars().enumerate() {
-            current.lengths.insert(word.len() - i);
+            let l = word.len() - i;
+            current.lengths.insert(l);
             current = current.children.entry(c).or_default();
         }
         current.lengths.insert(0);
     }
 
-    pub fn finalize(self, max_id: Option<usize>) -> PrefixTrie {
-        let mut lengths: Vec<usize> = self.lengths.iter().cloned().collect();
-        lengths.sort_unstable();
-        let mut max_id = max_id.unwrap_or(0);
+    pub fn total_nodes(&self) -> IndexType {
+        let mut total = 1;
+        for child in self.children.values() {
+            total += child.total_nodes();
+        }
+        total
+    }
+
+    pub fn finalize(self) -> PrefixTrie {
+        let total_nodes = self.total_nodes();
 
         let mut trie = PrefixTrie {
-            ordered_lengths: lengths,
-            id: max_id,
-            children: HashMap::new(),
+            children: vec![HashMap::new(); total_nodes],
+            leafs: vec![false; total_nodes],
+            ordered_lengths: vec![vec![]; total_nodes],
         };
-        max_id += 1;
-        for (child_char, child) in self.children {
-            let new_child = child.finalize(Some(max_id));
-            max_id = new_child.id + 1;
-            trie.children.insert(child_char, new_child);
-        }
+
+        self.finalize_node(&mut trie, 0);
         trie
+    }
+
+    fn finalize_node(self, trie: &mut PrefixTrie, mut current_ix: IndexType) {
+        let my_ix = current_ix;
+        trie.ordered_lengths[my_ix] = {
+            let mut lengths: Vec<usize> = self.lengths.into_iter().collect();
+            lengths.sort_unstable();
+            lengths.into_iter().map(|x| x as LengthType).collect()
+        };
+        trie.leafs[my_ix] = trie.ordered_lengths[my_ix].contains(&0);
+
+        current_ix += 1;
+
+        let mut ch = self
+            .children
+            .into_iter()
+            .map(|x| {
+                let t = x.1.total_nodes();
+                (x.0, x.1, t)
+            })
+            .collect::<Vec<_>>();
+        ch.sort_by_key(|x| (x.2 as isize).wrapping_neg());
+
+        for (c, child, _) in ch {
+            trie.children[my_ix].insert(c, current_ix);
+
+            let child_nodes = child.total_nodes();
+            child.finalize_node(trie, current_ix);
+            current_ix += child_nodes;
+        }
     }
 }
 
@@ -51,43 +84,58 @@ impl Default for PrefixTrieBuilder {
     }
 }
 
+type IndexType = usize;
+type LengthType = u16;
+type DistanceType = u8;
+type VisitedType = HashMap<(IndexType, usize), DistanceType>;
+
 #[derive(Clone)]
 pub struct PrefixTrie {
-    children: HashMap<char, PrefixTrie>,
-    ordered_lengths: Vec<usize>,
-    id: usize,
+    children: Vec<HashMap<char, IndexType>>,
+    leafs: Vec<bool>,
+    ordered_lengths: Vec<Vec<LengthType>>,
 }
 
 impl PrefixTrie {
-    pub fn get_child(&self, c: char) -> Option<&PrefixTrie> {
-        self.children.get(&c)
+    pub fn get_child(&self, c: char, ix: IndexType) -> Option<&IndexType> {
+        self.children[ix].iter().find_map(|(child_char, child_ix)| {
+            if *child_char == c {
+                Some(child_ix)
+            } else {
+                None
+            }
+        })
     }
 
     pub fn search(&self, word: &str) -> bool {
-        let mut current = self;
+        let mut current_ix = 0;
+
         for c in word.chars() {
-            match current.get_child(c) {
-                Some(child) => current = child,
+            match self.get_child(c, current_ix) {
+                Some(child) => current_ix = *child,
                 None => return false,
             }
         }
-        current.ordered_lengths.contains(&0)
+        self.leafs[current_ix]
     }
 
-    pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = String> + 'a> {
-        let mut current = self;
+    pub fn continuations<'a>(
+        &'a self,
+        prefix: &'a str,
+        ix: IndexType,
+    ) -> Box<dyn Iterator<Item = String> + 'a> {
+        let mut current_ix = ix;
         for c in prefix.chars() {
-            match current.get_child(c) {
-                Some(child) => current = child,
+            match self.get_child(c, current_ix) {
+                Some(child) => current_ix = *child,
                 None => return Box::new(std::iter::empty()),
             }
         }
 
         Box::new(
-            current
-                .ordered_lengths
+            self.ordered_lengths[current_ix]
                 .iter()
-                .flat_map(|&x| current.childs_of_lengths(x))
+                .flat_map(move |&x| self.childs_of_lengths(current_ix, x))
                 .map(move |suffix| {
                     let mut full = String::new();
                     full.push_str(prefix);
@@ -97,8 +145,12 @@ impl PrefixTrie {
         )
     }
 
-    pub fn childs_of_lengths(&self, length: usize) -> Box<dyn Iterator<Item = String> + '_> {
-        if !self.ordered_lengths.contains(&length) {
+    pub fn childs_of_lengths(
+        &self,
+        ix: IndexType,
+        length: LengthType,
+    ) -> Box<dyn Iterator<Item = String> + '_> {
+        if !self.ordered_lengths[ix].contains(&length) {
             return Box::new(std::iter::empty());
         }
 
@@ -106,8 +158,8 @@ impl PrefixTrie {
             return Box::new(vec!["".to_string()].into_iter());
         }
 
-        Box::new(self.children.iter().flat_map(move |(c, child)| {
-            let suffixes = child.childs_of_lengths(length - 1);
+        Box::new(self.children[ix].iter().flat_map(move |(c, child)| {
+            let suffixes = self.childs_of_lengths(*child, length - 1);
             suffixes.map(move |suffix| {
                 let mut s = String::new();
                 s.push(*c);
@@ -120,39 +172,45 @@ impl PrefixTrie {
     pub fn find_with_max_edit_distance<'a>(
         &'a self,
         word: &'a str,
-        distance: usize,
+        distance: DistanceType,
         continuations: bool,
     ) -> PrefixTrieMaxDistanceIterator<'a> {
         PrefixTrieMaxDistanceIterator {
             current_distance: 0,
             max_distance: distance,
             inner_iterator: self.find_with_exact_edit_distance_stack(word, 0, continuations, None),
-            beginning_stack: (self, word, String::new()),
+            beginning_stack: (0, 0, String::new()),
             continuations,
+            trie: self,
+            word: word.chars().collect(),
         }
     }
 
     pub fn find_with_exact_edit_distance_stack<'a>(
         &'a self,
         word: &'a str,
-        distance: usize,
+        distance: DistanceType,
         continuations: bool,
-        visited: Option<HashMap<(usize, &'a str, String), usize>>,
+        visited: Option<VisitedType>,
     ) -> PrefixTrieExactDistanceIterator<'a> {
         PrefixTrieExactDistanceIterator {
-            stack: vec![(self, word, distance, String::new(), vec![])],
+            stack: vec![(0, 0, distance, String::new())],
             continuations,
             visited: visited.unwrap_or_default(),
+            trie: self,
+            word: word.chars().collect(),
         }
     }
 }
 
 pub struct PrefixTrieMaxDistanceIterator<'a> {
-    current_distance: usize,
-    max_distance: usize,
+    current_distance: DistanceType,
+    max_distance: DistanceType,
     inner_iterator: PrefixTrieExactDistanceIterator<'a>,
-    beginning_stack: (&'a PrefixTrie, &'a str, String),
+    beginning_stack: (IndexType, usize, String),
     continuations: bool,
+    trie: &'a PrefixTrie,
+    word: Vec<char>,
 }
 
 impl<'a> Iterator for PrefixTrieMaxDistanceIterator<'a> {
@@ -172,10 +230,11 @@ impl<'a> Iterator for PrefixTrieMaxDistanceIterator<'a> {
                             self.beginning_stack.1,
                             self.current_distance,
                             self.beginning_stack.2.clone(),
-                            vec![],
                         )],
                         continuations: self.continuations,
                         visited: self.inner_iterator.visited.clone(),
+                        trie: self.trie,
+                        word: self.word.clone(),
                     }
                 }
             }
@@ -184,18 +243,12 @@ impl<'a> Iterator for PrefixTrieMaxDistanceIterator<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Modification {
-    Match(char),
-    Substitution(char, char),
-    Insertion(char),
-    Deletion(char),
-}
-
 pub struct PrefixTrieExactDistanceIterator<'a> {
-    stack: Vec<(&'a PrefixTrie, &'a str, usize, String, Vec<Modification>)>,
+    stack: Vec<(IndexType, usize, DistanceType, String)>,
     continuations: bool,
-    visited: HashMap<(usize, &'a str, String), usize>,
+    visited: VisitedType,
+    trie: &'a PrefixTrie,
+    word: Vec<char>,
 }
 
 impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
@@ -203,124 +256,77 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(top) = self.stack.pop() {
-            let (node, word, distance, prefix, modifications) = top;
-            if let Some(d) = self.visited.get_mut(&(node.id, word, prefix.clone())) {
+            let (node, word_ix, distance, prefix) = top;
+            if let Some(d) = self.visited.get_mut(&(node, word_ix)) {
                 if distance <= *d {
                     continue;
                 }
                 *d = distance;
             } else {
-                self.visited
-                    .insert((node.id, word, prefix.clone()), distance);
+                self.visited.insert((node, word_ix), distance);
             }
 
             let mut to_return: Option<Self::Item> = None;
 
             let p = prefix.clone();
-            if distance == 0 && word.is_empty() && node.ordered_lengths.contains(&0) {
+            if distance == 0 && (word_ix == self.word.len()) && self.trie.leafs[node] {
                 if self.continuations {
                     to_return = Some(Box::new(std::iter::once(p)));
                 } else {
-                    println!(
-                        "Found exact match with modifications: {:?} {:?}",
-                        p, modifications
-                    );
                     return Some(Box::new(std::iter::once(p)));
                 }
             }
 
-            if !word.is_empty() {
-                let c = word.chars().next().unwrap();
-                let rest = &word[c.len_utf8()..];
+            if word_ix < self.word.len() {
+                let c = self.word[word_ix];
 
-                if node.children.contains_key(&c) {
-                    let child = node.children.get(&c).unwrap();
-                    self.stack.push((
-                        child,
-                        rest,
-                        distance,
-                        {
-                            let mut new_prefix = prefix.clone();
-                            new_prefix.push(c);
-                            new_prefix
-                        },
-                        {
-                            let mut new_mods = modifications.clone();
-                            new_mods.push(Modification::Match(c));
-                            new_mods
-                        },
-                    ));
+                if let Some(child) = self.trie.get_child(c, node) {
+                    self.stack.push((*child, word_ix + 1, distance, {
+                        let mut new_prefix = prefix.clone();
+                        new_prefix.push(c);
+                        new_prefix
+                    }));
                 }
 
                 if distance == 0 {
                     continue;
                 }
 
-                for child in &node.children {
+                for child in self.trie.children[node].iter() {
                     if *child.0 != c {
-                        self.stack.push((
-                            child.1,
-                            rest,
-                            distance - 1,
-                            {
-                                let mut new_prefix = prefix.clone();
-                                new_prefix.push(*child.0);
-                                new_prefix
-                            },
-                            {
-                                let mut new_mods = modifications.clone();
-                                new_mods.push(Modification::Substitution(c, *child.0));
-                                new_mods
-                            },
-                        ));
+                        self.stack.push((*child.1, word_ix + 1, distance - 1, {
+                            let mut new_prefix = prefix.clone();
+                            new_prefix.push(*child.0);
+                            new_prefix
+                        }));
                     }
                 }
 
-                self.stack.push((node, rest, distance - 1, prefix.clone(), {
-                    let mut new_mods = modifications.clone();
-                    new_mods.push(Modification::Deletion(c));
-                    new_mods
-                }));
+                self.stack
+                    .push((node, word_ix + 1, distance - 1, prefix.clone()));
 
-                for child in &node.children {
-                    if *child.0 != c
-                        && modifications.last() != Some(&Modification::Deletion(*child.0))
-                    {
-                        self.stack.push((
-                            child.1,
-                            word,
-                            distance - 1,
-                            {
-                                let mut new_prefix = prefix.clone();
-                                new_prefix.push(*child.0);
-                                new_prefix
-                            },
-                            {
-                                let mut new_mods = modifications.clone();
-                                new_mods.push(Modification::Insertion(*child.0));
-                                new_mods
-                            },
-                        ));
+                for child in self.trie.children[node].iter() {
+                    if *child.0 != c {
+                        self.stack.push((*child.1, word_ix, distance - 1, {
+                            let mut new_prefix = prefix.clone();
+                            new_prefix.push(*child.0);
+                            new_prefix
+                        }));
                     }
                 }
             } else {
                 if distance == 0 && !self.continuations {
                     continue;
                 }
-                for child in &node.children {
+                for child in self.trie.children[node].iter() {
                     self.stack.push((
-                        child.1,
-                        word,
+                        *child.1,
+                        word_ix,
                         if distance > 0 { distance - 1 } else { distance },
                         {
                             let mut new_prefix = prefix.clone();
                             new_prefix.push(*child.0);
                             new_prefix
-                        },
-                        {
-                            let mut new_mods = modifications.clone();
-                            new_mods.push(Modification::Insertion(*child.0));
-                            new_mods
                         },
                     ));
                 }
@@ -361,7 +367,7 @@ impl<T> SearchIndex<PrefixTrieBuilder, T> {
 
     pub fn finalize(self) -> SearchIndex<PrefixTrie, T> {
         SearchIndex {
-            trie: self.trie.finalize(None),
+            trie: self.trie.finalize(),
             elements: self.elements,
         }
     }
@@ -377,14 +383,14 @@ impl<T> SearchIndex<PrefixTrie, T> {
     }
 
     pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = &'a T> + 'a> {
-        let keys = self.trie.continuations(prefix);
+        let keys = self.trie.continuations(prefix, 0);
         Box::new(keys.filter_map(move |found| self.elements.get(&found)))
     }
 
     pub fn find_with_max_edit_distance<'a>(
         &'a self,
         key: &'a str,
-        max_distance: usize,
+        max_distance: DistanceType,
         continuations: bool,
     ) -> impl Iterator<Item = (String, &'a T)> + 'a {
         self.trie

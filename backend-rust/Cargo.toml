@@ -25,5 +25,9 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "search_benchmark"
 harness = false
 
+[[bench]]
+name = "textsearch_benchmark"
+harness = false
+
 #[profile.release]
 #debug = 1
