@@ -14,6 +14,7 @@ import { ImageOverlays } from "./components/ImageOverlay";
 import { HoverState, SearchComponent } from "./components/SearchComponent";
 import { CurrenLocationPane } from "./components/CurrentLocation";
 import { HeightPlotCard } from "./components/HeightPlotCard";
+import { SearchCard } from "./components/SearchCard";
 
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
@@ -124,6 +125,7 @@ function App() {
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}
                         setSettings={setSettings}></CurrenLocationPane>
+                    <SearchCard></SearchCard>
                 </MapContainer>
             </OverlaysProvider>
         </div>
