@@ -37,6 +37,10 @@
     }
 }
 
+.recharts-line-dots {
+    visibility: hidden;
+}
+
 .loading {
     position: absolute;
     top: 60px;
@@ -146,4 +150,11 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
 
 .rv-discrete-color-legend-item {
     padding: 0px;
+}
+
+.custom-tooltip {
+    border: 1px solid gray;
+    border-radius: 5px;
+    background-color: white;
+    font-size: 12px;
 }

@@ -1,44 +1,78 @@
 import { Button, Drawer, Radio, RadioGroup } from "@blueprintjs/core";
-import { PathAndNode, Settings } from "../utils/types";
+import { HeightPoint, Settings } from "../utils/types";
 import { useState } from "react";
-
-import { AreaSeries, Crosshair, DiscreteColorLegend, HorizontalGridLines, LineSeries, LineSeriesPoint, MarkSeries, VerticalGridLines, XAxis, XYPlot, YAxis } from "react-vis";
+import { CartesianGrid, Legend, Line, LineChart, Tooltip, TooltipContentProps, XAxis, YAxis } from "recharts";
 
 interface HeightPlotCardProps {
-    pathAndNode: PathAndNode;
+    setCursorNode: (cursorNode: HeightPoint | undefined) => void;
+    heightPoints: HeightPoint[] | undefined;
     settings: Settings,
 }
 
-export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
+interface CustomTooltipProps extends TooltipContentProps<string | number, string> {
+    setFlightHeightItem: (d: HeightPoint) => void;
+}
+
+const CustomTooltip = ({ active, payload, label, setFlightHeightItem }: CustomTooltipProps) => {
+    const isVisible = active && payload && payload.length;
+
+    if (isVisible) {
+        setFlightHeightItem(payload[0].payload.node);
+    }
+
+    return (
+        <div className="custom-tooltip" style={{ visibility: isVisible ? 'visible' : 'hidden' }}>
+            {isVisible && (
+                <>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <td>Distance:</td>
+                                <td>{Math.round(payload[0].payload.distance)}m</td>
+                            </tr>
+                            <tr style={{ color: payload[0].stroke }}>
+                                <td>Height:</td>
+                                <td>{Math.round(payload[0].payload.Height)}m</td>
+                            </tr>
+                            <tr style={{ color: payload[1].stroke }}>
+                                <td>Ground:</td>
+                                <td>{Math.round(payload[0].payload.Ground)}m</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                </>
+            )
+            }
+        </div >
+    );
+};
+
+export function HeightPlotCard({ setCursorNode, heightPoints, settings }: HeightPlotCardProps) {
     let [drawerOpen, setDrawerOpen] = useState(false);
-    let [groundHeight, setGroundHeight] = useState<LineSeriesPoint | undefined>(undefined);
-    let [flightHeight, setFlightHeight] = useState<LineSeriesPoint | undefined>(undefined);
     let [plotType, setPlotType] = useState<"h" | "agl">("h");
 
-    const setFlightHeigthItem = (d: LineSeriesPoint) => {
-        setFlightHeight(d);
-        pathAndNode.setCursorNode(d.node);
+    const setFlightHeightItem = (d: HeightPoint) => {
+        setCursorNode(d);
     };
 
     const close = () => {
         setDrawerOpen(false);
-        setGroundHeight(undefined);
-        setFlightHeight(undefined);
-        pathAndNode.setCursorNode(undefined);
+        setCursorNode(undefined);
     }
 
-    if (pathAndNode.heightPoints === undefined) {
+    if (heightPoints === undefined) {
         return (<></>);
     }
 
     let minFlightHeight = 100000;
     let maxFlightHeight = -1000;
     let maxDistance = 0;
-    const flightData = [];
-    const groundData = [];
-    let safetyMargin = [];
+
+    const data = []
+
     let start_safety_margin = undefined;
-    for (let point of pathAndNode.heightPoints) {
+    for (let point of heightPoints) {
         let height = point.height;
         if (plotType === "agl") {
             height = point.height - point.groundHeight;
@@ -47,8 +81,14 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
         minFlightHeight = Math.min(minFlightHeight, height);
         maxFlightHeight = Math.max(maxFlightHeight, height);
         maxDistance = Math.max(maxDistance, point.distance);
-        flightData.push({ x: point.distance, y: height, node: point });
-        groundData.push({ x: point.distance, y: plotType === "agl" ? 0 : point.groundHeight });
+
+        let dataPoint = {
+            distance: point.distance,
+            Height: height,
+            Ground: plotType === "agl" ? 0 : point.groundHeight,
+            "Safety margin": undefined,
+            node: point
+        };
 
         let safety_margin_eps = 14.0;
         if (start_safety_margin === undefined && point.height - settings.safetyMargin + safety_margin_eps < point.groundHeight && point.distance >= settings.startDistance) {
@@ -57,77 +97,22 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
 
         if (settings.safetyMargin > 0 && point.distance >= settings.startDistance) {
             if (plotType === "agl") {
-                safetyMargin.push({ x: point.distance, y: settings.safetyMargin });
+                // @ts-ignore
+                dataPoint["Safety margin"] = settings.safetyMargin;
             } else {
-                safetyMargin.push({ x: point.distance, y: height - settings.safetyMargin });
+                // @ts-ignore
+                dataPoint["Safety margin"] = height - settings.safetyMargin;
             }
         }
+        data.push(dataPoint);
     }
-
-    let flightMarks = [];
-    let groundMarks = [];
-    let aglData = []
-    if (flightHeight !== undefined && groundHeight !== undefined) {
-        flightMarks.push({
-            x: flightHeight.x,
-            y: flightHeight.y,
-            size: 1
-        });
-        groundMarks.push({
-            x: groundHeight.x,
-            y: groundHeight.y,
-            size: 1
-        });
-        aglData.push({ x: groundHeight.x, y: groundHeight.y });
-        aglData.push({ x: flightHeight.x, y: flightHeight.y });
-    }
-
-    // Type hints are not quite correct
-    let Xaxis = XAxis as any;
-    let Yaxis = YAxis as any;
 
     const mobile = window.innerWidth < 600;
     const plotHeight = 400;
     const drawerSize = plotHeight + (mobile ? 100 : 50); // Increased to 120 for better mobile layout with vertical stacking
 
-    let crosshairPostion = 0;
-    let crossHairOffset = 10
-    let crossHairOrientation = "right";
-    let crossHairVerticalOffset = plotType === "agl" ? 10 : 45;
-    if (flightHeight !== undefined) {
-        crosshairPostion = (flightHeight.y - minFlightHeight) / (maxFlightHeight - minFlightHeight);
-        crosshairPostion = Math.max(Math.round((1 - crosshairPostion) * plotHeight * 0.85 - crossHairVerticalOffset), 0);
-
-        if (flightHeight.x > 0.75 * (flightData[0].x + flightData[flightData.length - 1].x)) {
-            crossHairOrientation = "left";
-            crossHairOffset = -10;
-        }
-    }
-
-    let colorLegendItems = [
-        {
-            title: 'Flight path',
-            color: 'green'
-        },
-        {
-            title: 'Ground',
-            color: 'red'
-        }
-    ];
-    if (settings.safetyMargin > 0) {
-        colorLegendItems.push({
-            title: 'Safety margin',
-            color: 'blue'
-        });
-    }
-    if (start_safety_margin !== undefined) {
-        colorLegendItems.push({
-            title: 'Area in safety margin',
-            color: 'rgba(200,170,50,1.0)'
-        });
-    }
-
-    const legendPositionRight = Math.round(window.visualViewport!.width * 0.1) + (mobile ? 0 : 50);
+    const plotWidth = Math.min(window.innerWidth * 0.8);
+    const aspectRatio = plotWidth / plotHeight;
 
     return (
         <>
@@ -146,71 +131,22 @@ export function HeightPlotCard({ pathAndNode, settings }: HeightPlotCardProps) {
                 hasBackdrop={false}
                 position={"bottom"}>
                 <div className={"heightPlotDrawerBody"}>
-                    <XYPlot height={plotHeight} width={window.innerWidth * 0.8}>
-                        <VerticalGridLines />
-                        <HorizontalGridLines />
-                        <Xaxis title={"Distance (m)"} position="middle" />
-                        <Yaxis title={"Height (m)"} position="middle" />
-                        {
-                            start_safety_margin !== undefined ? (
-                                <AreaSeries
-                                    data={[{ x: start_safety_margin, y: maxFlightHeight }, { x: maxDistance, y: maxFlightHeight }]}
-                                    color={"rgba(200,170,50,0.2)"}
-                                />
-                            ) : <></>}
-                        <LineSeries data={flightData} color={"green"}
-                            onNearestX={setFlightHeigthItem} />
-                        <LineSeries data={groundData}
-                            color={"red"}
-                            curve={"curveMonotoneX"}
-                            onNearestX={d => setGroundHeight(d)} />
-                        <LineSeries data={safetyMargin} color={"#66D"} strokeStyle="dashed" />
-                        {
-                            groundHeight !== undefined && flightHeight !== undefined ? (
-                                <Crosshair values={[groundHeight, flightHeight]} className={'invisibleCrosshair'} orientation={crossHairOrientation as any}>
-                                    <div style={{ background: 'black', minWidth: '80px', maxWidth: '110px', transform: `translate(${crossHairOffset}px, ${crosshairPostion}px)` }}>
-                                        {plotType === "agl" ? (<></>
-                                        ) : (
-                                            <>
-                                                Height: {Math.round(flightHeight.y)}m<br />
-                                                Ground: {Math.round(groundHeight.y)}m<br />
-                                            </>
-                                        )}
-                                        AGL: {Math.round(flightHeight.y - groundHeight.y)}m
-                                    </div>
-                                </Crosshair>) : <></>
-                        }
-                        <MarkSeries
-                            strokeWidth={1}
-                            data={flightMarks}
-                            color={"green"}
-                            opacity={0.8}
-                            sizeRange={[0, 5]}
-                        />
-                        <MarkSeries
-                            strokeWidth={1}
-                            data={groundMarks}
-                            color={"red"}
-                            opacity={0.8}
-                            sizeRange={[0, 5]}
-                        />
-                        <LineSeries data={aglData}
-                            color="red"
-                            stroke={3}
-                            strokeStyle="dashed" />
-                    </XYPlot>
-                    <DiscreteColorLegend
-                        items={colorLegendItems}
-                        orientation="vertical"
-                        width={150}
-                        // @ts-ignore
-                        style={{ position: 'absolute', right: `${legendPositionRight}px`, top: '40px' }}
-                    />
+                    <LineChart style={{ width: plotWidth, aspectRatio: aspectRatio, maxWidth: plotWidth }} responsive data={data}>
+                        <CartesianGrid />
+                        <Line dataKey="Height" stroke="green" strokeWidth={1} animationDuration={500} />
+                        <Line dataKey="Ground" stroke="red" strokeWidth={1} animationDuration={500} />
+                        <Line dataKey="Safety margin" stroke="blue" strokeDasharray="5 5" strokeWidth={1} animationDuration={500} />
+                        <XAxis dataKey="distance" tickCount={10} tickFormatter={(v) => `${Math.round(v / 100) * 100} m`} />
+                        <YAxis domain={['dataMin - 50', 'dataMax + 50']} tickFormatter={(v) => `${Math.round(v)} m`} />
+                        <Legend />
+                        <Tooltip content={(props) => {
+                            // @ts-ignore
+                            return (<CustomTooltip setFlightHeightItem={setFlightHeightItem} {...props} />);
+                        }} animationDuration={0} />
+                    </LineChart>
                     <RadioGroup label="Plot" onChange={(e) => {
                         setPlotType(e.currentTarget.value as "h" | "agl");
-                        setGroundHeight(undefined);
-                        setFlightHeight(undefined);
-                        pathAndNode.setCursorNode(undefined);
+                        setCursorNode(undefined);
                     }} selectedValue={plotType} inline={mobile}>
                         <Radio label="Height" value="h" />
                         <Radio label="AGL" value="agl" />
