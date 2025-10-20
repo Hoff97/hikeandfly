@@ -1010,16 +1010,24 @@ struct Location {
 
 struct LocationInfo {
     center: Vec<f32>,
-    additional_info: Option<String>,
+    additional_info_ix: usize,
 }
 
-fn search_index() -> &'static SearchIndex<PrefixTrie, LocationInfo> {
-    static INSTANCE: OnceCell<SearchIndex<PrefixTrie, LocationInfo>> = OnceCell::new();
+struct SearchLocation {
+    pub index: SearchIndex<PrefixTrie, LocationInfo>,
+    pub additional_info: Vec<String>,
+}
+
+fn search_index() -> &'static SearchLocation {
+    static INSTANCE: OnceCell<SearchLocation> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         println!("Building search index...");
         let mut ix = SearchIndex::new();
 
         let paths = fs::read_dir("./data").unwrap();
+
+        let mut additional_info_map = std::collections::HashMap::<String, usize>::new();
+        let mut additional_info_vec = vec![];
 
         for path in paths {
             let path = path.unwrap().path();
@@ -1029,17 +1037,31 @@ fn search_index() -> &'static SearchIndex<PrefixTrie, LocationInfo> {
                 let reader = BufReader::new(r);
                 for line in reader.lines() {
                     let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
+
+                    let ad = location.additional_info.unwrap_or_default();
+                    let additional_info_ix = if let Some(&ix) = additional_info_map.get(&ad) {
+                        ix
+                    } else {
+                        let ix = additional_info_vec.len();
+                        additional_info_map.insert(ad.clone(), ix);
+                        additional_info_vec.push(ad);
+                        ix
+                    };
+
                     ix.insert(
                         location.name.as_str(),
                         LocationInfo {
                             center: location.center,
-                            additional_info: location.additional_info,
+                            additional_info_ix,
                         },
                     );
                 }
             }
         }
-        ix.finalize()
+        SearchLocation {
+            index: ix.finalize(),
+            additional_info: additional_info_vec,
+        }
     })
 }
 
@@ -1048,9 +1070,10 @@ fn search_index() -> &'static SearchIndex<PrefixTrie, LocationInfo> {
 fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
     let ix = search_index();
 
-    let q = query.as_str().to_ascii_lowercase();
+    let q = query.as_str();
     let result = ix
-        .find_with_max_edit_distance(&q, (query.len() / 4).clamp(2, 255) as u8, true)
+        .index
+        .find_with_max_edit_distance(q, (query.len() / 4).clamp(2, 255) as u8, true)
         .take(10);
 
     Result::Ok(Json(
@@ -1058,7 +1081,7 @@ fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
             .map(|x| Location {
                 name: x.0,
                 center: x.1.center.clone(),
-                additional_info: x.1.additional_info.clone(),
+                additional_info: ix.additional_info.get(x.1.additional_info_ix).cloned(),
             })
             .collect(),
     ))
