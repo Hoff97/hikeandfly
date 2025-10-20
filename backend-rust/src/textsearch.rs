@@ -25,6 +25,25 @@ impl PrefixTrieBuilder {
         current.lengths.insert(0);
     }
 
+    pub fn total_characters(&self) -> usize {
+        let mut total = self.children.len();
+        for child in self.children.values() {
+            total += child.total_characters();
+        }
+        total
+    }
+
+    pub fn total_leafs(&self) -> usize {
+        let mut total = 0;
+        if self.lengths.contains(&0) {
+            total += 1;
+        }
+        for child in self.children.values() {
+            total += child.total_leafs();
+        }
+        total
+    }
+
     pub fn finalize(self, max_id: Option<usize>) -> PrefixTrie {
         let mut lengths: Vec<usize> = self.lengths.iter().cloned().collect();
         lengths.sort_unstable();
@@ -59,6 +78,20 @@ pub struct PrefixTrie {
 }
 
 impl PrefixTrie {
+    pub fn branching_factor(&self) -> usize {
+        self.children.len()
+    }
+
+    pub fn branching_factor_counts(&self, counts: &mut HashMap<usize, usize>) {
+        counts
+            .entry(self.branching_factor())
+            .and_modify(|c| *c += 1)
+            .or_insert(1);
+        for child in self.children.values() {
+            child.branching_factor_counts(counts);
+        }
+    }
+
     pub fn get_child(&self, c: char) -> Option<&PrefixTrie> {
         self.children.get(&c)
     }
@@ -221,10 +254,6 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                 if self.continuations {
                     to_return = Some(Box::new(std::iter::once(p)));
                 } else {
-                    println!(
-                        "Found exact match with modifications: {:?} {:?}",
-                        p, modifications
-                    );
                     return Some(Box::new(std::iter::once(p)));
                 }
             }

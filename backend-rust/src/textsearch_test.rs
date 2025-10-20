@@ -1,3 +1,11 @@
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufRead, BufReader},
+};
+
+use serde::{Deserialize, Serialize};
+
 use crate::textsearch::{PrefixTrieBuilder, SearchIndex};
 
 #[test]
@@ -18,6 +26,33 @@ fn test_prefix_trie_search() {
     assert!(!trie.search("he"));
     assert!(trie.search("abba"));
     assert!(!trie.search("abc"));
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Location {
+    name: String,
+    center: Vec<f32>,
+}
+
+#[test]
+fn test_prefix_trie_branching_factor() {
+    let mut prefix_trie_builder = PrefixTrieBuilder::new();
+    let r = File::open("data/search_data_germany.jsonl").unwrap();
+    let reader = BufReader::new(r);
+    for line in reader.lines() {
+        let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
+        prefix_trie_builder.insert(location.name.to_ascii_lowercase().as_str());
+    }
+    let trie = prefix_trie_builder.finalize(None);
+
+    let mut m = HashMap::new();
+    trie.branching_factor_counts(&mut m);
+    let mut vec = m
+        .iter()
+        .map(|(k, v)| (*k, *v))
+        .collect::<Vec<(usize, usize)>>();
+    vec.sort_by_key(|x| x.0);
+    println!("Branching factor counts: {:?}", vec);
 }
 
 #[test]
