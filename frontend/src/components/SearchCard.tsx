@@ -1,12 +1,13 @@
-import { Intent, MenuItem, Spinner, SpinnerSize } from "@blueprintjs/core";
+import { EntityTitle, Intent, MenuItem, Spinner, SpinnerSize } from "@blueprintjs/core";
 import { useState } from "react";
 import { Suggest } from "@blueprintjs/select";
 import { useMap } from "react-leaflet";
-import { Reset } from "@blueprintjs/icons";
 
 export interface SearchResult {
     name: string;
     center: number[];
+    additional_info?: string;
+    id?: string;
 }
 
 export function SearchCard() {
@@ -24,7 +25,19 @@ export function SearchCard() {
         let response = await fetch(url);
         let body: SearchResult[] = await response.json();
 
-        return body;
+        let result = [];
+        let existingIds = new Set<string>();
+
+        for (let item of body) {
+            item.id = item.name + "_" + item.center[0] + "_" + item.center[1];
+            if (existingIds.has(item.id)) {
+                continue;
+            }
+            existingIds.add(item.id);
+            result.push(item);
+        }
+
+        return result;
     }
 
     let handleFilterChange = async (e: string, event: React.ChangeEvent<HTMLInputElement> | undefined) => {
@@ -49,13 +62,15 @@ export function SearchCard() {
     }
 
     let renderItem = (item: SearchResult) => {
-        return (<MenuItem
-            text={item.name}
-            key={item.name}
-            roleStructure="listoption"
-            active={item === selectedItem}
-            onClick={() => goToItem(item)}
-        />)
+        return (
+            <MenuItem
+                key={item.id}
+                text={item.name}
+                label={item.additional_info}
+                active={selectedItem?.id === item.id}
+                onClick={() => goToItem(item)}
+            />
+        );
     }
 
     let goToItem = (item: SearchResult) => {

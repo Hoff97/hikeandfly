@@ -38,7 +38,7 @@ impl PrefixTrieBuilder {
         let total_nodes = self.total_nodes();
 
         let mut trie = PrefixTrie {
-            children: vec![HashMap::new(); total_nodes],
+            children: vec![Vec::new(); total_nodes],
             leafs: vec![false; total_nodes],
             ordered_lengths: vec![vec![]; total_nodes],
         };
@@ -69,7 +69,7 @@ impl PrefixTrieBuilder {
         ch.sort_by_key(|x| (x.2 as isize).wrapping_neg());
 
         for (c, child, _) in ch {
-            trie.children[my_ix].insert(c, current_ix);
+            trie.children[my_ix].push((c, current_ix));
 
             let child_nodes = child.total_nodes();
             child.finalize_node(trie, current_ix);
@@ -91,7 +91,7 @@ type VisitedType = HashMap<(IndexType, usize), DistanceType>;
 
 #[derive(Clone)]
 pub struct PrefixTrie {
-    children: Vec<HashMap<char, IndexType>>,
+    children: Vec<Vec<(char, IndexType)>>,
     leafs: Vec<bool>,
     ordered_lengths: Vec<Vec<LengthType>>,
 }
@@ -294,10 +294,10 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
                 for child in self.trie.children[node].iter() {
                     // Substitution
-                    if *child.0 != c {
-                        self.stack.push((*child.1, word_ix + 1, distance - 1, {
+                    if child.0 != c {
+                        self.stack.push((child.1, word_ix + 1, distance - 1, {
                             let mut new_prefix = prefix.clone();
-                            new_prefix.push(*child.0);
+                            new_prefix.push(child.0);
                             new_prefix
                         }));
                     }
@@ -309,10 +309,10 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
                 // Insertion
                 for child in self.trie.children[node].iter() {
-                    if *child.0 != c {
-                        self.stack.push((*child.1, word_ix, distance - 1, {
+                    if child.0 != c {
+                        self.stack.push((child.1, word_ix, distance - 1, {
                             let mut new_prefix = prefix.clone();
-                            new_prefix.push(*child.0);
+                            new_prefix.push(child.0);
                             new_prefix
                         }));
                     }
@@ -332,12 +332,12 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                 }
                 for child in self.trie.children[node].iter() {
                     self.stack.push((
-                        *child.1,
+                        child.1,
                         word_ix,
                         if distance > 0 { distance - 1 } else { distance },
                         {
                             let mut new_prefix = prefix.clone();
-                            new_prefix.push(*child.0);
+                            new_prefix.push(child.0);
                             new_prefix
                         },
                     ));

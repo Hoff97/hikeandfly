@@ -83,24 +83,41 @@ USED_NAMES = [
 ]
 IGNORED_NAMES = ["name:loc", "name:ko", "name:cs"]
 
+NO_ADDRESS_NEEDED = set(
+    ["osm.place.state", "osm.place.archipelago", "osm.natural.bay", "osm.natural.cape"]
+)
+
+COUNTRY_CODE_TO_NAME = {
+    "fr": "France",
+    "mc": "Monacco",
+    "at": "Austria",
+    "de": "Germany",
+    "lu": "Luxemburg",
+    "ch": "Switzerland",
+    "li": "Liechtenstein",
+    "it": "Italy",
+    "si": "Slovenia",
+}
+
 
 def preprocess_data():
     i = 0
 
     files = [
-        ("photon-dump-austria-0.7-latest.jsonl", "austria"),
-        ("photon-dump-germany-0.7-latest.jsonl", "germany"),
-        ("photon-dump-luxemburg-0.7-latest.jsonl", "luxemburg"),
+        ("photon-dump-france-monacco-0.7-latest.jsonl", "france-monacco", "France"),
+        ("photon-dump-austria-0.7-latest.jsonl", "austria", "Austria"),
+        ("photon-dump-germany-0.7-latest.jsonl", "germany", "Germany"),
+        ("photon-dump-luxemburg-0.7-latest.jsonl", "luxemburg", "Luxemburg"),
         (
             "photon-dump-switzerland-liechtenstein-0.7-latest.jsonl",
             "switzerland-liechtenstein",
+            "Switzerland",
         ),
-        ("photon-dump-france-monacco-0.7-latest.jsonl", "france-monacco"),
-        ("photon-dump-italy-0.7-latest.jsonl", "italy"),
-        ("photon-dump-slovenia-0.7-latest.jsonl", "slovenia"),
+        ("photon-dump-italy-0.7-latest.jsonl", "italy", "Italy"),
+        ("photon-dump-slovenia-0.7-latest.jsonl", "slovenia", "Slovenia"),
     ]
 
-    for f, region in files:
+    for f, region, region_name in files:
         result = []
         categories = defaultdict(int)
 
@@ -158,11 +175,36 @@ def preprocess_data():
                 geometry = content["geometry"]
                 centroid = content.get("centroid", None)
                 center = find_geometry_center(geometry, centroid)
+
+                additional_info = ""
+                if "address" in content:
+                    if "state:en" in content["address"]:
+                        additional_info = content["address"]["state:en"]
+                    else:
+                        if "country_code" in content:
+                            cc = content["country_code"]
+                            if cc in COUNTRY_CODE_TO_NAME:
+                                additional_info = COUNTRY_CODE_TO_NAME[cc]
+                            else:
+                                additional_info = region_name
+                        else:
+                            additional_info = region_name
+                else:
+                    if "country_code" in content:
+                        cc = content["country_code"]
+                        if cc in COUNTRY_CODE_TO_NAME:
+                            additional_info = COUNTRY_CODE_TO_NAME[cc]
+                        else:
+                            additional_info = region_name
+                    else:
+                        additional_info = region_name
+
                 result.append(
                     {
                         "name": name,
                         "center": center,
                         "categories": content.get("categories", []),
+                        "additional_info": additional_info,
                     }
                 )
             else:

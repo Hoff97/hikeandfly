@@ -136,7 +136,7 @@ def main():
             ]
         )
 
-        df = df.select(["name", "center"])
+        df = df.select(["name", "center", "additional_info"])
 
         df.write_ndjson(f"data/search_data_{region}.jsonl")
 
