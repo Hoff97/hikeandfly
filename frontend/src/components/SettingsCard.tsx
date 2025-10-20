@@ -320,9 +320,9 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
             <Button
                 icon={<InfoSign />}
                 onClick={() => setIsInfoOpen(true)}
-                large={true}
+                size={"large"}
                 intent="primary"
-                className="right">
+                className="right infoButton">
             </Button>
         </div>
     );
