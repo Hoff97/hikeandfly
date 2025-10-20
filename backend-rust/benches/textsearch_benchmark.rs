@@ -15,7 +15,7 @@ struct Location {
 
 fn textsearch(c: &mut Criterion) {
     let mut prefix_trie_builder = PrefixTrieBuilder::new();
-    let r = File::open("data/search_data_germany.jsonl").unwrap();
+    let r = File::open("testdata/test_data.jsonl").unwrap();
     let reader = BufReader::new(r);
     for line in reader.lines() {
         let location: Location = serde_json::from_str(&line.unwrap()).unwrap();

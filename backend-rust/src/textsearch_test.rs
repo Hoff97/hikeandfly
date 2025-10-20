@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 use crate::textsearch::{PrefixTrieBuilder, SearchIndex};
 
 #[test]
@@ -20,12 +18,6 @@ fn test_prefix_trie_search() {
     assert!(!trie.search("he"));
     assert!(trie.search("abba"));
     assert!(!trie.search("abc"));
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Location {
-    name: String,
-    center: Vec<f32>,
 }
 
 #[test]
