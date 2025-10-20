@@ -173,7 +173,7 @@ impl PrefixTrie {
         visited: Option<HashMap<(usize, &'a str, String), usize>>,
     ) -> PrefixTrieExactDistanceIterator<'a> {
         PrefixTrieExactDistanceIterator {
-            stack: vec![(self, word, distance, String::new(), vec![])],
+            stack: vec![(self, word, distance, String::new())],
             continuations,
             visited: visited.unwrap_or_default(),
         }
@@ -205,7 +205,6 @@ impl<'a> Iterator for PrefixTrieMaxDistanceIterator<'a> {
                             self.beginning_stack.1,
                             self.current_distance,
                             self.beginning_stack.2.clone(),
-                            vec![],
                         )],
                         continuations: self.continuations,
                         visited: self.inner_iterator.visited.clone(),
@@ -226,7 +225,7 @@ pub enum Modification {
 }
 
 pub struct PrefixTrieExactDistanceIterator<'a> {
-    stack: Vec<(&'a PrefixTrie, &'a str, usize, String, Vec<Modification>)>,
+    stack: Vec<(&'a PrefixTrie, &'a str, usize, String)>,
     continuations: bool,
     visited: HashMap<(usize, &'a str, String), usize>,
 }
@@ -236,7 +235,7 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(top) = self.stack.pop() {
-            let (node, word, distance, prefix, modifications) = top;
+            let (node, word, distance, prefix) = top;
             if let Some(d) = self.visited.get_mut(&(node.id, word, prefix.clone())) {
                 if distance <= *d {
                     continue;
@@ -264,21 +263,11 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
                 if node.children.contains_key(&c) {
                     let child = node.children.get(&c).unwrap();
-                    self.stack.push((
-                        child,
-                        rest,
-                        distance,
-                        {
-                            let mut new_prefix = prefix.clone();
-                            new_prefix.push(c);
-                            new_prefix
-                        },
-                        {
-                            let mut new_mods = modifications.clone();
-                            new_mods.push(Modification::Match(c));
-                            new_mods
-                        },
-                    ));
+                    self.stack.push((child, rest, distance, {
+                        let mut new_prefix = prefix.clone();
+                        new_prefix.push(c);
+                        new_prefix
+                    }));
                 }
 
                 if distance == 0 {
@@ -287,49 +276,23 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
                 for child in &node.children {
                     if *child.0 != c {
-                        self.stack.push((
-                            child.1,
-                            rest,
-                            distance - 1,
-                            {
-                                let mut new_prefix = prefix.clone();
-                                new_prefix.push(*child.0);
-                                new_prefix
-                            },
-                            {
-                                let mut new_mods = modifications.clone();
-                                new_mods.push(Modification::Substitution(c, *child.0));
-                                new_mods
-                            },
-                        ));
+                        self.stack.push((child.1, rest, distance - 1, {
+                            let mut new_prefix = prefix.clone();
+                            new_prefix.push(*child.0);
+                            new_prefix
+                        }));
                     }
                 }
 
-                self.stack.push((node, rest, distance - 1, prefix.clone(), {
-                    let mut new_mods = modifications.clone();
-                    new_mods.push(Modification::Deletion(c));
-                    new_mods
-                }));
+                self.stack.push((node, rest, distance - 1, prefix.clone()));
 
                 for child in &node.children {
-                    if *child.0 != c
-                        && modifications.last() != Some(&Modification::Deletion(*child.0))
-                    {
-                        self.stack.push((
-                            child.1,
-                            word,
-                            distance - 1,
-                            {
-                                let mut new_prefix = prefix.clone();
-                                new_prefix.push(*child.0);
-                                new_prefix
-                            },
-                            {
-                                let mut new_mods = modifications.clone();
-                                new_mods.push(Modification::Insertion(*child.0));
-                                new_mods
-                            },
-                        ));
+                    if *child.0 != c {
+                        self.stack.push((child.1, word, distance - 1, {
+                            let mut new_prefix = prefix.clone();
+                            new_prefix.push(*child.0);
+                            new_prefix
+                        }));
                     }
                 }
             } else {
@@ -345,11 +308,6 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                             let mut new_prefix = prefix.clone();
                             new_prefix.push(*child.0);
                             new_prefix
-                        },
-                        {
-                            let mut new_mods = modifications.clone();
-                            new_mods.push(Modification::Insertion(*child.0));
-                            new_mods
                         },
                     ));
                 }
