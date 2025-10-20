@@ -1038,7 +1038,7 @@ fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
 
     let q = query.as_str().to_ascii_lowercase();
     let result = ix
-        .find_with_max_edit_distance(&q, (query.len() / 4).min(255).max(2) as u8, true)
+        .find_with_max_edit_distance(&q, (query.len() / 4).clamp(2, 255) as u8, true)
         .take(10);
 
     Result::Ok(Json(

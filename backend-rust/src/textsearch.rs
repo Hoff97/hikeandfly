@@ -38,9 +38,9 @@ impl PrefixTrieBuilder {
         let total_nodes = self.total_nodes();
 
         let mut trie = PrefixTrie {
-            children: vec![HashMap::new(); total_nodes as usize],
-            leafs: vec![false; total_nodes as usize],
-            ordered_lengths: vec![vec![]; total_nodes as usize],
+            children: vec![HashMap::new(); total_nodes],
+            leafs: vec![false; total_nodes],
+            ordered_lengths: vec![vec![]; total_nodes],
         };
 
         self.finalize_node(&mut trie, 0);
@@ -49,12 +49,12 @@ impl PrefixTrieBuilder {
 
     fn finalize_node(self, trie: &mut PrefixTrie, mut current_ix: IndexType) {
         let my_ix = current_ix;
-        trie.ordered_lengths[my_ix as usize] = {
+        trie.ordered_lengths[my_ix] = {
             let mut lengths: Vec<usize> = self.lengths.into_iter().collect();
             lengths.sort_unstable();
             lengths.into_iter().map(|x| x as LengthType).collect()
         };
-        trie.leafs[my_ix as usize] = trie.ordered_lengths[my_ix as usize].contains(&0);
+        trie.leafs[my_ix] = trie.ordered_lengths[my_ix].contains(&0);
 
         current_ix += 1;
 
@@ -69,7 +69,7 @@ impl PrefixTrieBuilder {
         ch.sort_by_key(|x| (x.2 as isize).wrapping_neg());
 
         for (c, child, _) in ch {
-            trie.children[my_ix as usize].insert(c, current_ix);
+            trie.children[my_ix].insert(c, current_ix);
 
             let child_nodes = child.total_nodes();
             child.finalize_node(trie, current_ix);
@@ -98,15 +98,13 @@ pub struct PrefixTrie {
 
 impl PrefixTrie {
     pub fn get_child(&self, c: char, ix: IndexType) -> Option<&IndexType> {
-        self.children[ix as usize]
-            .iter()
-            .find_map(|(child_char, child_ix)| {
-                if *child_char == c {
-                    Some(child_ix)
-                } else {
-                    None
-                }
-            })
+        self.children[ix].iter().find_map(|(child_char, child_ix)| {
+            if *child_char == c {
+                Some(child_ix)
+            } else {
+                None
+            }
+        })
     }
 
     pub fn search(&self, word: &str) -> bool {
@@ -118,7 +116,7 @@ impl PrefixTrie {
                 None => return false,
             }
         }
-        self.leafs[current_ix as usize]
+        self.leafs[current_ix]
     }
 
     pub fn continuations<'a>(
@@ -135,7 +133,7 @@ impl PrefixTrie {
         }
 
         Box::new(
-            self.ordered_lengths[current_ix as usize]
+            self.ordered_lengths[current_ix]
                 .iter()
                 .flat_map(move |&x| self.childs_of_lengths(current_ix, x))
                 .map(move |suffix| {
@@ -152,7 +150,7 @@ impl PrefixTrie {
         ix: IndexType,
         length: LengthType,
     ) -> Box<dyn Iterator<Item = String> + '_> {
-        if !self.ordered_lengths[ix as usize].contains(&length) {
+        if !self.ordered_lengths[ix].contains(&length) {
             return Box::new(std::iter::empty());
         }
 
@@ -160,19 +158,15 @@ impl PrefixTrie {
             return Box::new(vec!["".to_string()].into_iter());
         }
 
-        Box::new(
-            self.children[ix as usize]
-                .iter()
-                .flat_map(move |(c, child)| {
-                    let suffixes = self.childs_of_lengths(*child, length - 1);
-                    suffixes.map(move |suffix| {
-                        let mut s = String::new();
-                        s.push(*c);
-                        s.push_str(&suffix);
-                        s
-                    })
-                }),
-        )
+        Box::new(self.children[ix].iter().flat_map(move |(c, child)| {
+            let suffixes = self.childs_of_lengths(*child, length - 1);
+            suffixes.map(move |suffix| {
+                let mut s = String::new();
+                s.push(*c);
+                s.push_str(&suffix);
+                s
+            })
+        }))
     }
 
     pub fn find_with_max_edit_distance<'a>(
@@ -199,7 +193,6 @@ impl PrefixTrie {
         continuations: bool,
         visited: Option<VisitedType>,
     ) -> PrefixTrieExactDistanceIterator<'a> {
-        let chars = word.chars().collect::<Vec<_>>();
         PrefixTrieExactDistanceIterator {
             stack: vec![(0, 0, distance, String::new())],
             continuations,
@@ -276,7 +269,7 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
             let mut to_return: Option<Self::Item> = None;
 
             let p = prefix.clone();
-            if distance == 0 && (word_ix == self.word.len()) && self.trie.leafs[node as usize] {
+            if distance == 0 && (word_ix == self.word.len()) && self.trie.leafs[node] {
                 if self.continuations {
                     to_return = Some(Box::new(std::iter::once(p)));
                 } else {
@@ -299,7 +292,7 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                     continue;
                 }
 
-                for child in self.trie.children[node as usize].iter() {
+                for child in self.trie.children[node].iter() {
                     if *child.0 != c {
                         self.stack.push((*child.1, word_ix + 1, distance - 1, {
                             let mut new_prefix = prefix.clone();
@@ -312,7 +305,7 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                 self.stack
                     .push((node, word_ix + 1, distance - 1, prefix.clone()));
 
-                for child in self.trie.children[node as usize].iter() {
+                for child in self.trie.children[node].iter() {
                     if *child.0 != c {
                         self.stack.push((*child.1, word_ix, distance - 1, {
                             let mut new_prefix = prefix.clone();
@@ -325,7 +318,7 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                 if distance == 0 && !self.continuations {
                     continue;
                 }
-                for child in self.trie.children[node as usize].iter() {
+                for child in self.trie.children[node].iter() {
                     self.stack.push((
                         *child.1,
                         word_ix,

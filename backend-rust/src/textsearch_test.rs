@@ -1,9 +1,3 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader},
-};
-
 use serde::{Deserialize, Serialize};
 
 use crate::textsearch::{PrefixTrieBuilder, SearchIndex};
