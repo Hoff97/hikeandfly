@@ -1,15 +1,15 @@
-use crate::textsearch::{PrefixTrie, SearchIndex};
+use crate::textsearch::{PrefixTrieBuilder, SearchIndex};
 
 #[test]
 fn test_prefix_trie_search() {
     let words = vec![
         "Hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
     ];
-    let mut trie = PrefixTrie::new();
+    let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        trie.insert(word);
+        prefix_trie_builder.insert(word);
     }
-    trie.finalize(None);
+    let trie = prefix_trie_builder.finalize(None);
 
     assert!(trie.search("Hello"));
     assert!(trie.search("helium"));
@@ -25,11 +25,11 @@ fn test_prefix_trie_continuations() {
     let words = vec![
         "hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
     ];
-    let mut trie = PrefixTrie::new();
+    let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        trie.insert(word);
+        prefix_trie_builder.insert(word);
     }
-    trie.finalize(None);
+    let trie = prefix_trie_builder.finalize(None);
 
     assert_eq!(
         trie.continuations("he").collect::<Vec<_>>(),
@@ -40,11 +40,11 @@ fn test_prefix_trie_continuations() {
 #[test]
 fn test_prefix_trie_exact_edit_distance_stack() {
     let words = vec!["hero"];
-    let mut trie = PrefixTrie::new();
+    let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        trie.insert(word);
+        prefix_trie_builder.insert(word);
     }
-    trie.finalize(None);
+    let trie = prefix_trie_builder.finalize(None);
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 1, false, None)
@@ -64,11 +64,11 @@ fn test_prefix_trie_exact_edit_distance_stack() {
 #[test]
 fn test_prefix_trie_exact_edit_distance_stack_2() {
     let words = vec!["aber"];
-    let mut trie = PrefixTrie::new();
+    let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        trie.insert(word);
+        prefix_trie_builder.insert(word);
     }
-    trie.finalize(None);
+    let trie = prefix_trie_builder.finalize(None);
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
@@ -83,11 +83,11 @@ fn test_prefix_trie_max_edit_distance() {
     let words = vec![
         "hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
     ];
-    let mut trie = PrefixTrie::new();
+    let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        trie.insert(word);
+        prefix_trie_builder.insert(word);
     }
-    trie.finalize(None);
+    let trie = prefix_trie_builder.finalize(None);
 
     assert_eq!(
         trie.find_with_max_edit_distance("her", 2, false)
@@ -102,11 +102,11 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
     let words = vec![
         "hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
     ];
-    let mut trie = PrefixTrie::new();
+    let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        trie.insert(word);
+        prefix_trie_builder.insert(word);
     }
-    trie.finalize(None);
+    let trie = prefix_trie_builder.finalize(None);
 
     assert_eq!(
         trie.find_with_max_edit_distance("hello", 2, true)
@@ -125,11 +125,11 @@ fn test_search_index_search() {
     let words = vec![
         "hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
     ];
-    let mut index = SearchIndex::new();
+    let mut index_builder = SearchIndex::new();
     for word in &words {
-        index.insert(word, word.chars().rev().collect::<String>());
+        index_builder.insert(word, word.chars().rev().collect::<String>());
     }
-    index.finalize();
+    let index = index_builder.finalize();
 
     assert_eq!(index.search("hello"), Some(&"olleh".to_string()));
     assert_eq!(index.search("her"), Some(&"reh".to_string()));
@@ -145,11 +145,11 @@ fn test_search_index_continuations() {
     let words = vec![
         "hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
     ];
-    let mut index = SearchIndex::new();
+    let mut index_builder = SearchIndex::new();
     for word in &words {
-        index.insert(word, word.chars().rev().collect::<String>());
+        index_builder.insert(word, word.chars().rev().collect::<String>());
     }
-    index.finalize();
+    let index = index_builder.finalize();
 
     assert_eq!(
         index.continuations("he").collect::<Vec<_>>(),

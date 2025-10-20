@@ -3,7 +3,7 @@ use core::f32;
 use std::{
     cmp::{max, min, Ordering},
     f32::consts::PI,
-    fs::File,
+    fs::{self, File},
     hash::{Hash, Hasher},
     io::{BufRead, BufReader, Cursor},
 };
@@ -15,7 +15,7 @@ use backend_rust::{
     colors::{f32_color_to_u8, lerp},
     height_data::{location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
-    textsearch::SearchIndex,
+    textsearch::{PrefixTrie, SearchIndex},
 };
 
 use image::{DynamicImage, GenericImage, ImageFormat, Rgba};
@@ -1007,19 +1007,27 @@ struct Location {
     center: Vec<f32>,
 }
 
-fn search_index() -> &'static SearchIndex<Location> {
-    static INSTANCE: OnceCell<SearchIndex<Location>> = OnceCell::new();
+fn search_index() -> &'static SearchIndex<PrefixTrie, Location> {
+    static INSTANCE: OnceCell<SearchIndex<PrefixTrie, Location>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         println!("Building search index...");
         let mut ix = SearchIndex::new();
-        let r = File::open("data/search_data.jsonl").unwrap();
-        let reader = BufReader::new(r);
-        for line in reader.lines() {
-            let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
-            ix.insert(location.name.to_ascii_lowercase().as_str(), location);
+
+        let paths = fs::read_dir("./data").unwrap();
+
+        for path in paths {
+            let path = path.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                println!("Loading search data from {:?}", path);
+                let r = File::open(path).unwrap();
+                let reader = BufReader::new(r);
+                for line in reader.lines() {
+                    let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
+                    ix.insert(location.name.to_ascii_lowercase().as_str(), location);
+                }
+            }
         }
-        ix.finalize();
-        ix
+        ix.finalize()
     })
 }
 

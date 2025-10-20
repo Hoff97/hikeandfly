@@ -3,29 +3,16 @@ use std::{
     vec,
 };
 
-#[derive(Clone)]
-pub struct PrefixTrie {
-    children: HashMap<char, PrefixTrie>,
+pub struct PrefixTrieBuilder {
+    children: HashMap<char, PrefixTrieBuilder>,
     lengths: HashSet<usize>,
-    ordered_lengths: Vec<usize>,
-    id: usize,
 }
 
-//unsafe impl Sync for PrefixTrie {}
-
-impl Default for PrefixTrie {
-    fn default() -> Self {
-        PrefixTrie::new()
-    }
-}
-
-impl PrefixTrie {
+impl PrefixTrieBuilder {
     pub fn new() -> Self {
-        PrefixTrie {
+        PrefixTrieBuilder {
             children: HashMap::new(),
             lengths: HashSet::new(),
-            ordered_lengths: vec![],
-            id: 0,
         }
     }
 
@@ -38,19 +25,40 @@ impl PrefixTrie {
         current.lengths.insert(0);
     }
 
-    pub fn finalize(&mut self, max_id: Option<usize>) -> usize {
+    pub fn finalize(self, max_id: Option<usize>) -> PrefixTrie {
         let mut lengths: Vec<usize> = self.lengths.iter().cloned().collect();
         lengths.sort_unstable();
-        self.ordered_lengths = lengths;
         let mut max_id = max_id.unwrap_or(0);
-        self.id = max_id;
-        max_id += 1;
-        for child in self.children.values_mut() {
-            max_id = child.finalize(Some(max_id));
-        }
-        max_id
-    }
 
+        let mut trie = PrefixTrie {
+            ordered_lengths: lengths,
+            id: max_id,
+            children: HashMap::new(),
+        };
+        max_id += 1;
+        for (child_char, child) in self.children {
+            let new_child = child.finalize(Some(max_id));
+            max_id = new_child.id + 1;
+            trie.children.insert(child_char, new_child);
+        }
+        trie
+    }
+}
+
+impl Default for PrefixTrieBuilder {
+    fn default() -> Self {
+        PrefixTrieBuilder::new()
+    }
+}
+
+#[derive(Clone)]
+pub struct PrefixTrie {
+    children: HashMap<char, PrefixTrie>,
+    ordered_lengths: Vec<usize>,
+    id: usize,
+}
+
+impl PrefixTrie {
     pub fn get_child(&self, c: char) -> Option<&PrefixTrie> {
         self.children.get(&c)
     }
@@ -63,7 +71,7 @@ impl PrefixTrie {
                 None => return false,
             }
         }
-        current.lengths.contains(&0)
+        current.ordered_lengths.contains(&0)
     }
 
     pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = String> + 'a> {
@@ -90,7 +98,7 @@ impl PrefixTrie {
     }
 
     pub fn childs_of_lengths(&self, length: usize) -> Box<dyn Iterator<Item = String> + '_> {
-        if !self.lengths.contains(&length) {
+        if !self.ordered_lengths.contains(&length) {
             return Box::new(std::iter::empty());
         }
 
@@ -209,7 +217,7 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
             let mut to_return: Option<Self::Item> = None;
 
             let p = prefix.clone();
-            if distance == 0 && word.is_empty() && node.lengths.contains(&0) {
+            if distance == 0 && word.is_empty() && node.ordered_lengths.contains(&0) {
                 if self.continuations {
                     to_return = Some(Box::new(std::iter::once(p)));
                 } else {
@@ -327,21 +335,21 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 }
 
 #[derive(Clone)]
-pub struct SearchIndex<T> {
-    trie: PrefixTrie,
+pub struct SearchIndex<TrieType, T> {
+    trie: TrieType,
     elements: HashMap<String, T>,
 }
 
-impl<T> Default for SearchIndex<T> {
+impl<T> Default for SearchIndex<PrefixTrieBuilder, T> {
     fn default() -> Self {
         SearchIndex::new()
     }
 }
 
-impl<T> SearchIndex<T> {
+impl<T> SearchIndex<PrefixTrieBuilder, T> {
     pub fn new() -> Self {
         SearchIndex {
-            trie: PrefixTrie::new(),
+            trie: PrefixTrieBuilder::new(),
             elements: HashMap::new(),
         }
     }
@@ -351,10 +359,15 @@ impl<T> SearchIndex<T> {
         self.elements.insert(key.to_string(), element);
     }
 
-    pub fn finalize(&mut self) {
-        self.trie.finalize(None);
+    pub fn finalize(self) -> SearchIndex<PrefixTrie, T> {
+        SearchIndex {
+            trie: self.trie.finalize(None),
+            elements: self.elements,
+        }
     }
+}
 
+impl<T> SearchIndex<PrefixTrie, T> {
     pub fn search(&self, key: &str) -> Option<&T> {
         if self.trie.search(key) {
             self.elements.get(key)
