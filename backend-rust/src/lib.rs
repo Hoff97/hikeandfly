@@ -3,3 +3,4 @@ pub mod height_data;
 pub mod line;
 pub mod pqueue;
 pub mod search;
+pub mod textsearch;

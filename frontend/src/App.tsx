@@ -13,7 +13,8 @@ import { SettingsCard } from "./components/SettingsCard";
 import { ImageOverlays } from "./components/ImageOverlay";
 import { HoverState, SearchComponent } from "./components/SearchComponent";
 import { CurrenLocationPane } from "./components/CurrentLocation";
-import { HeightPlotCard } from "./components/HeightPlotCard";
+//import { HeightPlotCard } from "./components/HeightPlotCard";
+import { SearchCard } from "./components/SearchCard";
 
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
@@ -76,7 +77,7 @@ function App() {
                     setImageState={setImageState}
                     pathAndNode={pathAndNode}
                     setIsInfoOpen={setIsisInfoOpen}></SettingsCard>
-                <HeightPlotCard pathAndNode={pathAndNode} settings={settings} />
+                {/* <HeightPlotCard pathAndNode={pathAndNode} settings={settings} /> */}
                 <MapContainer center={[lastLocationLat, lastLocationLon]} zoom={13} scrollWheelZoom={true}>
                     <LayersControl position="bottomright">
                         <LayersControl.BaseLayer checked name="OpenTopoMap">
@@ -124,6 +125,7 @@ function App() {
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}
                         setSettings={setSettings}></CurrenLocationPane>
+                    <SearchCard></SearchCard>
                 </MapContainer>
             </OverlaysProvider>
         </div>

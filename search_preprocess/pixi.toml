@@ -1,0 +1,11 @@
+[workspace]
+authors = ["Frithjof Winkelmann <fwinkelmann97@gmail.com>"]
+channels = ["conda-forge"]
+name = "search_preprocess"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+polars = ">=1.34.0,<2"

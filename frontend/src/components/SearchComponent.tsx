@@ -19,7 +19,7 @@ interface SearchComponentProps {
 
 function abortEvent(e: LeafletMouseEvent) {
     return ("classList" in (e.originalEvent.target as any) &&
-        (e.originalEvent.target as any).classList.contains("locationButton"))
+        ((e.originalEvent.target as any).classList.contains("locationButton") || e.originalEvent.target as any).classList.contains("bp5-input"))
         || ("parentElement" in (e.originalEvent.target as any) && "classList" in (e.originalEvent.target as any).parentElement &&
             (e.originalEvent.target as any).parentElement.classList.contains("locationButton"));
 }

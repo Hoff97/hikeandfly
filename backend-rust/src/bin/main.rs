@@ -3,17 +3,21 @@ use core::f32;
 use std::{
     cmp::{max, min, Ordering},
     f32::consts::PI,
+    fs::{self, File},
     hash::{Hash, Hasher},
-    io::Cursor,
+    io::{BufRead, BufReader, Cursor},
 };
 
+use once_cell::sync::OnceCell;
 use rocket_ws::{Stream, WebSocket};
 
 use backend_rust::{
     colors::{f32_color_to_u8, lerp},
     height_data::{location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
+    textsearch::{PrefixTrie, SearchIndex},
 };
+
 use image::{DynamicImage, GenericImage, ImageFormat, Rgba};
 use quick_xml::{
     events::{BytesEnd, BytesStart, BytesText, Event},
@@ -29,6 +33,7 @@ use rocket::{
 use ndarray::{s, Array2};
 
 use cached::proc_macro::cached;
+use serde::Deserialize;
 
 #[macro_use]
 extern crate rocket;
@@ -112,7 +117,7 @@ impl SearchQueryHashable {
     }
 }
 
-#[cached(size = 1000, time = 3600, time_refresh = true, sync_writes = false)]
+#[cached(size = 1000, sync_writes = "by_key")]
 fn search_from_point_memoized(
     latitude: Distance,
     longitude: Distance,
@@ -225,7 +230,6 @@ pub fn search_from_request(
 }
 
 #[derive(Serialize)]
-
 struct NodeResponse {
     index: GridIx,
     height: i16,
@@ -997,14 +1001,65 @@ fn get_kml(
     (ContentType::XML, writer.into_inner().into_inner())
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct Location {
+    name: String,
+    center: Vec<f32>,
+}
+
+fn search_index() -> &'static SearchIndex<PrefixTrie, Location> {
+    static INSTANCE: OnceCell<SearchIndex<PrefixTrie, Location>> = OnceCell::new();
+    INSTANCE.get_or_init(|| {
+        println!("Building search index...");
+        let mut ix = SearchIndex::new();
+
+        let paths = fs::read_dir("./data").unwrap();
+
+        for path in paths {
+            let path = path.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                println!("Loading search data from {:?}", path);
+                let r = File::open(path).unwrap();
+                let reader = BufReader::new(r);
+                for line in reader.lines() {
+                    let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
+                    ix.insert(location.name.to_ascii_lowercase().as_str(), location);
+                }
+            }
+        }
+        ix.finalize()
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+#[get("/search?<query>")]
+fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
+    let ix = search_index();
+
+    let q = query.as_str().to_ascii_lowercase();
+    let result = ix.find_with_max_edit_distance(&q, 2, true).take(10);
+
+    Result::Ok(Json(
+        result
+            .map(|x| Location {
+                name: x.1.name.clone(),
+                center: x.1.center.clone(),
+            })
+            .collect(),
+    ))
+}
+
 #[launch]
 fn rocket() -> _ {
+    search_index();
+
     rocket::build()
         .mount("/", routes![index])
         .mount("/", routes![get_flight_cone])
         .mount("/", routes![get_flight_cone_stream])
         .mount("/", routes![get_raw_height_image])
         .mount("/", routes![get_flight_cone_bounds])
+        .mount("/", routes![search])
         .mount("/", routes![get_agl_image])
         .mount("/", routes![get_height_image])
         .mount("/", routes![get_kml])
