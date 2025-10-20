@@ -114,8 +114,8 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
             .collect::<Vec<_>>(),
         vec![
             "hello".to_string(),
-            "hero".to_string(),
             "helium".to_string(),
+            "hero".to_string(),
         ]
     );
 }
@@ -131,13 +131,13 @@ fn test_search_index_search() {
     }
     let index = index_builder.finalize();
 
-    assert_eq!(index.search("hello"), Some(&"olleh".to_string()));
-    assert_eq!(index.search("her"), Some(&"reh".to_string()));
+    assert_eq!(index.search("hello"), Some(&vec!["olleh".to_string()]));
+    assert_eq!(index.search("her"), Some(&vec!["reh".to_string()]));
     assert_eq!(index.search("helicopter"), None);
-    assert_eq!(index.search("abba"), Some(&"abba".to_string()));
-    assert_eq!(index.search("aber"), Some(&"reba".to_string()));
-    assert_eq!(index.search("alla"), Some(&"alla".to_string()));
-    assert_eq!(index.search("all"), Some(&"lla".to_string()));
+    assert_eq!(index.search("abba"), Some(&vec!["abba".to_string()]));
+    assert_eq!(index.search("aber"), Some(&vec!["reba".to_string()]));
+    assert_eq!(index.search("alla"), Some(&vec!["alla".to_string()]));
+    assert_eq!(index.search("all"), Some(&vec!["lla".to_string()]));
 }
 
 #[test]

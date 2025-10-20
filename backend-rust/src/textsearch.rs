@@ -280,19 +280,20 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
             if word_ix < self.word.len() {
                 let c = self.word[word_ix];
 
-                if let Some(child) = self.trie.get_child(c, node) {
-                    self.stack.push((*child, word_ix + 1, distance, {
-                        let mut new_prefix = prefix.clone();
-                        new_prefix.push(c);
-                        new_prefix
-                    }));
-                }
-
                 if distance == 0 {
+                    // Match
+                    if let Some(child) = self.trie.get_child(c, node) {
+                        self.stack.push((*child, word_ix + 1, distance, {
+                            let mut new_prefix = prefix.clone();
+                            new_prefix.push(c);
+                            new_prefix
+                        }));
+                    }
                     continue;
                 }
 
                 for child in self.trie.children[node].iter() {
+                    // Substitution
                     if *child.0 != c {
                         self.stack.push((*child.1, word_ix + 1, distance - 1, {
                             let mut new_prefix = prefix.clone();
@@ -302,9 +303,11 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                     }
                 }
 
+                // Deletion
                 self.stack
                     .push((node, word_ix + 1, distance - 1, prefix.clone()));
 
+                // Insertion
                 for child in self.trie.children[node].iter() {
                     if *child.0 != c {
                         self.stack.push((*child.1, word_ix, distance - 1, {
@@ -313,6 +316,15 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                             new_prefix
                         }));
                     }
+                }
+
+                // Match
+                if let Some(child) = self.trie.get_child(c, node) {
+                    self.stack.push((*child, word_ix + 1, distance, {
+                        let mut new_prefix = prefix.clone();
+                        new_prefix.push(c);
+                        new_prefix
+                    }));
                 }
             } else {
                 if distance == 0 && !self.continuations {
@@ -343,7 +355,7 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 #[derive(Clone)]
 pub struct SearchIndex<TrieType, T> {
     trie: TrieType,
-    elements: HashMap<String, T>,
+    elements: HashMap<String, Vec<T>>,
 }
 
 impl<T> Default for SearchIndex<PrefixTrieBuilder, T> {
@@ -362,7 +374,8 @@ impl<T> SearchIndex<PrefixTrieBuilder, T> {
 
     pub fn insert(&mut self, key: &str, element: T) {
         self.trie.insert(key);
-        self.elements.insert(key.to_string(), element);
+        let entry = self.elements.entry(key.to_string()).or_default();
+        entry.push(element);
     }
 
     pub fn finalize(self) -> SearchIndex<PrefixTrie, T> {
@@ -374,7 +387,7 @@ impl<T> SearchIndex<PrefixTrieBuilder, T> {
 }
 
 impl<T> SearchIndex<PrefixTrie, T> {
-    pub fn search(&self, key: &str) -> Option<&T> {
+    pub fn search(&self, key: &str) -> Option<&Vec<T>> {
         if self.trie.search(key) {
             self.elements.get(key)
         } else {
@@ -384,7 +397,10 @@ impl<T> SearchIndex<PrefixTrie, T> {
 
     pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = &'a T> + 'a> {
         let keys = self.trie.continuations(prefix, 0);
-        Box::new(keys.filter_map(move |found| self.elements.get(&found)))
+        Box::new(
+            keys.flat_map(move |found| self.elements.get(&found).into_iter())
+                .flatten(),
+        )
     }
 
     pub fn find_with_max_edit_distance<'a>(
@@ -396,10 +412,12 @@ impl<T> SearchIndex<PrefixTrie, T> {
         self.trie
             .find_with_max_edit_distance(key, max_distance, continuations)
             .flatten()
-            .map(move |found_key| {
-                let element = self.elements.get(&found_key).unwrap();
-                (found_key, element)
+            .filter_map(move |found_key| {
+                self.elements
+                    .get(&found_key)
+                    .map(move |v| v.iter().map(move |e| (found_key.clone(), e)))
             })
+            .flatten()
     }
 }
 

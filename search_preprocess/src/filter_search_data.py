@@ -136,18 +136,6 @@ def main():
             ]
         )
 
-        duplicates_with_same_category = (
-            df.group_by("name")
-            .agg(
-                pl.len().alias("name_count"),
-                pl.col("category"),
-            )
-            .with_columns(pl.col("category").list.unique().alias("categories"))
-            .filter(pl.col("name_count") > 1, pl.col("categories").list.len() == 1)
-            .select(pl.col("name"), pl.col("categories").list.first().alias("category"))
-        )
-        df = df.join(duplicates_with_same_category, on="name", how="anti")
-
         df = df.select(["name", "center"])
 
         df.write_ndjson(f"data/search_data_{region}.jsonl")
