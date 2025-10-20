@@ -1005,10 +1005,16 @@ fn get_kml(
 struct Location {
     name: String,
     center: Vec<f32>,
+    additional_info: Option<String>,
 }
 
-fn search_index() -> &'static SearchIndex<PrefixTrie, Vec<f32>> {
-    static INSTANCE: OnceCell<SearchIndex<PrefixTrie, Vec<f32>>> = OnceCell::new();
+struct LocationInfo {
+    center: Vec<f32>,
+    additional_info: Option<String>,
+}
+
+fn search_index() -> &'static SearchIndex<PrefixTrie, LocationInfo> {
+    static INSTANCE: OnceCell<SearchIndex<PrefixTrie, LocationInfo>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         println!("Building search index...");
         let mut ix = SearchIndex::new();
@@ -1023,7 +1029,13 @@ fn search_index() -> &'static SearchIndex<PrefixTrie, Vec<f32>> {
                 let reader = BufReader::new(r);
                 for line in reader.lines() {
                     let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
-                    ix.insert(location.name.as_str(), location.center);
+                    ix.insert(
+                        location.name.as_str(),
+                        LocationInfo {
+                            center: location.center,
+                            additional_info: location.additional_info,
+                        },
+                    );
                 }
             }
         }
@@ -1045,7 +1057,8 @@ fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
         result
             .map(|x| Location {
                 name: x.0,
-                center: x.1.clone(),
+                center: x.1.center.clone(),
+                additional_info: x.1.additional_info.clone(),
             })
             .collect(),
     ))
