@@ -22,7 +22,7 @@ export function CurrenLocationPane({ setImageState, setGrid, setSettings, settin
                     ev.stopPropagation();
                     ev.preventDefault();
                 }}
-                large={true}
+                size={"large"}
                 intent="primary"
                 className="locationButton"
                 text="From my location">
