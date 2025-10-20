@@ -16,6 +16,27 @@
     z-index: 500;
 }
 
+.locationButton {
+    position: absolute;
+    right: 60px;
+    top: 68px;
+    z-index: 490;
+}
+
+@media only screen and (max-width: 620px) {
+    .settings {
+        top: 45px;
+    }
+
+    .locationButton {
+        top: 90px;
+    }
+
+    .infoButton {
+        top: 45px;
+    }
+}
+
 .loading {
     position: absolute;
     top: 60px;
@@ -81,13 +102,6 @@ canvas#canvas-overlay {
 .right {
     position: absolute;
     right: 0px;
-}
-
-.locationButton {
-    position: absolute;
-    right: 60px;
-    top: 68px;
-    z-index: 490;
 }
 
 .marginRight {
