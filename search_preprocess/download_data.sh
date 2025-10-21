@@ -5,3 +5,6 @@ wget https://download1.graphhopper.com/public/europe/france-monacco/photon-dump-
 wget https://download1.graphhopper.com/public/europe/slovenia/photon-dump-slovenia-0.7-latest.jsonl.zst
 
 zstd -d photon-dump-*.jsonl.zst
+
+wget https://service.dhv.de/dbfiles/managed/gelaendedaten/dhvxml/dhvgelaende_dhvxml_alle.zip?format=dhvxml&land=alle&nutzung=on
+unzip unzip dhvgelaende_dhvxml_alle.zip\?format=dhvxml\&land=alle\&nutzung=on
