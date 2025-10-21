@@ -15,6 +15,7 @@ import { HoverState, SearchComponent } from "./components/SearchComponent";
 import { CurrenLocationPane } from "./components/CurrentLocation";
 import { HeightPlotCard } from "./components/HeightPlotCard";
 import { SearchCard } from "./components/SearchCard";
+import { FlyingSiteOverlay } from "./components/FlyingSiteOverlay";
 
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
@@ -108,6 +109,7 @@ function App() {
                         ) : (
                             <></>
                         )}
+                        <FlyingSiteOverlay></FlyingSiteOverlay>
                     </LayersControl>
                     <SearchComponent
                         setImageState={setImageState}

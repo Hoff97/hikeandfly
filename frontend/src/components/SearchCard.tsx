@@ -77,7 +77,7 @@ export function SearchCard() {
         setSearchValue("");
         setItems([]);
         setSelectedItem(null);
-        map.flyTo([item.center[1], item.center[0]], 14);
+        map.flyTo([item.center[1], item.center[0]], 16);
     }
 
     return (

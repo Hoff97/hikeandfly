@@ -12,6 +12,7 @@ use once_cell::sync::OnceCell;
 use rocket_ws::{Stream, WebSocket};
 
 use backend_rust::{
+    btree::BTree,
     colors::{f32_color_to_u8, lerp},
     height_data::{location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
@@ -1065,6 +1066,24 @@ fn search_index() -> &'static SearchLocation {
     })
 }
 
+fn flying_site_search_index() -> &'static BTree<Location> {
+    static INSTANCE: OnceCell<BTree<Location>> = OnceCell::new();
+    INSTANCE.get_or_init(|| {
+        println!("Building flying site search index...");
+        let mut items = vec![];
+
+        let r = File::open("data/search_data_flying_sites.jsonl").unwrap();
+        let reader = BufReader::new(r);
+        for line in reader.lines() {
+            let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
+
+            items.push((location.center.clone(), location));
+        }
+
+        BTree::new(items, None, None)
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 #[get("/search?<query>")]
 fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
@@ -1087,9 +1106,29 @@ fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
+#[get("/flying_sites?<min_lat>&<max_lat>&<min_lon>&<max_lon>")]
+fn search_flying_site(
+    min_lat: f32,
+    max_lat: f32,
+    min_lon: f32,
+    max_lon: f32,
+) -> Result<Json<Vec<Location>>, Status> {
+    let ix = flying_site_search_index();
+
+    let sites = ix
+        .in_interval(&[min_lon, min_lat], &[max_lon, max_lat])
+        .take(100)
+        .cloned()
+        .collect();
+
+    Result::Ok(Json(sites))
+}
+
 #[launch]
 fn rocket() -> _ {
     search_index();
+    flying_site_search_index();
 
     rocket::build()
         .mount("/", routes![index])
@@ -1098,6 +1137,7 @@ fn rocket() -> _ {
         .mount("/", routes![get_raw_height_image])
         .mount("/", routes![get_flight_cone_bounds])
         .mount("/", routes![search])
+        .mount("/", routes![search_flying_site])
         .mount("/", routes![get_agl_image])
         .mount("/", routes![get_height_image])
         .mount("/", routes![get_kml])
