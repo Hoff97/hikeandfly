@@ -1,53 +1,61 @@
 import {
     CircleMarker,
     LayersControl,
-    Marker,
     Tooltip,
     useMap,
     useMapEvents,
 } from "react-leaflet";
 import { SearchResult } from "./SearchCard";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+function isSubset(boundsA: L.LatLngBounds, boundsB: L.LatLngBounds) {
+    return boundsA.getSouth() >= boundsB.getSouth() &&
+        boundsA.getNorth() <= boundsB.getNorth() &&
+        boundsA.getWest() >= boundsB.getWest() &&
+        boundsA.getEast() <= boundsB.getEast();
+}
 
 export function FlyingSiteOverlay() {
     const map = useMap();
 
     const [sites, setSites] = useState<SearchResult[]>([]);
+    const [loadedBounds, setLoadedBounds] = useState<L.LatLngBounds | null>(null);
 
-    let searchSites = async () => {
+    let searchSites = useCallback(async () => {
         let url = new URL(window.location.origin + "/flying_sites");
+        const bounds = map.getBounds();
         url.search = new URLSearchParams({
-            min_lat: map.getBounds().getSouth().toString(),
-            max_lat: map.getBounds().getNorth().toString(),
-            min_lon: map.getBounds().getWest().toString(),
-            max_lon: map.getBounds().getEast().toString()
+            min_lat: bounds.getSouth().toString(),
+            max_lat: bounds.getNorth().toString(),
+            min_lon: bounds.getWest().toString(),
+            max_lon: bounds.getEast().toString()
         }).toString();
 
         let response = await fetch(url);
         let body: SearchResult[] = await response.json();
 
+        setLoadedBounds(bounds);
         setSites(body);
-    };
+    }, [map, setLoadedBounds, setSites]);
+
+    useEffect(() => {
+        setTimeout(() => {
+            if (map.getZoom() >= 10) {
+                searchSites();
+            }
+        }, 500);
+    }, [map, searchSites]);
 
     useMapEvents({
-        zoomend: (e) => {
-            if (map.getZoom() < 10) {
-                setSites([]);
-                return;
-            }
-            const bounds = map.getBounds();
-            setTimeout(() => {
-                if (map.getBounds().equals(bounds)) {
-                    searchSites();
-                }
-            }, 200);
-        },
         moveend: (e) => {
             if (map.getZoom() < 10) {
                 setSites([]);
                 return;
             }
             const bounds = map.getBounds();
+            if (loadedBounds && isSubset(bounds, loadedBounds) && sites.length < 100 && sites.length > 0) {
+                return;
+            }
             setTimeout(() => {
                 if (map.getBounds().equals(bounds)) {
                     searchSites();
