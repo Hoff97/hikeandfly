@@ -1117,8 +1117,9 @@ fn search_flying_site(
     let ix = flying_site_search_index();
 
     let sites = ix
-        .in_interval(&[min_lon, min_lat], &[max_lon, max_lat])
-        .take(100)
+        .in_interval(&[min_lon, min_lat], &[max_lon, max_lat], None)
+        .take(200)
+        .map(|x| x.1)
         .cloned()
         .collect();
 
