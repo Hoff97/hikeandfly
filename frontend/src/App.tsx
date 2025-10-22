@@ -1,6 +1,7 @@
 import { useState } from "react";
 import "./App.css";
 import {
+    CircleMarker,
     LayersControl,
     MapContainer,
     TileLayer,
@@ -109,8 +110,11 @@ function App() {
                         ) : (
                             <></>
                         )}
-                        <FlyingSiteOverlay></FlyingSiteOverlay>
+                        <LayersControl.Overlay name="Flying sites" checked>
+                            <CircleMarker center={[0, 0]} radius={0}></CircleMarker>
+                        </LayersControl.Overlay>
                     </LayersControl>
+                    <FlyingSiteOverlay></FlyingSiteOverlay>
                     <SearchComponent
                         setImageState={setImageState}
                         imageState={imageState}
