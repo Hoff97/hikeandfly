@@ -43,6 +43,58 @@ fn median(data: &mut [f32]) -> f32 {
     data[n / 2]
 }
 
+fn l2_distance(a: &[f32], b: &[f32]) -> f32 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| {
+            let diff = x - y;
+            diff * diff
+        })
+        .sum()
+}
+
+struct MergeByDistance<'a, T> {
+    left: Box<dyn Iterator<Item = (Vec<f32>, T)> + 'a>,
+    right: Box<dyn Iterator<Item = (Vec<f32>, T)> + 'a>,
+    middle: Vec<f32>,
+    left_next: Option<(Vec<f32>, T, f32)>,
+    right_next: Option<(Vec<f32>, T, f32)>,
+}
+
+impl<'a, T: Clone> Iterator for MergeByDistance<'a, T> {
+    type Item = (Vec<f32>, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.left_next.is_none() {
+            if let Some((point, item)) = self.left.next() {
+                let dist = l2_distance(&point, &self.middle);
+                self.left_next = Some((point, item, dist));
+            }
+        }
+        if self.right_next.is_none() {
+            if let Some((point, item)) = self.right.next() {
+                let dist = l2_distance(&point, &self.middle);
+                self.right_next = Some((point, item, dist));
+            }
+        }
+
+        match (self.left_next.take(), self.right_next.take()) {
+            (Some((lp, li, ld)), Some((rp, ri, rd))) => {
+                if ld <= rd {
+                    self.right_next = Some((rp, ri, rd));
+                    Some((lp, li))
+                } else {
+                    self.left_next = Some((lp, li, ld));
+                    Some((rp, ri))
+                }
+            }
+            (Some((lp, li, _)), None) => Some((lp, li)),
+            (None, Some((rp, ri, _))) => Some((rp, ri)),
+            (None, None) => None,
+        }
+    }
+}
+
 impl<T> BTree<T> {
     pub fn new(items: Vec<(Vec<f32>, T)>, min_split: Option<usize>, depth: Option<usize>) -> Self {
         let d = depth.unwrap_or(0);
@@ -84,27 +136,44 @@ impl<T> BTree<T> {
             }
         }
     }
+}
 
+impl<T: Clone> BTree<T> {
     pub fn in_interval<'a>(
         &'a self,
         lower: &'a [f32],
         upper: &'a [f32],
-    ) -> Box<dyn Iterator<Item = &'a T> + 'a> {
+    ) -> Box<dyn Iterator<Item = (Vec<f32>, T)> + 'a> {
+        let middle = lower
+            .iter()
+            .zip(upper.iter())
+            .map(|(l, u)| (l + u) / 2.0)
+            .collect::<Vec<f32>>();
+
         if let Some(ref items) = self.items {
-            Box::new(items.iter().filter_map(move |(point, item)| {
+            let mut cloned = items
+                .clone()
+                .iter()
+                .map(|x| (x.0.clone(), x.1.clone(), l2_distance(&x.0, &middle)))
+                .collect::<Vec<_>>();
+            cloned.sort_by(|x, y| x.2.partial_cmp(&y.2).unwrap());
+
+            Box::new(cloned.into_iter().filter_map(move |(point, item, _)| {
                 if point
                     .iter()
                     .zip(lower.iter().zip(upper.iter()))
                     .all(|(p, (l, u))| p >= l && p <= u)
                 {
-                    Some(item)
+                    Some((point, item))
                 } else {
                     None
                 }
             }))
         } else {
-            let mut left_iter: Box<dyn Iterator<Item = &'a T>> = Box::new(iter::empty());
-            let mut right_iter: Box<dyn Iterator<Item = &'a T>> = Box::new(iter::empty());
+            let mut left_iter: Box<dyn Iterator<Item = (Vec<f32>, T)> + 'a> =
+                Box::new(iter::empty());
+            let mut right_iter: Box<dyn Iterator<Item = (Vec<f32>, T)> + 'a> =
+                Box::new(iter::empty());
             if lower[self.dimension] < self.value {
                 if let Some(ref left) = self.left {
                     left_iter = Box::new(left.in_interval(lower, upper));
@@ -115,7 +184,13 @@ impl<T> BTree<T> {
                     right_iter = Box::new(right.in_interval(lower, upper));
                 }
             }
-            Box::new(left_iter.chain(right_iter))
+            Box::new(MergeByDistance {
+                left: left_iter,
+                right: right_iter,
+                middle: middle,
+                left_next: None,
+                right_next: None,
+            })
         }
     }
 }

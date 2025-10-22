@@ -21,6 +21,6 @@ fn test_btree_in_interval() {
     let lower = vec![2.0, 2.5];
     let upper = vec![4.0, 4.5];
 
-    let result: Vec<&&str> = btree.in_interval(&lower, &upper).collect();
-    assert_eq!(result, vec![&"b", &"c"]);
+    let result: Vec<_> = btree.in_interval(&lower, &upper).collect();
+    assert_eq!(result, vec![(vec![3.0, 4.0], "c"), (vec![2.0, 3.0], "b")]);
 }

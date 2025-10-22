@@ -1118,8 +1118,8 @@ fn search_flying_site(
 
     let sites = ix
         .in_interval(&[min_lon, min_lat], &[max_lon, max_lat])
-        .take(100)
-        .cloned()
+        .take(200)
+        .map(|(_, location)| location)
         .collect();
 
     Result::Ok(Json(sites))
