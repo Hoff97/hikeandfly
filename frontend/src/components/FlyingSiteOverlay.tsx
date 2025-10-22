@@ -20,6 +20,7 @@ export function FlyingSiteOverlay() {
 
     const [sites, setSites] = useState<SearchResult[]>([]);
     const [loadedBounds, setLoadedBounds] = useState<L.LatLngBounds | null>(null);
+    const [showSites, setShowSites] = useState<boolean>(true);
 
     let searchSites = useCallback(async () => {
         let url = new URL(window.location.origin + "/flying_sites");
@@ -48,7 +49,7 @@ export function FlyingSiteOverlay() {
 
     useMapEvents({
         moveend: (e) => {
-            if (map.getZoom() < 10) {
+            if (map.getZoom() < 10 || !showSites) {
                 setSites([]);
                 return;
             }
@@ -61,20 +62,35 @@ export function FlyingSiteOverlay() {
                     searchSites();
                 }
             }, 200);
+        },
+        overlayadd: (e) => {
+            if (e.name === "Flying sites") {
+                setShowSites(true);
+                setTimeout(() => {
+                    if (map.getZoom() >= 10) {
+                        searchSites();
+                    }
+                }, 100);
+            }
+        },
+        overlayremove: (e) => {
+            if (e.name === "Flying sites") {
+                setSites([]);
+                setShowSites(false);
+                setLoadedBounds(null);
+            }
         }
     });
 
     return (
         <>
-            <LayersControl.Overlay name="Flying sites" checked>
-                <>
-                    {sites.map((site, index) => (
-                        <CircleMarker key={index} center={[site.center[1], site.center[0]]} radius={6} pathOptions={{ color: site.additional_info === "Start" ? "green" : "blue" }}>
-                            <Tooltip>{site.name}</Tooltip>
-                        </CircleMarker>
-                    ))}
-                </>
-            </LayersControl.Overlay>
+            <>
+                {sites.map((site, index) => (
+                    <CircleMarker key={index} center={[site.center[1], site.center[0]]} radius={6} pathOptions={{ color: site.additional_info === "Start" ? "green" : "blue" }}>
+                        <Tooltip>{site.name}</Tooltip>
+                    </CircleMarker>
+                ))}
+            </>
         </>
     );
 }
