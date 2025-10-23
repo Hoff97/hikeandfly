@@ -1,9 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
+    iter::Sum,
+    ops::{Add, AddAssign, Sub},
     vec,
 };
-
-use serde::{Deserialize, Serialize};
 
 pub struct PrefixTrieBuilder<T> {
     children: HashMap<char, PrefixTrieBuilder<T>>,
@@ -31,7 +32,7 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
         current.lengths.insert(0);
     }
 
-    pub fn total_nodes(&self) -> IndexType {
+    pub fn total_nodes(&self) -> usize {
         let mut total = 1;
         for child in self.children.values() {
             total += child.total_nodes();
@@ -66,22 +67,44 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
     }
 }
 
-pub trait OrderedLengthTypeTrait<T>: Sized {
+pub trait OrderedLengthTypeTrait<T, IxType>: Sized {
     fn init_type(node: &PrefixTrieBuilder<T>) -> Self;
     fn insert_ordered_lengths(
         node: &PrefixTrieBuilder<T>,
-        trie: &mut PrefixTrie<T, Self>,
-        ix: IndexType,
+        trie: &mut PrefixTrie<T, Self, IxType>,
+        ix: usize,
     );
 }
 
-impl<T: Clone + Default> OrderedLengthTypeTrait<T> for VecOfVec<LengthType> {
+impl<
+        T: Clone + Default,
+        IxType: Default
+            + Clone
+            + Copy
+            + TryFrom<usize>
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + Add
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+    > OrderedLengthTypeTrait<T, IxType> for VecOfVec<LengthType, IxType>
+where
+    <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+{
     fn init_type(node: &PrefixTrieBuilder<T>) -> Self {
         let total_nodes = node.total_nodes();
-        let mut lengths_in_order = vec![0; total_nodes];
+        let mut lengths_in_order = vec![IxType::default(); total_nodes];
         node.compute_children_in_order(
             &mut lengths_in_order,
-            &|node: &PrefixTrieBuilder<T>| node.lengths.len(),
+            &|node: &PrefixTrieBuilder<T>| {
+                node.lengths
+                    .len()
+                    .try_into()
+                    .expect("Cant convert from usize to IxType")
+            },
             0,
         );
         VecOfVec::new(lengths_in_order)
@@ -89,8 +112,8 @@ impl<T: Clone + Default> OrderedLengthTypeTrait<T> for VecOfVec<LengthType> {
 
     fn insert_ordered_lengths(
         node: &PrefixTrieBuilder<T>,
-        trie: &mut PrefixTrie<T, Self>,
-        ix: IndexType,
+        trie: &mut PrefixTrie<T, Self, IxType>,
+        ix: usize,
     ) where
         Self: Sized,
     {
@@ -99,17 +122,17 @@ impl<T: Clone + Default> OrderedLengthTypeTrait<T> for VecOfVec<LengthType> {
 
         let length_ix = trie.ordered_lengths.indices[ix];
         for (i, l) in lengths.iter().enumerate() {
-            trie.ordered_lengths.data[length_ix + i] = *l as LengthType;
+            trie.ordered_lengths.data[length_ix.try_into().unwrap() + i] = *l as LengthType;
         }
     }
 }
-impl<T> OrderedLengthTypeTrait<T> for () {
+impl<T, IxType> OrderedLengthTypeTrait<T, IxType> for () {
     fn init_type(_node: &PrefixTrieBuilder<T>) -> Self {}
 
     fn insert_ordered_lengths(
         _node: &PrefixTrieBuilder<T>,
-        _trie: &mut PrefixTrie<T, Self>,
-        _ix: IndexType,
+        _trie: &mut PrefixTrie<T, Self, IxType>,
+        _ix: usize,
     ) where
         Self: Sized,
     {
@@ -117,22 +140,39 @@ impl<T> OrderedLengthTypeTrait<T> for () {
 }
 
 impl<T: Clone + Default> PrefixTrieBuilder<T> {
-    pub fn finalize<OrderedLengthType: OrderedLengthTypeTrait<T>>(
+    pub fn finalize<
+        IxType: Default
+            + Clone
+            + Copy
+            + TryFrom<usize>
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + Add
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+        OrderedLengthType: OrderedLengthTypeTrait<T, IxType>,
+    >(
         self,
-    ) -> PrefixTrie<T, OrderedLengthType> {
+    ) -> PrefixTrie<T, OrderedLengthType, IxType>
+    where
+        <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+        <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+    {
         let total_nodes = self.total_nodes();
 
-        let mut num_children_in_order = vec![0; total_nodes];
+        let mut num_children_in_order = vec![IxType::default(); total_nodes];
         self.compute_children_in_order(
             &mut num_children_in_order,
-            &|node: &PrefixTrieBuilder<T>| node.children.len(),
+            &|node: &PrefixTrieBuilder<T>| node.children.len().try_into().unwrap(),
             0,
         );
 
-        let mut num_items_in_order = vec![0; total_nodes];
+        let mut num_items_in_order: Vec<IxType> = vec![IxType::default(); total_nodes];
         self.compute_children_in_order(
             &mut num_items_in_order,
-            &|node: &PrefixTrieBuilder<T>| node.items.len(),
+            &|node: &PrefixTrieBuilder<T>| node.items.len().try_into().unwrap(),
             0,
         );
 
@@ -148,18 +188,34 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
         trie
     }
 
-    fn finalize_node<OrderedLengthType: OrderedLengthTypeTrait<T>>(
+    fn finalize_node<
+        IxType: Default
+            + Clone
+            + Copy
+            + TryFrom<usize>
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + Add
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+        OrderedLengthType: OrderedLengthTypeTrait<T, IxType>,
+    >(
         self,
-        trie: &mut PrefixTrie<T, OrderedLengthType>,
-        mut current_ix: IndexType,
-    ) {
+        trie: &mut PrefixTrie<T, OrderedLengthType, IxType>,
+        mut current_ix: usize,
+    ) where
+        <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+        <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+    {
         let my_ix = current_ix;
 
         OrderedLengthType::insert_ordered_lengths(&self, trie, current_ix);
 
         let items_ix = trie.items.indices[my_ix];
         for (i, item) in self.items.into_iter().enumerate() {
-            trie.items.data[items_ix + i] = item;
+            trie.items.data[items_ix.try_into().unwrap() + i] = item;
         }
         trie.leafs[my_ix] = self.lengths.iter().any(|x| *x == 0);
 
@@ -177,7 +233,10 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
 
         let child_ix = trie.children.indices[my_ix];
         for (i, (c, child, _)) in ch.into_iter().enumerate() {
-            trie.children.data[child_ix + i] = current_ix;
+            if current_ix > IxType::MAX.try_into().unwrap() {
+                panic!("PrefixTrie too large");
+            }
+            trie.children.data[child_ix.try_into().unwrap() + i] = current_ix.try_into().unwrap();
             trie.characters[current_ix] = c;
 
             let child_nodes = child.total_nodes();
@@ -194,30 +253,68 @@ impl<T: Clone + Default> Default for PrefixTrieBuilder<T> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct VecOfVec<T> {
-    data: Vec<T>,
-    indices: Vec<usize>,
+pub struct VecOfVec<T, IxType> {
+    pub data: Vec<T>,
+    pub indices: Vec<IxType>,
 }
 
-fn cumsum(lengths: Vec<usize>) -> Vec<usize> {
-    let mut indices = vec![0; lengths.len() + 1];
-    let mut sum = 0;
+pub trait MaxValue {
+    const MAX: Self;
+}
+
+impl MaxValue for u8 {
+    const MAX: Self = u8::MAX;
+}
+impl MaxValue for u16 {
+    const MAX: Self = u16::MAX;
+}
+impl MaxValue for u32 {
+    const MAX: Self = u32::MAX;
+}
+impl MaxValue for u64 {
+    const MAX: Self = u64::MAX;
+}
+impl MaxValue for usize {
+    const MAX: Self = usize::MAX;
+}
+
+fn cumsum<IxType: Default + Copy + AddAssign + MaxValue + Sub<Output = IxType> + PartialOrd>(
+    lengths: Vec<IxType>,
+) -> Vec<IxType> {
+    let mut indices = vec![IxType::default(); lengths.len() + 1];
+    let mut sum = IxType::default();
     for (i, length) in lengths.iter().enumerate() {
+        if IxType::MAX - *length < sum {
+            panic!("VecOfVec too large");
+        }
         sum += *length;
         indices[i + 1] = sum;
     }
     indices
 }
 
-impl<T: Default + Clone> VecOfVec<T> {
-    fn new(lengths: Vec<usize>) -> Self {
+impl<
+        T: Default + Clone,
+        IxType: Default
+            + Copy
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+    > VecOfVec<T, IxType>
+where
+    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+{
+    fn new(lengths: Vec<IxType>) -> Self {
         VecOfVec {
-            data: vec![T::default(); lengths.iter().sum()],
+            data: vec![T::default(); lengths.iter().cloned().sum::<IxType>().try_into().unwrap()],
             indices: cumsum(lengths),
         }
     }
 
-    fn ix(&self, ix: usize) -> VecOfVecIterator<'_, T> {
+    fn ix(&self, ix: usize) -> VecOfVecIterator<'_, T, IxType> {
         VecOfVecIterator {
             vec_of_vec: self,
             current_ix: self.indices[ix],
@@ -226,19 +323,24 @@ impl<T: Default + Clone> VecOfVec<T> {
     }
 }
 
-struct VecOfVecIterator<'a, T> {
-    vec_of_vec: &'a VecOfVec<T>,
-    current_ix: usize,
-    end_ix: usize,
+struct VecOfVecIterator<'a, T, IxType> {
+    vec_of_vec: &'a VecOfVec<T, IxType>,
+    current_ix: IxType,
+    end_ix: IxType,
 }
 
-impl<'a, T> Iterator for VecOfVecIterator<'a, T> {
+impl<'a, T, IxType: AddAssign + PartialOrd + TryFrom<usize> + TryInto<usize> + Copy> Iterator
+    for VecOfVecIterator<'a, T, IxType>
+where
+    <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+{
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_ix < self.end_ix {
-            let item = &self.vec_of_vec.data[self.current_ix];
-            self.current_ix += 1;
+            let item = &self.vec_of_vec.data[self.current_ix.try_into().unwrap()];
+            self.current_ix += 1.try_into().unwrap();
             Some(item)
         } else {
             None
@@ -246,29 +348,50 @@ impl<'a, T> Iterator for VecOfVecIterator<'a, T> {
     }
 }
 
-type IndexType = usize;
 type LengthType = u16;
 type DistanceType = u8;
-type VisitedType = HashMap<(IndexType, usize), DistanceType>;
+type VisitedType<IndexType> = HashMap<(IndexType, usize), DistanceType>;
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PrefixTrie<T, OrderedLengthType> {
-    children: VecOfVec<IndexType>,
-    items: VecOfVec<T>,
+pub struct PrefixTrie<T, OrderedLengthType, IxType> {
+    pub children: VecOfVec<IxType, IxType>,
+    pub items: VecOfVec<T, IxType>,
     leafs: Vec<bool>,
     characters: Vec<char>,
     ordered_lengths: OrderedLengthType,
 }
 
-impl<T: Clone + Default, OrderedLengthType> PrefixTrie<T, OrderedLengthType> {
-    pub fn get_child(&self, c: char, ix: IndexType) -> Option<&IndexType> {
+impl<
+        T: Clone + Default,
+        OrderedLengthType,
+        IxType: Default
+            + Copy
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+    > PrefixTrie<T, OrderedLengthType, IxType>
+{
+    pub fn get_child(&self, c: char, ix: IxType) -> Option<&IxType>
+    where
+        IxType: TryFrom<usize>,
+        <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+        <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+    {
         self.children
-            .ix(ix)
-            .find(|child_ix| self.characters[**child_ix] == c)
+            .ix(ix.try_into().unwrap())
+            .find(|child_ix| self.characters[(**child_ix).try_into().unwrap()] == c)
     }
 
-    pub fn search(&self, word: &str) -> bool {
-        let mut current_ix = 0;
+    pub fn search(&self, word: &str) -> bool
+    where
+        IxType: TryFrom<usize>,
+        <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+        <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+    {
+        let mut current_ix = IxType::default();
 
         for c in word.chars() {
             match self.get_child(c, current_ix) {
@@ -276,7 +399,7 @@ impl<T: Clone + Default, OrderedLengthType> PrefixTrie<T, OrderedLengthType> {
                 None => return false,
             }
         }
-        self.leafs[current_ix]
+        self.leafs[current_ix.try_into().unwrap()]
     }
 
     pub fn find_with_max_edit_distance<'a>(
@@ -284,12 +407,12 @@ impl<T: Clone + Default, OrderedLengthType> PrefixTrie<T, OrderedLengthType> {
         word: &'a str,
         distance: DistanceType,
         continuations: bool,
-    ) -> PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType> {
+    ) -> PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType, IxType> {
         PrefixTrieMaxDistanceIterator {
             current_distance: 0,
             max_distance: distance,
             inner_iterator: self.find_with_exact_edit_distance_stack(word, 0, continuations, None),
-            beginning_stack: (0, 0, String::new()),
+            beginning_stack: (IxType::default(), 0, String::new()),
             continuations,
             trie: self,
             word: word.chars().collect(),
@@ -301,10 +424,10 @@ impl<T: Clone + Default, OrderedLengthType> PrefixTrie<T, OrderedLengthType> {
         word: &'a str,
         distance: DistanceType,
         continuations: bool,
-        visited: Option<VisitedType>,
-    ) -> PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType> {
+        visited: Option<VisitedType<IxType>>,
+    ) -> PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType> {
         PrefixTrieExactDistanceIterator {
-            stack: vec![(0, 0, distance, String::new())],
+            stack: vec![(IxType::default(), 0, distance, String::new())],
             continuations,
             visited: visited.unwrap_or_default(),
             trie: self,
@@ -313,11 +436,26 @@ impl<T: Clone + Default, OrderedLengthType> PrefixTrie<T, OrderedLengthType> {
     }
 }
 
-impl<T: Clone + Default> PrefixTrie<T, VecOfVec<LengthType>> {
+impl<
+        T: Clone + Default,
+        IxType: Default
+            + Copy
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd
+            + TryFrom<usize>,
+    > PrefixTrie<T, VecOfVec<LengthType, IxType>, IxType>
+where
+    <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+{
     pub fn continuations<'a>(
         &'a self,
         prefix: &'a str,
-        ix: IndexType,
+        ix: IxType,
     ) -> Box<dyn Iterator<Item = (String, &'a T)> + 'a> {
         let mut current_ix = ix;
         for c in prefix.chars() {
@@ -329,7 +467,7 @@ impl<T: Clone + Default> PrefixTrie<T, VecOfVec<LengthType>> {
 
         Box::new(
             self.ordered_lengths
-                .ix(current_ix)
+                .ix(current_ix.try_into().unwrap())
                 .flat_map(move |&x| self.childs_of_lengths(current_ix, x))
                 .map(move |(suffix, item)| {
                     let mut full = String::new();
@@ -342,41 +480,72 @@ impl<T: Clone + Default> PrefixTrie<T, VecOfVec<LengthType>> {
 
     pub fn childs_of_lengths(
         &self,
-        ix: IndexType,
+        ix: IxType,
         length: LengthType,
     ) -> Box<dyn Iterator<Item = (String, &T)> + '_> {
-        if !self.ordered_lengths.ix(ix).any(|x| *x == length) {
+        if !self
+            .ordered_lengths
+            .ix(ix.try_into().unwrap())
+            .any(|x| *x == length)
+        {
             return Box::new(std::iter::empty());
         }
 
         if length == 0 {
-            return Box::new(self.items.ix(ix).map(|item| (String::new(), item)));
+            return Box::new(
+                self.items
+                    .ix(ix.try_into().unwrap())
+                    .map(|item| (String::new(), item)),
+            );
         }
 
-        Box::new(self.children.ix(ix).flat_map(move |child_ix| {
-            let suffixes = self.childs_of_lengths(*child_ix, length - 1);
-            suffixes.map(move |(suffix, item)| {
-                let mut s = String::new();
-                s.push(self.characters[*child_ix]);
-                s.push_str(&suffix);
-                (s, item)
-            })
-        }))
+        Box::new(
+            self.children
+                .ix(ix.try_into().unwrap())
+                .flat_map(move |child_ix| {
+                    let suffixes = self.childs_of_lengths(*child_ix, length - 1);
+                    suffixes.map(move |(suffix, item)| {
+                        let mut s = String::new();
+                        s.push(self.characters[(*child_ix).try_into().unwrap()]);
+                        s.push_str(&suffix);
+                        (s, item)
+                    })
+                }),
+        )
     }
 }
 
-pub struct PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType> {
+pub struct PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType, IxType> {
     current_distance: DistanceType,
     max_distance: DistanceType,
-    inner_iterator: PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType>,
-    beginning_stack: (IndexType, usize, String),
+    inner_iterator: PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType>,
+    beginning_stack: (IxType, usize, String),
     continuations: bool,
-    trie: &'a PrefixTrie<T, OrderedLengthType>,
+    trie: &'a PrefixTrie<T, OrderedLengthType, IxType>,
     word: Vec<char>,
 }
 
-impl<'a, T: Clone + Default, OrderedLengthType> Iterator
-    for PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType>
+impl<
+        'a,
+        T: Clone + Default,
+        OrderedLengthType,
+        IxType: Default
+            + Clone
+            + Copy
+            + TryFrom<usize>
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + Add
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd
+            + std::hash::Hash
+            + Eq,
+    > Iterator for PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType, IxType>
+where
+    <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
 {
     type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
 
@@ -407,16 +576,33 @@ impl<'a, T: Clone + Default, OrderedLengthType> Iterator
     }
 }
 
-pub struct PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType> {
-    stack: Vec<(IndexType, usize, DistanceType, String)>,
+pub struct PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType> {
+    stack: Vec<(IxType, usize, DistanceType, String)>,
     continuations: bool,
-    visited: VisitedType,
-    trie: &'a PrefixTrie<T, OrderedLengthType>,
+    visited: VisitedType<IxType>,
+    trie: &'a PrefixTrie<T, OrderedLengthType, IxType>,
     word: Vec<char>,
 }
 
-impl<'a, T: Clone + Default, OrderedLengthType> Iterator
-    for PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType>
+impl<
+        'a,
+        T: Clone + Default,
+        OrderedLengthType,
+        IxType: Eq
+            + std::hash::Hash
+            + Default
+            + Copy
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd
+            + TryFrom<usize>,
+    > Iterator for PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType>
+where
+    <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
 {
     type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
 
@@ -435,14 +621,23 @@ impl<'a, T: Clone + Default, OrderedLengthType> Iterator
             let mut to_return: Option<Self::Item> = None;
 
             let p = prefix.clone();
-            if distance == 0 && (word_ix == self.word.len()) && self.trie.leafs[node] {
+            if distance == 0
+                && (word_ix == self.word.len())
+                && self.trie.leafs[node.try_into().unwrap()]
+            {
                 if self.continuations {
                     to_return = Some(Box::new(
-                        self.trie.items.ix(node).map(move |item| (p.clone(), item)),
+                        self.trie
+                            .items
+                            .ix(node.try_into().unwrap())
+                            .map(move |item| (p.clone(), item)),
                     ));
                 } else {
                     return Some(Box::new(
-                        self.trie.items.ix(node).map(move |item| (p.clone(), item)),
+                        self.trie
+                            .items
+                            .ix(node.try_into().unwrap())
+                            .map(move |item| (p.clone(), item)),
                     ));
                 }
             }
@@ -462,9 +657,9 @@ impl<'a, T: Clone + Default, OrderedLengthType> Iterator
                     continue;
                 }
 
-                for child in self.trie.children.ix(node) {
+                for child in self.trie.children.ix(node.try_into().unwrap()) {
                     // Substitution
-                    let character = self.trie.characters[*child];
+                    let character = self.trie.characters[(*child).try_into().unwrap()];
                     if character != c {
                         self.stack.push((*child, word_ix + 1, distance - 1, {
                             let mut new_prefix = prefix.clone();
@@ -479,8 +674,8 @@ impl<'a, T: Clone + Default, OrderedLengthType> Iterator
                     .push((node, word_ix + 1, distance - 1, prefix.clone()));
 
                 // Insertion
-                for child in self.trie.children.ix(node) {
-                    let character = self.trie.characters[*child];
+                for child in self.trie.children.ix(node.try_into().unwrap()) {
+                    let character = self.trie.characters[(*child).try_into().unwrap()];
                     if character != c {
                         self.stack.push((*child, word_ix, distance - 1, {
                             let mut new_prefix = prefix.clone();
@@ -502,8 +697,8 @@ impl<'a, T: Clone + Default, OrderedLengthType> Iterator
                 if distance == 0 && !self.continuations {
                     continue;
                 }
-                for child in self.trie.children.ix(node) {
-                    let character = self.trie.characters[*child];
+                for child in self.trie.children.ix(node.try_into().unwrap()) {
+                    let character = self.trie.characters[(*child).try_into().unwrap()];
                     self.stack.push((
                         *child,
                         word_ix,
@@ -527,7 +722,7 @@ impl<'a, T: Clone + Default, OrderedLengthType> Iterator
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SearchIndex<TrieType> {
-    trie: TrieType,
+    pub trie: TrieType,
 }
 
 impl<T: Clone + Default> Default for SearchIndex<PrefixTrieBuilder<T>> {
@@ -547,28 +742,81 @@ impl<T: Clone + Default> SearchIndex<PrefixTrieBuilder<T>> {
         self.trie.insert(key, element);
     }
 
-    pub fn finalize<OrderedLengthType: OrderedLengthTypeTrait<T>>(
+    pub fn finalize<
+        IxType: Default
+            + Clone
+            + Copy
+            + TryFrom<usize>
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + Add
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+        OrderedLengthType: OrderedLengthTypeTrait<T, IxType>,
+    >(
         self,
-    ) -> SearchIndex<PrefixTrie<T, OrderedLengthType>> {
+    ) -> SearchIndex<PrefixTrie<T, OrderedLengthType, IxType>>
+    where
+        <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+        <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+    {
         SearchIndex {
             trie: self.trie.finalize(),
         }
     }
 }
 
-impl<T: Clone + Default> SearchIndex<PrefixTrie<T, VecOfVec<LengthType>>> {
+impl<
+        T: Clone + Default,
+        IxType: Default
+            + Clone
+            + Copy
+            + TryFrom<usize>
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + Add
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+    > SearchIndex<PrefixTrie<T, VecOfVec<LengthType, IxType>, IxType>>
+where
+    <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
+    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
+{
     pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = &'a T> + 'a> {
-        Box::new(self.trie.continuations(prefix, 0).map(|x| x.1))
+        Box::new(
+            self.trie
+                .continuations(prefix, IxType::default())
+                .map(|x| x.1),
+        )
     }
 }
 
-impl<T: Clone + Default, OrderedLengthType> SearchIndex<PrefixTrie<T, OrderedLengthType>> {
+impl<
+        T: Clone + Default,
+        OrderedLengthType,
+        IxType: Default
+            + Clone
+            + Copy
+            + TryFrom<usize>
+            + AddAssign
+            + Sum
+            + TryInto<usize>
+            + Add
+            + MaxValue
+            + Sub<Output = IxType>
+            + PartialOrd,
+    > SearchIndex<PrefixTrie<T, OrderedLengthType, IxType>>
+{
     pub fn find_with_max_edit_distance<'a>(
         &'a self,
         key: &'a str,
         max_distance: DistanceType,
         continuations: bool,
-    ) -> PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType> {
+    ) -> PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType, IxType> {
         self.trie
             .find_with_max_edit_distance(key, max_distance, continuations)
     }

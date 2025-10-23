@@ -36,6 +36,6 @@ impl Default for LocationInfo {
 
 #[derive(Serialize, Deserialize)]
 pub struct SearchLocation {
-    pub index: SearchIndex<PrefixTrie<LocationInfo, ()>>,
+    pub index: SearchIndex<PrefixTrie<LocationInfo, (), u32>>,
     pub additional_info: Vec<String>,
 }

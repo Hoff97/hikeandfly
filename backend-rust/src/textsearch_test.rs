@@ -9,7 +9,7 @@ fn test_prefix_trie_search() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
+    let trie = prefix_trie_builder.finalize::<u32, VecOfVec<LengthType, u32>>();
 
     assert!(trie.search("Hello"));
     assert!(trie.search("helium"));
@@ -29,7 +29,7 @@ fn test_prefix_trie_continuations() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize();
+    let trie = prefix_trie_builder.finalize::<u32, VecOfVec<LengthType, u32>>();
 
     assert_eq!(
         trie.continuations("he", 0).map(|x| x.0).collect::<Vec<_>>(),
@@ -44,7 +44,7 @@ fn test_prefix_trie_exact_edit_distance_stack() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
+    let trie = prefix_trie_builder.finalize::<u32, VecOfVec<LengthType, u32>>();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 1, false, None)
@@ -70,7 +70,7 @@ fn test_prefix_trie_exact_edit_distance_stack_2() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
+    let trie = prefix_trie_builder.finalize::<u32, VecOfVec<LengthType, u32>>();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
@@ -90,7 +90,7 @@ fn test_prefix_trie_max_edit_distance() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
+    let trie = prefix_trie_builder.finalize::<u32, VecOfVec<LengthType, u32>>();
 
     assert_eq!(
         trie.find_with_max_edit_distance("her", 2, false)
@@ -110,7 +110,7 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
+    let trie = prefix_trie_builder.finalize::<u32, VecOfVec<LengthType, u32>>();
 
     assert_eq!(
         trie.find_with_max_edit_distance("hello", 2, true)
@@ -134,7 +134,7 @@ fn test_search_index_continuations() {
     for word in &words {
         index_builder.insert(word, word.chars().rev().collect::<String>());
     }
-    let index = index_builder.finalize();
+    let index = index_builder.finalize::<u32, VecOfVec<LengthType, u32>>();
 
     assert_eq!(
         index.continuations("he").collect::<Vec<_>>(),
