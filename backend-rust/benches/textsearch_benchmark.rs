@@ -21,7 +21,7 @@ fn textsearch(c: &mut Criterion) {
         let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
         prefix_trie_builder.insert(location.name.to_ascii_lowercase().as_str(), ());
     }
-    let trie = prefix_trie_builder.finalize();
+    let trie = prefix_trie_builder.finalize::<u32, ()>();
 
     c.bench_function("textsearch_exact", |b| {
         b.iter(|| {

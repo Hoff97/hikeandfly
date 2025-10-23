@@ -58,4 +58,12 @@ fn main() {
     let buf = s.take_buffer();
     fs::write("./data/search_index.fb", buf).unwrap();
     println!("Wrote search index to ./data/search_index.fb");
+    println!(
+        "Number of nodes: {}",
+        search_index.index.trie.items.data.len()
+    );
+    println!(
+        "Number of additional info entries: {}",
+        search_index.index.trie.children.data.len()
+    );
 }
