@@ -64,8 +64,62 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
             cur_ix += child_nodes;
         }
     }
+}
 
-    pub fn finalize(self) -> PrefixTrie<T> {
+pub trait OrderedLengthTypeTrait<T>: Sized {
+    fn init_type(node: &PrefixTrieBuilder<T>) -> Self;
+    fn insert_ordered_lengths(
+        node: &PrefixTrieBuilder<T>,
+        trie: &mut PrefixTrie<T, Self>,
+        ix: IndexType,
+    );
+}
+
+impl<T: Clone + Default> OrderedLengthTypeTrait<T> for VecOfVec<LengthType> {
+    fn init_type(node: &PrefixTrieBuilder<T>) -> Self {
+        let total_nodes = node.total_nodes();
+        let mut lengths_in_order = vec![0; total_nodes];
+        node.compute_children_in_order(
+            &mut lengths_in_order,
+            &|node: &PrefixTrieBuilder<T>| node.lengths.len(),
+            0,
+        );
+        VecOfVec::new(lengths_in_order)
+    }
+
+    fn insert_ordered_lengths(
+        node: &PrefixTrieBuilder<T>,
+        trie: &mut PrefixTrie<T, Self>,
+        ix: IndexType,
+    ) where
+        Self: Sized,
+    {
+        let mut lengths: Vec<usize> = node.lengths.iter().cloned().collect();
+        lengths.sort_unstable();
+
+        let length_ix = trie.ordered_lengths.indices[ix];
+        for (i, l) in lengths.iter().enumerate() {
+            trie.ordered_lengths.data[length_ix + i] = *l as LengthType;
+        }
+    }
+}
+impl<T> OrderedLengthTypeTrait<T> for () {
+    fn init_type(_node: &PrefixTrieBuilder<T>) -> Self {}
+
+    fn insert_ordered_lengths(
+        _node: &PrefixTrieBuilder<T>,
+        _trie: &mut PrefixTrie<T, Self>,
+        _ix: IndexType,
+    ) where
+        Self: Sized,
+    {
+    }
+}
+
+impl<T: Clone + Default> PrefixTrieBuilder<T> {
+    pub fn finalize<OrderedLengthType: OrderedLengthTypeTrait<T>>(
+        self,
+    ) -> PrefixTrie<T, OrderedLengthType> {
         let total_nodes = self.total_nodes();
 
         let mut num_children_in_order = vec![0; total_nodes];
@@ -82,18 +136,11 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
             0,
         );
 
-        let mut lengths_in_order = vec![0; total_nodes];
-        self.compute_children_in_order(
-            &mut lengths_in_order,
-            &|node: &PrefixTrieBuilder<T>| node.lengths.len(),
-            0,
-        );
-
         let mut trie = PrefixTrie {
             children: VecOfVec::new(num_children_in_order),
             leafs: vec![false; total_nodes],
             items: VecOfVec::new(num_items_in_order),
-            ordered_lengths: VecOfVec::new(lengths_in_order),
+            ordered_lengths: OrderedLengthType::init_type(&self),
             characters: vec!['\0'; total_nodes],
         };
 
@@ -101,22 +148,20 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
         trie
     }
 
-    fn finalize_node(self, trie: &mut PrefixTrie<T>, mut current_ix: IndexType) {
+    fn finalize_node<OrderedLengthType: OrderedLengthTypeTrait<T>>(
+        self,
+        trie: &mut PrefixTrie<T, OrderedLengthType>,
+        mut current_ix: IndexType,
+    ) {
         let my_ix = current_ix;
 
-        let mut lengths: Vec<usize> = self.lengths.into_iter().collect();
-        lengths.sort_unstable();
-
-        let length_ix = trie.ordered_lengths.indices[my_ix];
-        for (i, l) in lengths.iter().enumerate() {
-            trie.ordered_lengths.data[length_ix + i] = *l as LengthType;
-        }
+        OrderedLengthType::insert_ordered_lengths(&self, trie, current_ix);
 
         let items_ix = trie.items.indices[my_ix];
         for (i, item) in self.items.into_iter().enumerate() {
             trie.items.data[items_ix + i] = item;
         }
-        trie.leafs[my_ix] = trie.ordered_lengths.ix(my_ix).any(|x| *x == 0);
+        trie.leafs[my_ix] = self.lengths.iter().any(|x| *x == 0);
 
         current_ix += 1;
 
@@ -207,15 +252,15 @@ type DistanceType = u8;
 type VisitedType = HashMap<(IndexType, usize), DistanceType>;
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PrefixTrie<T> {
+pub struct PrefixTrie<T, OrderedLengthType> {
     children: VecOfVec<IndexType>,
     items: VecOfVec<T>,
     leafs: Vec<bool>,
     characters: Vec<char>,
-    ordered_lengths: VecOfVec<LengthType>,
+    ordered_lengths: OrderedLengthType,
 }
 
-impl<T: Clone + Default> PrefixTrie<T> {
+impl<T: Clone + Default, OrderedLengthType> PrefixTrie<T, OrderedLengthType> {
     pub fn get_child(&self, c: char, ix: IndexType) -> Option<&IndexType> {
         self.children
             .ix(ix)
@@ -234,6 +279,41 @@ impl<T: Clone + Default> PrefixTrie<T> {
         self.leafs[current_ix]
     }
 
+    pub fn find_with_max_edit_distance<'a>(
+        &'a self,
+        word: &'a str,
+        distance: DistanceType,
+        continuations: bool,
+    ) -> PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType> {
+        PrefixTrieMaxDistanceIterator {
+            current_distance: 0,
+            max_distance: distance,
+            inner_iterator: self.find_with_exact_edit_distance_stack(word, 0, continuations, None),
+            beginning_stack: (0, 0, String::new()),
+            continuations,
+            trie: self,
+            word: word.chars().collect(),
+        }
+    }
+
+    pub fn find_with_exact_edit_distance_stack<'a>(
+        &'a self,
+        word: &'a str,
+        distance: DistanceType,
+        continuations: bool,
+        visited: Option<VisitedType>,
+    ) -> PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType> {
+        PrefixTrieExactDistanceIterator {
+            stack: vec![(0, 0, distance, String::new())],
+            continuations,
+            visited: visited.unwrap_or_default(),
+            trie: self,
+            word: word.chars().collect(),
+        }
+    }
+}
+
+impl<T: Clone + Default> PrefixTrie<T, VecOfVec<LengthType>> {
     pub fn continuations<'a>(
         &'a self,
         prefix: &'a str,
@@ -283,52 +363,21 @@ impl<T: Clone + Default> PrefixTrie<T> {
             })
         }))
     }
-
-    pub fn find_with_max_edit_distance<'a>(
-        &'a self,
-        word: &'a str,
-        distance: DistanceType,
-        continuations: bool,
-    ) -> PrefixTrieMaxDistanceIterator<'a, T> {
-        PrefixTrieMaxDistanceIterator {
-            current_distance: 0,
-            max_distance: distance,
-            inner_iterator: self.find_with_exact_edit_distance_stack(word, 0, continuations, None),
-            beginning_stack: (0, 0, String::new()),
-            continuations,
-            trie: self,
-            word: word.chars().collect(),
-        }
-    }
-
-    pub fn find_with_exact_edit_distance_stack<'a>(
-        &'a self,
-        word: &'a str,
-        distance: DistanceType,
-        continuations: bool,
-        visited: Option<VisitedType>,
-    ) -> PrefixTrieExactDistanceIterator<'a, T> {
-        PrefixTrieExactDistanceIterator {
-            stack: vec![(0, 0, distance, String::new())],
-            continuations,
-            visited: visited.unwrap_or_default(),
-            trie: self,
-            word: word.chars().collect(),
-        }
-    }
 }
 
-pub struct PrefixTrieMaxDistanceIterator<'a, T> {
+pub struct PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType> {
     current_distance: DistanceType,
     max_distance: DistanceType,
-    inner_iterator: PrefixTrieExactDistanceIterator<'a, T>,
+    inner_iterator: PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType>,
     beginning_stack: (IndexType, usize, String),
     continuations: bool,
-    trie: &'a PrefixTrie<T>,
+    trie: &'a PrefixTrie<T, OrderedLengthType>,
     word: Vec<char>,
 }
 
-impl<'a, T: Clone + Default> Iterator for PrefixTrieMaxDistanceIterator<'a, T> {
+impl<'a, T: Clone + Default, OrderedLengthType> Iterator
+    for PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType>
+{
     type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -358,15 +407,17 @@ impl<'a, T: Clone + Default> Iterator for PrefixTrieMaxDistanceIterator<'a, T> {
     }
 }
 
-pub struct PrefixTrieExactDistanceIterator<'a, T> {
+pub struct PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType> {
     stack: Vec<(IndexType, usize, DistanceType, String)>,
     continuations: bool,
     visited: VisitedType,
-    trie: &'a PrefixTrie<T>,
+    trie: &'a PrefixTrie<T, OrderedLengthType>,
     word: Vec<char>,
 }
 
-impl<'a, T: Clone + Default> Iterator for PrefixTrieExactDistanceIterator<'a, T> {
+impl<'a, T: Clone + Default, OrderedLengthType> Iterator
+    for PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType>
+{
     type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -496,24 +547,28 @@ impl<T: Clone + Default> SearchIndex<PrefixTrieBuilder<T>> {
         self.trie.insert(key, element);
     }
 
-    pub fn finalize(self) -> SearchIndex<PrefixTrie<T>> {
+    pub fn finalize<OrderedLengthType: OrderedLengthTypeTrait<T>>(
+        self,
+    ) -> SearchIndex<PrefixTrie<T, OrderedLengthType>> {
         SearchIndex {
             trie: self.trie.finalize(),
         }
     }
 }
 
-impl<T: Clone + Default> SearchIndex<PrefixTrie<T>> {
+impl<T: Clone + Default> SearchIndex<PrefixTrie<T, VecOfVec<LengthType>>> {
     pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = &'a T> + 'a> {
         Box::new(self.trie.continuations(prefix, 0).map(|x| x.1))
     }
+}
 
+impl<T: Clone + Default, OrderedLengthType> SearchIndex<PrefixTrie<T, OrderedLengthType>> {
     pub fn find_with_max_edit_distance<'a>(
         &'a self,
         key: &'a str,
         max_distance: DistanceType,
         continuations: bool,
-    ) -> PrefixTrieMaxDistanceIterator<'a, T> {
+    ) -> PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType> {
         self.trie
             .find_with_max_edit_distance(key, max_distance, continuations)
     }

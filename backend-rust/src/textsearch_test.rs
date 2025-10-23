@@ -1,4 +1,4 @@
-use crate::textsearch::{PrefixTrieBuilder, SearchIndex};
+use crate::textsearch::{LengthType, PrefixTrieBuilder, SearchIndex, VecOfVec};
 
 #[test]
 fn test_prefix_trie_search() {
@@ -9,7 +9,7 @@ fn test_prefix_trie_search() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize();
+    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
 
     assert!(trie.search("Hello"));
     assert!(trie.search("helium"));
@@ -44,7 +44,7 @@ fn test_prefix_trie_exact_edit_distance_stack() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize();
+    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 1, false, None)
@@ -70,7 +70,7 @@ fn test_prefix_trie_exact_edit_distance_stack_2() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize();
+    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
@@ -90,7 +90,7 @@ fn test_prefix_trie_max_edit_distance() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize();
+    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
 
     assert_eq!(
         trie.find_with_max_edit_distance("her", 2, false)
@@ -110,7 +110,7 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
     for word in &words {
         prefix_trie_builder.insert(word, ());
     }
-    let trie = prefix_trie_builder.finalize();
+    let trie = prefix_trie_builder.finalize::<VecOfVec<LengthType>>();
 
     assert_eq!(
         trie.find_with_max_edit_distance("hello", 2, true)
