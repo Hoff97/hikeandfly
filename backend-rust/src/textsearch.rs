@@ -3,6 +3,8 @@ use std::{
     vec,
 };
 
+use serde::{Deserialize, Serialize};
+
 pub struct PrefixTrieBuilder<T> {
     children: HashMap<char, PrefixTrieBuilder<T>>,
     lengths: HashSet<usize>,
@@ -146,7 +148,7 @@ impl<T: Clone + Default> Default for PrefixTrieBuilder<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct VecOfVec<T> {
     data: Vec<T>,
     indices: Vec<usize>,
@@ -204,7 +206,7 @@ type LengthType = u16;
 type DistanceType = u8;
 type VisitedType = HashMap<(IndexType, usize), DistanceType>;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PrefixTrie<T> {
     children: VecOfVec<IndexType>,
     items: VecOfVec<T>,
@@ -472,7 +474,7 @@ impl<'a, T: Clone + Default> Iterator for PrefixTrieExactDistanceIterator<'a, T>
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SearchIndex<TrieType> {
     trie: TrieType,
 }
