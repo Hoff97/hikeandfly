@@ -1009,10 +1009,29 @@ struct Location {
     additional_info: Option<String>,
 }
 
+impl Default for Location {
+    fn default() -> Self {
+        Location {
+            name: String::new(),
+            center: vec![0.0, 0.0],
+            additional_info: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct LocationInfo {
     center: Vec<f32>,
     additional_info_ix: usize,
+}
+
+impl Default for LocationInfo {
+    fn default() -> Self {
+        LocationInfo {
+            center: vec![0.0, 0.0],
+            additional_info_ix: 0,
+        }
+    }
 }
 
 struct SearchLocation {
