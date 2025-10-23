@@ -41,6 +41,7 @@ impl PrefixTrieBuilder {
             children: vec![Vec::new(); total_nodes],
             leafs: vec![false; total_nodes],
             ordered_lengths: vec![vec![]; total_nodes],
+            characters: vec!['\0'; total_nodes],
         };
 
         self.finalize_node(&mut trie, 0);
@@ -69,7 +70,8 @@ impl PrefixTrieBuilder {
         ch.sort_by_key(|x| (x.2 as isize).wrapping_neg());
 
         for (c, child, _) in ch {
-            trie.children[my_ix].push((c, current_ix));
+            trie.children[my_ix].push(current_ix);
+            trie.characters[current_ix] = c;
 
             let child_nodes = child.total_nodes();
             child.finalize_node(trie, current_ix);
@@ -91,14 +93,16 @@ type VisitedType = HashMap<(IndexType, usize), DistanceType>;
 
 #[derive(Clone)]
 pub struct PrefixTrie {
-    children: Vec<Vec<(char, IndexType)>>,
+    children: Vec<Vec<IndexType>>,
     leafs: Vec<bool>,
+    characters: Vec<char>,
     ordered_lengths: Vec<Vec<LengthType>>,
 }
 
 impl PrefixTrie {
     pub fn get_child(&self, c: char, ix: IndexType) -> Option<&IndexType> {
-        self.children[ix].iter().find_map(|(child_char, child_ix)| {
+        self.children[ix].iter().find_map(|child_ix| {
+            let child_char = &self.characters[*child_ix];
             if *child_char == c {
                 Some(child_ix)
             } else {
@@ -158,11 +162,11 @@ impl PrefixTrie {
             return Box::new(vec!["".to_string()].into_iter());
         }
 
-        Box::new(self.children[ix].iter().flat_map(move |(c, child)| {
-            let suffixes = self.childs_of_lengths(*child, length - 1);
+        Box::new(self.children[ix].iter().flat_map(move |child_ix| {
+            let suffixes = self.childs_of_lengths(*child_ix, length - 1);
             suffixes.map(move |suffix| {
                 let mut s = String::new();
-                s.push(*c);
+                s.push(self.characters[*child_ix]);
                 s.push_str(&suffix);
                 s
             })
@@ -294,10 +298,11 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
                 for child in self.trie.children[node].iter() {
                     // Substitution
-                    if child.0 != c {
-                        self.stack.push((child.1, word_ix + 1, distance - 1, {
+                    let character = self.trie.characters[*child];
+                    if character != c {
+                        self.stack.push((*child, word_ix + 1, distance - 1, {
                             let mut new_prefix = prefix.clone();
-                            new_prefix.push(child.0);
+                            new_prefix.push(character);
                             new_prefix
                         }));
                     }
@@ -309,10 +314,11 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 
                 // Insertion
                 for child in self.trie.children[node].iter() {
-                    if child.0 != c {
-                        self.stack.push((child.1, word_ix, distance - 1, {
+                    let character = self.trie.characters[*child];
+                    if character != c {
+                        self.stack.push((*child, word_ix, distance - 1, {
                             let mut new_prefix = prefix.clone();
-                            new_prefix.push(child.0);
+                            new_prefix.push(character);
                             new_prefix
                         }));
                     }
@@ -331,13 +337,14 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
                     continue;
                 }
                 for child in self.trie.children[node].iter() {
+                    let character = self.trie.characters[*child];
                     self.stack.push((
-                        child.1,
+                        *child,
                         word_ix,
                         if distance > 0 { distance - 1 } else { distance },
                         {
                             let mut new_prefix = prefix.clone();
-                            new_prefix.push(child.0);
+                            new_prefix.push(character);
                             new_prefix
                         },
                     ));
