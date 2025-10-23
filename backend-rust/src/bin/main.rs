@@ -1009,13 +1009,14 @@ struct Location {
     additional_info: Option<String>,
 }
 
+#[derive(Clone)]
 struct LocationInfo {
     center: Vec<f32>,
     additional_info_ix: usize,
 }
 
 struct SearchLocation {
-    pub index: SearchIndex<PrefixTrie, LocationInfo>,
+    pub index: SearchIndex<PrefixTrie<LocationInfo>>,
     pub additional_info: Vec<String>,
 }
 
@@ -1093,12 +1094,13 @@ fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
     let result = ix
         .index
         .find_with_max_edit_distance(q, (query.len() / 4).clamp(2, 255) as u8, true)
+        .flatten()
         .take(10);
 
     Result::Ok(Json(
         result
             .map(|x| Location {
-                name: x.0,
+                name: x.0.clone(),
                 center: x.1.center.clone(),
                 additional_info: ix.additional_info.get(x.1.additional_info_ix).cloned(),
             })

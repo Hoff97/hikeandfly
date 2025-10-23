@@ -3,26 +3,29 @@ use std::{
     vec,
 };
 
-pub struct PrefixTrieBuilder {
-    children: HashMap<char, PrefixTrieBuilder>,
+pub struct PrefixTrieBuilder<T> {
+    children: HashMap<char, PrefixTrieBuilder<T>>,
     lengths: HashSet<usize>,
+    items: Vec<T>,
 }
 
-impl PrefixTrieBuilder {
+impl<T: Clone> PrefixTrieBuilder<T> {
     pub fn new() -> Self {
         PrefixTrieBuilder {
             children: HashMap::new(),
             lengths: HashSet::new(),
+            items: Vec::new(),
         }
     }
 
-    pub fn insert(&mut self, word: &str) {
+    pub fn insert(&mut self, word: &str, item: T) {
         let mut current = self;
         for (i, c) in word.chars().enumerate() {
             let l = word.len() - i;
             current.lengths.insert(l);
             current = current.children.entry(c).or_default();
         }
+        current.items.push(item);
         current.lengths.insert(0);
     }
 
@@ -34,12 +37,13 @@ impl PrefixTrieBuilder {
         total
     }
 
-    pub fn finalize(self) -> PrefixTrie {
+    pub fn finalize(self) -> PrefixTrie<T> {
         let total_nodes = self.total_nodes();
 
         let mut trie = PrefixTrie {
             children: vec![Vec::new(); total_nodes],
             leafs: vec![false; total_nodes],
+            items: vec![Vec::new(); total_nodes],
             ordered_lengths: vec![vec![]; total_nodes],
             characters: vec!['\0'; total_nodes],
         };
@@ -48,13 +52,14 @@ impl PrefixTrieBuilder {
         trie
     }
 
-    fn finalize_node(self, trie: &mut PrefixTrie, mut current_ix: IndexType) {
+    fn finalize_node(self, trie: &mut PrefixTrie<T>, mut current_ix: IndexType) {
         let my_ix = current_ix;
         trie.ordered_lengths[my_ix] = {
             let mut lengths: Vec<usize> = self.lengths.into_iter().collect();
             lengths.sort_unstable();
             lengths.into_iter().map(|x| x as LengthType).collect()
         };
+        trie.items[my_ix] = self.items;
         trie.leafs[my_ix] = trie.ordered_lengths[my_ix].contains(&0);
 
         current_ix += 1;
@@ -80,7 +85,7 @@ impl PrefixTrieBuilder {
     }
 }
 
-impl Default for PrefixTrieBuilder {
+impl<T: Clone> Default for PrefixTrieBuilder<T> {
     fn default() -> Self {
         PrefixTrieBuilder::new()
     }
@@ -92,14 +97,15 @@ type DistanceType = u8;
 type VisitedType = HashMap<(IndexType, usize), DistanceType>;
 
 #[derive(Clone)]
-pub struct PrefixTrie {
+pub struct PrefixTrie<T> {
     children: Vec<Vec<IndexType>>,
+    items: Vec<Vec<T>>,
     leafs: Vec<bool>,
     characters: Vec<char>,
     ordered_lengths: Vec<Vec<LengthType>>,
 }
 
-impl PrefixTrie {
+impl<T> PrefixTrie<T> {
     pub fn get_child(&self, c: char, ix: IndexType) -> Option<&IndexType> {
         self.children[ix].iter().find_map(|child_ix| {
             let child_char = &self.characters[*child_ix];
@@ -127,7 +133,7 @@ impl PrefixTrie {
         &'a self,
         prefix: &'a str,
         ix: IndexType,
-    ) -> Box<dyn Iterator<Item = String> + 'a> {
+    ) -> Box<dyn Iterator<Item = (String, &T)> + 'a> {
         let mut current_ix = ix;
         for c in prefix.chars() {
             match self.get_child(c, current_ix) {
@@ -140,11 +146,11 @@ impl PrefixTrie {
             self.ordered_lengths[current_ix]
                 .iter()
                 .flat_map(move |&x| self.childs_of_lengths(current_ix, x))
-                .map(move |suffix| {
+                .map(move |(suffix, item)| {
                     let mut full = String::new();
                     full.push_str(prefix);
                     full.push_str(&suffix);
-                    full
+                    (full, item)
                 }),
         )
     }
@@ -153,22 +159,22 @@ impl PrefixTrie {
         &self,
         ix: IndexType,
         length: LengthType,
-    ) -> Box<dyn Iterator<Item = String> + '_> {
+    ) -> Box<dyn Iterator<Item = (String, &T)> + '_> {
         if !self.ordered_lengths[ix].contains(&length) {
             return Box::new(std::iter::empty());
         }
 
         if length == 0 {
-            return Box::new(vec!["".to_string()].into_iter());
+            return Box::new(self.items[ix].iter().map(|item| (String::new(), item)));
         }
 
         Box::new(self.children[ix].iter().flat_map(move |child_ix| {
             let suffixes = self.childs_of_lengths(*child_ix, length - 1);
-            suffixes.map(move |suffix| {
+            suffixes.map(move |(suffix, item)| {
                 let mut s = String::new();
                 s.push(self.characters[*child_ix]);
                 s.push_str(&suffix);
-                s
+                (s, item)
             })
         }))
     }
@@ -178,7 +184,7 @@ impl PrefixTrie {
         word: &'a str,
         distance: DistanceType,
         continuations: bool,
-    ) -> PrefixTrieMaxDistanceIterator<'a> {
+    ) -> PrefixTrieMaxDistanceIterator<'a, T> {
         PrefixTrieMaxDistanceIterator {
             current_distance: 0,
             max_distance: distance,
@@ -196,7 +202,7 @@ impl PrefixTrie {
         distance: DistanceType,
         continuations: bool,
         visited: Option<VisitedType>,
-    ) -> PrefixTrieExactDistanceIterator<'a> {
+    ) -> PrefixTrieExactDistanceIterator<'a, T> {
         PrefixTrieExactDistanceIterator {
             stack: vec![(0, 0, distance, String::new())],
             continuations,
@@ -207,18 +213,18 @@ impl PrefixTrie {
     }
 }
 
-pub struct PrefixTrieMaxDistanceIterator<'a> {
+pub struct PrefixTrieMaxDistanceIterator<'a, T> {
     current_distance: DistanceType,
     max_distance: DistanceType,
-    inner_iterator: PrefixTrieExactDistanceIterator<'a>,
+    inner_iterator: PrefixTrieExactDistanceIterator<'a, T>,
     beginning_stack: (IndexType, usize, String),
     continuations: bool,
-    trie: &'a PrefixTrie,
+    trie: &'a PrefixTrie<T>,
     word: Vec<char>,
 }
 
-impl<'a> Iterator for PrefixTrieMaxDistanceIterator<'a> {
-    type Item = Box<dyn Iterator<Item = String> + 'a>;
+impl<'a, T> Iterator for PrefixTrieMaxDistanceIterator<'a, T> {
+    type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current_distance <= self.max_distance {
@@ -247,16 +253,16 @@ impl<'a> Iterator for PrefixTrieMaxDistanceIterator<'a> {
     }
 }
 
-pub struct PrefixTrieExactDistanceIterator<'a> {
+pub struct PrefixTrieExactDistanceIterator<'a, T> {
     stack: Vec<(IndexType, usize, DistanceType, String)>,
     continuations: bool,
     visited: VisitedType,
-    trie: &'a PrefixTrie,
+    trie: &'a PrefixTrie<T>,
     word: Vec<char>,
 }
 
-impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
-    type Item = Box<dyn Iterator<Item = String> + 'a>;
+impl<'a, T> Iterator for PrefixTrieExactDistanceIterator<'a, T> {
+    type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(top) = self.stack.pop() {
@@ -275,9 +281,17 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
             let p = prefix.clone();
             if distance == 0 && (word_ix == self.word.len()) && self.trie.leafs[node] {
                 if self.continuations {
-                    to_return = Some(Box::new(std::iter::once(p)));
+                    to_return = Some(Box::new(
+                        self.trie.items[node]
+                            .iter()
+                            .map(move |item| (p.clone(), item)),
+                    ));
                 } else {
-                    return Some(Box::new(std::iter::once(p)));
+                    return Some(Box::new(
+                        self.trie.items[node]
+                            .iter()
+                            .map(move |item| (p.clone(), item)),
+                    ));
                 }
             }
 
@@ -360,54 +374,37 @@ impl<'a> Iterator for PrefixTrieExactDistanceIterator<'a> {
 }
 
 #[derive(Clone)]
-pub struct SearchIndex<TrieType, T> {
+pub struct SearchIndex<TrieType> {
     trie: TrieType,
-    elements: HashMap<String, Vec<T>>,
 }
 
-impl<T> Default for SearchIndex<PrefixTrieBuilder, T> {
+impl<T: Clone> Default for SearchIndex<PrefixTrieBuilder<T>> {
     fn default() -> Self {
         SearchIndex::new()
     }
 }
 
-impl<T> SearchIndex<PrefixTrieBuilder, T> {
+impl<T: Clone> SearchIndex<PrefixTrieBuilder<T>> {
     pub fn new() -> Self {
         SearchIndex {
             trie: PrefixTrieBuilder::new(),
-            elements: HashMap::new(),
         }
     }
 
     pub fn insert(&mut self, key: &str, element: T) {
-        self.trie.insert(key);
-        let entry = self.elements.entry(key.to_string()).or_default();
-        entry.push(element);
+        self.trie.insert(key, element);
     }
 
-    pub fn finalize(self) -> SearchIndex<PrefixTrie, T> {
+    pub fn finalize(self) -> SearchIndex<PrefixTrie<T>> {
         SearchIndex {
             trie: self.trie.finalize(),
-            elements: self.elements,
         }
     }
 }
 
-impl<T> SearchIndex<PrefixTrie, T> {
-    pub fn search(&self, key: &str) -> Option<&Vec<T>> {
-        if self.trie.search(key) {
-            self.elements.get(key)
-        } else {
-            None
-        }
-    }
-
+impl<T: Clone> SearchIndex<PrefixTrie<T>> {
     pub fn continuations<'a>(&'a self, prefix: &'a str) -> Box<dyn Iterator<Item = &'a T> + 'a> {
-        let keys = self.trie.continuations(prefix, 0);
-        Box::new(
-            keys.flat_map(move |found| self.elements.get(&found).into_iter())
-                .flatten(),
-        )
+        Box::new(self.trie.continuations(prefix, 0).map(|x| x.1))
     }
 
     pub fn find_with_max_edit_distance<'a>(
@@ -415,16 +412,9 @@ impl<T> SearchIndex<PrefixTrie, T> {
         key: &'a str,
         max_distance: DistanceType,
         continuations: bool,
-    ) -> impl Iterator<Item = (String, &'a T)> + 'a {
+    ) -> PrefixTrieMaxDistanceIterator<'a, T> {
         self.trie
             .find_with_max_edit_distance(key, max_distance, continuations)
-            .flatten()
-            .filter_map(move |found_key| {
-                self.elements
-                    .get(&found_key)
-                    .map(move |v| v.iter().map(move |e| (found_key.clone(), e)))
-            })
-            .flatten()
     }
 }
 

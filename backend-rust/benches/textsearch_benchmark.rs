@@ -19,7 +19,7 @@ fn textsearch(c: &mut Criterion) {
     let reader = BufReader::new(r);
     for line in reader.lines() {
         let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
-        prefix_trie_builder.insert(location.name.to_ascii_lowercase().as_str());
+        prefix_trie_builder.insert(location.name.to_ascii_lowercase().as_str(), ());
     }
     let trie = prefix_trie_builder.finalize();
 

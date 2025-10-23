@@ -7,7 +7,7 @@ fn test_prefix_trie_search() {
     ];
     let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        prefix_trie_builder.insert(word);
+        prefix_trie_builder.insert(word, ());
     }
     let trie = prefix_trie_builder.finalize();
 
@@ -27,12 +27,12 @@ fn test_prefix_trie_continuations() {
     ];
     let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        prefix_trie_builder.insert(word);
+        prefix_trie_builder.insert(word, ());
     }
     let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
-        trie.continuations("he", 0).collect::<Vec<_>>(),
+        trie.continuations("he", 0).map(|x| x.0).collect::<Vec<_>>(),
         vec!["her", "hero", "hello", "helium"]
     );
 }
@@ -42,13 +42,14 @@ fn test_prefix_trie_exact_edit_distance_stack() {
     let words = vec!["hero"];
     let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        prefix_trie_builder.insert(word);
+        prefix_trie_builder.insert(word, ());
     }
     let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 1, false, None)
             .flatten()
+            .map(|x| x.0)
             .collect::<Vec<String>>(),
         vec!["hero".to_string()]
     );
@@ -56,6 +57,7 @@ fn test_prefix_trie_exact_edit_distance_stack() {
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
             .flatten()
+            .map(|x| x.0)
             .collect::<Vec<String>>(),
         Vec::<String>::new()
     );
@@ -66,13 +68,14 @@ fn test_prefix_trie_exact_edit_distance_stack_2() {
     let words = vec!["aber"];
     let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        prefix_trie_builder.insert(word);
+        prefix_trie_builder.insert(word, ());
     }
     let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
             .flatten()
+            .map(|x| x.0)
             .collect::<Vec<String>>(),
         vec!["aber".to_string()]
     );
@@ -85,13 +88,14 @@ fn test_prefix_trie_max_edit_distance() {
     ];
     let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        prefix_trie_builder.insert(word);
+        prefix_trie_builder.insert(word, ());
     }
     let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_max_edit_distance("her", 2, false)
             .flatten()
+            .map(|x| x.0)
             .collect::<Vec<_>>(),
         vec!["her".to_string(), "hero".to_string(), "aber".to_string(),]
     );
@@ -104,13 +108,14 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
     ];
     let mut prefix_trie_builder = PrefixTrieBuilder::new();
     for word in &words {
-        prefix_trie_builder.insert(word);
+        prefix_trie_builder.insert(word, ());
     }
     let trie = prefix_trie_builder.finalize();
 
     assert_eq!(
         trie.find_with_max_edit_distance("hello", 2, true)
             .flatten()
+            .map(|x| x.0)
             .collect::<Vec<_>>(),
         vec![
             "hello".to_string(),
@@ -118,26 +123,6 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
             "hero".to_string(),
         ]
     );
-}
-
-#[test]
-fn test_search_index_search() {
-    let words = vec![
-        "hello", "helium", "hero", "her", "abba", "aber", "alla", "all",
-    ];
-    let mut index_builder = SearchIndex::new();
-    for word in &words {
-        index_builder.insert(word, word.chars().rev().collect::<String>());
-    }
-    let index = index_builder.finalize();
-
-    assert_eq!(index.search("hello"), Some(&vec!["olleh".to_string()]));
-    assert_eq!(index.search("her"), Some(&vec!["reh".to_string()]));
-    assert_eq!(index.search("helicopter"), None);
-    assert_eq!(index.search("abba"), Some(&vec!["abba".to_string()]));
-    assert_eq!(index.search("aber"), Some(&vec!["reba".to_string()]));
-    assert_eq!(index.search("alla"), Some(&vec!["alla".to_string()]));
-    assert_eq!(index.search("all"), Some(&vec!["lla".to_string()]));
 }
 
 #[test]
