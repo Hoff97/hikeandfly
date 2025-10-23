@@ -5,3 +5,4 @@ pub mod line;
 pub mod pqueue;
 pub mod search;
 pub mod textsearch;
+pub mod types;

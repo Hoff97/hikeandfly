@@ -16,7 +16,7 @@ use backend_rust::{
     colors::{f32_color_to_u8, lerp},
     height_data::{location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
-    textsearch::{PrefixTrie, SearchIndex},
+    types::{Location, SearchLocation},
 };
 
 use image::{DynamicImage, GenericImage, ImageFormat, Rgba};
@@ -1002,87 +1002,16 @@ fn get_kml(
     (ContentType::XML, writer.into_inner().into_inner())
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct Location {
-    name: String,
-    center: Vec<f32>,
-    additional_info: Option<String>,
-}
-
-impl Default for Location {
-    fn default() -> Self {
-        Location {
-            name: String::new(),
-            center: vec![0.0, 0.0],
-            additional_info: None,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct LocationInfo {
-    center: Vec<f32>,
-    additional_info_ix: usize,
-}
-
-impl Default for LocationInfo {
-    fn default() -> Self {
-        LocationInfo {
-            center: vec![0.0, 0.0],
-            additional_info_ix: 0,
-        }
-    }
-}
-
-struct SearchLocation {
-    pub index: SearchIndex<PrefixTrie<LocationInfo>>,
-    pub additional_info: Vec<String>,
-}
-
 fn search_index() -> &'static SearchLocation {
     static INSTANCE: OnceCell<SearchLocation> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         println!("Building search index...");
-        let mut ix = SearchIndex::new();
 
-        let paths = fs::read_dir("./data").unwrap();
+        let data = fs::read("data/search_index.fb").expect("Should be able to read hosts file");
+        let r = flexbuffers::Reader::get_root(&data[..]).unwrap();
 
-        let mut additional_info_map = std::collections::HashMap::<String, usize>::new();
-        let mut additional_info_vec = vec![];
-
-        for path in paths {
-            let path = path.unwrap().path();
-            if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-                println!("Loading search data from {:?}", path);
-                let r = File::open(path).unwrap();
-                let reader = BufReader::new(r);
-                for line in reader.lines() {
-                    let location: Location = serde_json::from_str(&line.unwrap()).unwrap();
-
-                    let ad = location.additional_info.unwrap_or_default();
-                    let additional_info_ix = if let Some(&ix) = additional_info_map.get(&ad) {
-                        ix
-                    } else {
-                        let ix = additional_info_vec.len();
-                        additional_info_map.insert(ad.clone(), ix);
-                        additional_info_vec.push(ad);
-                        ix
-                    };
-
-                    ix.insert(
-                        location.name.as_str(),
-                        LocationInfo {
-                            center: location.center,
-                            additional_info_ix,
-                        },
-                    );
-                }
-            }
-        }
-        SearchLocation {
-            index: ix.finalize(),
-            additional_info: additional_info_vec,
-        }
+        let index = SearchLocation::deserialize(r).unwrap();
+        index
     })
 }
 
