@@ -16,7 +16,7 @@ use backend_rust::{
     colors::{f32_color_to_u8, lerp},
     height_data::{location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
-    types::{Location, SearchLocation},
+    types::{Location, LocationWithQuery, SearchLocation},
 };
 
 use image::{DynamicImage, GenericImage, ImageFormat, Rgba};
@@ -1043,18 +1043,34 @@ fn search(ws: WebSocket) -> Stream!['static] {
             let m = message.unwrap();
             if let rocket_ws::Message::Text(t) = m {
                 let q = t.as_str();
-                let result: Vec<_> = ix
+                let result = ix
                     .index
                     .find_with_max_edit_distance(q, (q.len() / 4).clamp(2, 255) as u8, true)
                     .flatten()
                     .take(10)
-                    .map(|x| Location {
-                        name: x.0.to_string(),
-                        center: x.1.center.clone(),
-                        additional_info: ix.additional_info.get(x.1.additional_info_ix).cloned(),
-                    }).collect();
+                    .enumerate()
+                    .map(|(i, x)| LocationWithQuery {
+                        query: q.to_string(),
+                        index: i,
+                        location: Location {
+                            name: x.0.to_string(),
+                            center: x.1.center.clone(),
+                            additional_info: ix.additional_info.get(x.1.additional_info_ix).cloned(),
+                        }
+                    });
 
-                yield rocket_ws::Message::Text(serde_json::to_string(&result).unwrap());
+                for x in result {
+                    yield rocket_ws::Message::Text(serde_json::to_string(&x).unwrap());
+                }
+                yield rocket_ws::Message::Text(serde_json::to_string(&LocationWithQuery {
+                        query: q.to_string(),
+                        index: 1000,
+                        location: Location {
+                            name: "".to_string(),
+                            center: vec![0.0, 0.0],
+                            additional_info: None,
+                        }
+                    }).unwrap() );
             }
         }
     }

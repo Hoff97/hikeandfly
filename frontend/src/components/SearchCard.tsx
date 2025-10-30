@@ -10,8 +10,15 @@ export interface SearchResult {
     id?: string;
 }
 
+export interface SearchResultWithQuery {
+    query: string;
+    index: number;
+    location: SearchResult;
+}
+
 export function SearchCard() {
     let [searchValue, setSearchValue] = useState("");
+    let currentSearchValue = useRef<string>("");
     let [items, setItems] = useState<SearchResult[]>([]);
     let [selectedItem, setSelectedItem] = useState<SearchResult | null>(null);
     let [searching, setSearching] = useState<boolean>(false);
@@ -28,25 +35,22 @@ export function SearchCard() {
         );
 
         ws.current.onmessage = (event) => {
-            let body: SearchResult[] = JSON.parse(event.data) as SearchResult[]
-
-            let result = [];
-            let existingIds = new Set<string>();
-
-            for (let item of body) {
-                item.id = item.name + "_" + item.center[0] + "_" + item.center[1];
-                if (existingIds.has(item.id)) {
-                    continue;
-                }
-                existingIds.add(item.id);
-                result.push(item);
+            let item: SearchResultWithQuery = JSON.parse(event.data) as SearchResultWithQuery
+            if (item.query !== currentSearchValue.current) {
+                return;
             }
+            item.location.id = item.location.name + "_" + item.location.center[0] + "_" + item.location.center[1];
 
-            setItems(result);
-            if (result.length > 0) {
-                setSelectedItem(result[0]);
+            if (item.index > 10) {
+                setSearching(false);
+                return;
             }
-            setSearching(false);
+            setItems(i => {
+                return item.index === 0 ? [item.location] : [...i, item.location]
+            });
+            if (item.index === 0) {
+                setSelectedItem(item.location);
+            }
         };
 
         ws.current.onclose = () => {
@@ -63,6 +67,7 @@ export function SearchCard() {
             return;
         }
         setSearchValue(e);
+        currentSearchValue.current = e;
 
         await new Promise(resolve => setTimeout(resolve, 50));
         if (event === undefined || e !== event?.target.value) {
