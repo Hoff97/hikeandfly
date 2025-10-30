@@ -16,6 +16,7 @@ export function SearchCard() {
     let [selectedItem, setSelectedItem] = useState<SearchResult | null>(null);
     let [searching, setSearching] = useState<boolean>(false);
 
+    const [reinit, setReinit] = useState<boolean>(false);
     const ws = useRef<WebSocket | null>(null);
 
     const map = useMap();
@@ -48,10 +49,14 @@ export function SearchCard() {
             setSearching(false);
         };
 
+        ws.current.onclose = () => {
+            setReinit(!reinit);
+        };
+
         return () => {
             ws.current?.close();
         };
-    }, []);
+    }, [reinit]);
 
     let handleFilterChange = useCallback(async (e: string, event: React.ChangeEvent<HTMLInputElement> | undefined) => {
         if (e.length < 3) {
