@@ -357,7 +357,7 @@ where
 type LengthType = u16;
 type DistanceType = u8;
 type WordIxType = u8;
-type VisitedType<IndexType> = HashMap<IndexType, DistanceType>;
+type VisitedType = Vec<DistanceType>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PrefixTrie<T, OrderedLengthType, IxType> {
@@ -432,12 +432,12 @@ impl<
         word: &'a str,
         distance: DistanceType,
         continuations: bool,
-        visited: Option<VisitedType<IxType>>,
+        visited: Option<VisitedType>,
     ) -> PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType> {
         PrefixTrieExactDistanceIterator {
             stack: vec![(IxType::default(), 0, distance)],
             continuations,
-            visited: visited.unwrap_or_default(),
+            visited: visited.unwrap_or(vec![DistanceType::MAX; self.characters.len()]),
             trie: self,
             word: word.chars().collect(),
         }
@@ -586,7 +586,7 @@ where
 pub struct PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType> {
     stack: Vec<(IxType, WordIxType, DistanceType)>,
     continuations: bool,
-    visited: VisitedType<IxType>,
+    visited: VisitedType,
     trie: &'a PrefixTrie<T, OrderedLengthType, IxType>,
     word: Vec<char>,
 }
@@ -623,13 +623,14 @@ where
             );*/
             let (node, word_ix, distance) = top;
             let effective_position = word_ix + distance;
-            if let Some(p) = self.visited.get_mut(&node) {
-                if effective_position <= *p {
+            let existing_distance = self.visited[node.try_into().unwrap()];
+            if existing_distance != DistanceType::MAX {
+                if effective_position <= existing_distance {
                     continue;
                 }
-                *p = effective_position;
+                self.visited[node.try_into().unwrap()] = effective_position;
             } else {
-                self.visited.insert(node, effective_position);
+                self.visited[node.try_into().unwrap()] = effective_position;
             }
 
             let mut to_return: Option<Self::Item> = None;
