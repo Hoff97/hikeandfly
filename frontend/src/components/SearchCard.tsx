@@ -69,7 +69,7 @@ export function SearchCard() {
         setSearchValue(e);
         currentSearchValue.current = e;
 
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 5));
         if (event === undefined || e !== event?.target.value) {
             return;
         }
