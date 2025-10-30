@@ -320,37 +320,8 @@ where
         }
     }
 
-    fn ix(&self, ix: usize) -> VecOfVecIterator<'_, T, IxType> {
-        VecOfVecIterator {
-            vec_of_vec: self,
-            current_ix: self.indices[ix],
-            end_ix: self.indices[ix + 1],
-        }
-    }
-}
-
-struct VecOfVecIterator<'a, T, IxType> {
-    vec_of_vec: &'a VecOfVec<T, IxType>,
-    current_ix: IxType,
-    end_ix: IxType,
-}
-
-impl<'a, T, IxType: AddAssign + PartialOrd + TryFrom<usize> + TryInto<usize> + Copy> Iterator
-    for VecOfVecIterator<'a, T, IxType>
-where
-    <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
-    <IxType as TryInto<usize>>::Error: std::fmt::Debug,
-{
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current_ix < self.end_ix {
-            let item = &self.vec_of_vec.data[self.current_ix.try_into().unwrap()];
-            self.current_ix += 1.try_into().unwrap();
-            Some(item)
-        } else {
-            None
-        }
+    fn ix(&self, ix: usize) -> &[T] {
+        &self.data[self.indices[ix].try_into().unwrap()..self.indices[ix + 1].try_into().unwrap()]
     }
 }
 
@@ -390,6 +361,7 @@ impl<
     {
         self.children
             .ix(ix.try_into().unwrap())
+            .iter()
             .find(|child_ix| self.characters[(**child_ix).try_into().unwrap()] == c)
     }
 
@@ -420,10 +392,6 @@ impl<
             current_distance: 0,
             max_distance: distance,
             inner_iterator: self.find_with_exact_edit_distance_stack(word, 0, continuations, None),
-            beginning_stack: (IxType::default(), 0, String::new()),
-            continuations,
-            trie: self,
-            word: word.chars().collect(),
         }
     }
 
@@ -437,7 +405,7 @@ impl<
         PrefixTrieExactDistanceIterator {
             stack: vec![(IxType::default(), 0, distance)],
             continuations,
-            visited: visited.unwrap_or(vec![DistanceType::MAX; self.characters.len()]),
+            visited: visited.unwrap_or(vec![DistanceType::default(); self.characters.len()]),
             trie: self,
             word: word.chars().collect(),
         }
@@ -476,6 +444,7 @@ where
         Box::new(
             self.ordered_lengths
                 .ix(current_ix.try_into().unwrap())
+                .iter()
                 .flat_map(move |&x| self.childs_of_lengths(current_ix, x))
                 .map(move |(suffix, item)| {
                     let mut full = String::new();
@@ -494,7 +463,7 @@ where
         if !self
             .ordered_lengths
             .ix(ix.try_into().unwrap())
-            .any(|x| *x == length)
+            .contains(&length)
         {
             return Box::new(std::iter::empty());
         }
@@ -503,6 +472,7 @@ where
             return Box::new(
                 self.items
                     .ix(ix.try_into().unwrap())
+                    .iter()
                     .map(|item| (String::new(), item)),
             );
         }
@@ -510,6 +480,7 @@ where
         Box::new(
             self.children
                 .ix(ix.try_into().unwrap())
+                .iter()
                 .flat_map(move |child_ix| {
                     let suffixes = self.childs_of_lengths(*child_ix, length - 1);
                     suffixes.map(move |(suffix, item)| {
@@ -527,10 +498,6 @@ pub struct PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType, IxType> {
     current_distance: DistanceType,
     max_distance: DistanceType,
     inner_iterator: PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType>,
-    beginning_stack: (IxType, WordIxType, String),
-    continuations: bool,
-    trie: &'a PrefixTrie<T, OrderedLengthType, IxType>,
-    word: Vec<char>,
 }
 
 impl<
@@ -555,7 +522,7 @@ where
     <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
     <IxType as TryInto<usize>>::Error: std::fmt::Debug,
 {
-    type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
+    type Item = Box<dyn Iterator<Item = (&'a str, &'a T)> + 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current_distance <= self.max_distance {
@@ -565,17 +532,12 @@ where
                 }
                 None => {
                     self.current_distance += 1;
-                    self.inner_iterator = PrefixTrieExactDistanceIterator {
-                        stack: vec![(
-                            self.beginning_stack.0,
-                            self.beginning_stack.1,
-                            self.current_distance,
-                        )],
-                        continuations: self.continuations,
-                        visited: self.inner_iterator.visited.clone(),
-                        trie: self.trie,
-                        word: self.word.clone(),
-                    }
+
+                    self.inner_iterator.stack.clear();
+
+                    self.inner_iterator
+                        .stack
+                        .push((IxType::default(), 0, self.current_distance));
                 }
             }
         }
@@ -611,27 +573,17 @@ where
     <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
     <IxType as TryInto<usize>>::Error: std::fmt::Debug,
 {
-    type Item = Box<dyn Iterator<Item = (String, &'a T)> + 'a>;
+    type Item = Box<dyn Iterator<Item = (&'a str, &'a T)> + 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(top) = self.stack.pop() {
-            //println!("Visited size: {}", self.visited.len());
-            /*println!(
-                "Word length: {}, Number of nodes: {}",
-                self.word.len(),
-                self.trie.children.len()
-            );*/
             let (node, word_ix, distance) = top;
-            let effective_position = word_ix + distance;
+            let effective_position = word_ix + distance + 1;
             let existing_distance = self.visited[node.try_into().unwrap()];
-            if existing_distance != DistanceType::MAX {
-                if effective_position <= existing_distance {
-                    continue;
-                }
-                self.visited[node.try_into().unwrap()] = effective_position;
-            } else {
-                self.visited[node.try_into().unwrap()] = effective_position;
+            if effective_position <= existing_distance {
+                continue;
             }
+            self.visited[node.try_into().unwrap()] = effective_position;
 
             let mut to_return: Option<Self::Item> = None;
 
@@ -639,20 +591,22 @@ where
                 && (word_ix == self.word.len() as u8)
                 && self.trie.leafs[node.try_into().unwrap()]
             {
-                let prefix = self.trie.prefixes[node.try_into().unwrap()].clone();
+                let prefix = self.trie.prefixes[node.try_into().unwrap()].as_str();
                 if self.continuations {
                     to_return = Some(Box::new(
                         self.trie
                             .items
                             .ix(node.try_into().unwrap())
-                            .map(move |item| (prefix.clone(), item)),
+                            .iter()
+                            .map(move |item| (prefix, item)),
                     ));
                 } else {
                     return Some(Box::new(
                         self.trie
                             .items
                             .ix(node.try_into().unwrap())
-                            .map(move |item| (prefix.clone(), item)),
+                            .iter()
+                            .map(move |item| (prefix, item)),
                     ));
                 }
             }
