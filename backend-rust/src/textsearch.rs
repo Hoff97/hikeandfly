@@ -522,7 +522,7 @@ where
     <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
     <IxType as TryInto<usize>>::Error: std::fmt::Debug,
 {
-    type Item = Box<dyn Iterator<Item = (&'a str, &'a T)> + 'a>;
+    type Item = NodeItemIterator<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current_distance <= self.max_distance {
@@ -553,6 +553,26 @@ pub struct PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType> {
     word: Vec<char>,
 }
 
+pub struct NodeItemIterator<'a, T> {
+    items: &'a [T],
+    prefix: &'a str,
+    index: usize,
+}
+
+impl<'a, T> Iterator for NodeItemIterator<'a, T> {
+    type Item = (&'a str, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.items.len() {
+            let result = (self.prefix, &self.items[self.index]);
+            self.index += 1;
+            Some(result)
+        } else {
+            None
+        }
+    }
+}
+
 impl<
         'a,
         T: Clone + Default,
@@ -573,7 +593,7 @@ where
     <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
     <IxType as TryInto<usize>>::Error: std::fmt::Debug,
 {
-    type Item = Box<dyn Iterator<Item = (&'a str, &'a T)> + 'a>;
+    type Item = NodeItemIterator<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(top) = self.stack.pop() {
@@ -593,21 +613,17 @@ where
             {
                 let prefix = self.trie.prefixes[node.try_into().unwrap()].as_str();
                 if self.continuations {
-                    to_return = Some(Box::new(
-                        self.trie
-                            .items
-                            .ix(node.try_into().unwrap())
-                            .iter()
-                            .map(move |item| (prefix, item)),
-                    ));
+                    to_return = Some(NodeItemIterator {
+                        items: self.trie.items.ix(node.try_into().unwrap()),
+                        prefix,
+                        index: 0,
+                    });
                 } else {
-                    return Some(Box::new(
-                        self.trie
-                            .items
-                            .ix(node.try_into().unwrap())
-                            .iter()
-                            .map(move |item| (prefix, item)),
-                    ));
+                    return Some(NodeItemIterator {
+                        items: self.trie.items.ix(node.try_into().unwrap()),
+                        prefix,
+                        index: 0,
+                    });
                 }
             }
 

@@ -9,6 +9,13 @@ pub struct Location {
     pub additional_info: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LocationWithQuery {
+    pub query: String,
+    pub index: usize,
+    pub location: Location,
+}
+
 impl Default for Location {
     fn default() -> Self {
         Location {
