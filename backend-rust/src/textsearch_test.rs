@@ -50,15 +50,15 @@ fn test_prefix_trie_exact_edit_distance_stack() {
         trie.find_with_exact_edit_distance_stack("her", 1, false, None)
             .flatten()
             .map(|x| x.0)
-            .collect::<Vec<String>>(),
-        vec!["hero".to_string()]
+            .collect::<Vec<&str>>(),
+        vec!["hero"]
     );
 
     assert_eq!(
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
             .flatten()
             .map(|x| x.0)
-            .collect::<Vec<String>>(),
+            .collect::<Vec<&str>>(),
         Vec::<String>::new()
     );
 }
@@ -76,7 +76,7 @@ fn test_prefix_trie_exact_edit_distance_stack_2() {
         trie.find_with_exact_edit_distance_stack("her", 2, false, None)
             .flatten()
             .map(|x| x.0)
-            .collect::<Vec<String>>(),
+            .collect::<Vec<&str>>(),
         vec!["aber".to_string()]
     );
 }

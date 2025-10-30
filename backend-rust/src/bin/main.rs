@@ -1048,7 +1048,7 @@ fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
     Result::Ok(Json(
         result
             .map(|x| Location {
-                name: x.0.clone(),
+                name: x.0.to_string(),
                 center: x.1.center.clone(),
                 additional_info: ix.additional_info.get(x.1.additional_info_ix).cloned(),
             })
