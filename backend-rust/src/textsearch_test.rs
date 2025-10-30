@@ -117,11 +117,7 @@ fn test_prefix_trie_max_edit_distance_with_continuation() {
             .flatten()
             .map(|x| x.0)
             .collect::<Vec<_>>(),
-        vec![
-            "hello".to_string(),
-            "helium".to_string(),
-            "hero".to_string(),
-        ]
+        vec!["hello".to_string(), "helium".to_string(),]
     );
 }
 

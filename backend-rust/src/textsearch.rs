@@ -182,9 +182,10 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
             items: VecOfVec::new(num_items_in_order),
             ordered_lengths: OrderedLengthType::init_type(&self),
             characters: vec!['\0'; total_nodes],
+            prefixes: vec![String::new(); total_nodes],
         };
 
-        self.finalize_node(&mut trie, 0);
+        self.finalize_node(&mut trie, 0, "".to_string());
         trie
     }
 
@@ -205,6 +206,7 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
         self,
         trie: &mut PrefixTrie<T, OrderedLengthType, IxType>,
         mut current_ix: usize,
+        current_prefix: String,
     ) where
         <IxType as TryFrom<usize>>::Error: std::fmt::Debug,
         <IxType as TryInto<usize>>::Error: std::fmt::Debug,
@@ -218,6 +220,7 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
             trie.items.data[items_ix.try_into().unwrap() + i] = item;
         }
         trie.leafs[my_ix] = self.lengths.iter().any(|x| *x == 0);
+        trie.prefixes[my_ix] = current_prefix.clone();
 
         current_ix += 1;
 
@@ -239,8 +242,11 @@ impl<T: Clone + Default> PrefixTrieBuilder<T> {
             trie.children.data[child_ix.try_into().unwrap() + i] = current_ix.try_into().unwrap();
             trie.characters[current_ix] = c;
 
+            let mut new_prefix = current_prefix.clone();
+            new_prefix.push(c);
+
             let child_nodes = child.total_nodes();
-            child.finalize_node(trie, current_ix);
+            child.finalize_node(trie, current_ix, new_prefix);
             current_ix += child_nodes;
         }
     }
@@ -350,7 +356,8 @@ where
 
 type LengthType = u16;
 type DistanceType = u8;
-type VisitedType<IndexType> = HashMap<(IndexType, usize), DistanceType>;
+type WordIxType = u8;
+type VisitedType<IndexType> = HashMap<IndexType, DistanceType>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PrefixTrie<T, OrderedLengthType, IxType> {
@@ -359,6 +366,7 @@ pub struct PrefixTrie<T, OrderedLengthType, IxType> {
     leafs: Vec<bool>,
     characters: Vec<char>,
     ordered_lengths: OrderedLengthType,
+    prefixes: Vec<String>,
 }
 
 impl<
@@ -427,7 +435,7 @@ impl<
         visited: Option<VisitedType<IxType>>,
     ) -> PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType> {
         PrefixTrieExactDistanceIterator {
-            stack: vec![(IxType::default(), 0, distance, String::new())],
+            stack: vec![(IxType::default(), 0, distance)],
             continuations,
             visited: visited.unwrap_or_default(),
             trie: self,
@@ -519,7 +527,7 @@ pub struct PrefixTrieMaxDistanceIterator<'a, T, OrderedLengthType, IxType> {
     current_distance: DistanceType,
     max_distance: DistanceType,
     inner_iterator: PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType>,
-    beginning_stack: (IxType, usize, String),
+    beginning_stack: (IxType, WordIxType, String),
     continuations: bool,
     trie: &'a PrefixTrie<T, OrderedLengthType, IxType>,
     word: Vec<char>,
@@ -562,7 +570,6 @@ where
                             self.beginning_stack.0,
                             self.beginning_stack.1,
                             self.current_distance,
-                            self.beginning_stack.2.clone(),
                         )],
                         continuations: self.continuations,
                         visited: self.inner_iterator.visited.clone(),
@@ -577,7 +584,7 @@ where
 }
 
 pub struct PrefixTrieExactDistanceIterator<'a, T, OrderedLengthType, IxType> {
-    stack: Vec<(IxType, usize, DistanceType, String)>,
+    stack: Vec<(IxType, WordIxType, DistanceType)>,
     continuations: bool,
     visited: VisitedType<IxType>,
     trie: &'a PrefixTrie<T, OrderedLengthType, IxType>,
@@ -608,51 +615,54 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(top) = self.stack.pop() {
-            let (node, word_ix, distance, prefix) = top;
-            if let Some(d) = self.visited.get_mut(&(node, word_ix)) {
-                if distance <= *d {
+            //println!("Visited size: {}", self.visited.len());
+            /*println!(
+                "Word length: {}, Number of nodes: {}",
+                self.word.len(),
+                self.trie.children.len()
+            );*/
+            let (node, word_ix, distance) = top;
+            let effective_position = word_ix + distance;
+            if let Some(p) = self.visited.get_mut(&node) {
+                if effective_position <= *p {
                     continue;
                 }
-                *d = distance;
+                *p = effective_position;
             } else {
-                self.visited.insert((node, word_ix), distance);
+                self.visited.insert(node, effective_position);
             }
 
             let mut to_return: Option<Self::Item> = None;
 
-            let p = prefix.clone();
             if distance == 0
-                && (word_ix == self.word.len())
+                && (word_ix == self.word.len() as u8)
                 && self.trie.leafs[node.try_into().unwrap()]
             {
+                let prefix = self.trie.prefixes[node.try_into().unwrap()].clone();
                 if self.continuations {
                     to_return = Some(Box::new(
                         self.trie
                             .items
                             .ix(node.try_into().unwrap())
-                            .map(move |item| (p.clone(), item)),
+                            .map(move |item| (prefix.clone(), item)),
                     ));
                 } else {
                     return Some(Box::new(
                         self.trie
                             .items
                             .ix(node.try_into().unwrap())
-                            .map(move |item| (p.clone(), item)),
+                            .map(move |item| (prefix.clone(), item)),
                     ));
                 }
             }
 
-            if word_ix < self.word.len() {
-                let c = self.word[word_ix];
+            if word_ix < self.word.len() as u8 {
+                let c = self.word[word_ix as usize];
 
                 if distance == 0 {
                     // Match
                     if let Some(child) = self.trie.get_child(c, node) {
-                        self.stack.push((*child, word_ix + 1, distance, {
-                            let mut new_prefix = prefix.clone();
-                            new_prefix.push(c);
-                            new_prefix
-                        }));
+                        self.stack.push((*child, word_ix + 1, distance));
                     }
                     continue;
                 }
@@ -661,53 +671,34 @@ where
                     // Substitution
                     let character = self.trie.characters[(*child).try_into().unwrap()];
                     if character != c {
-                        self.stack.push((*child, word_ix + 1, distance - 1, {
-                            let mut new_prefix = prefix.clone();
-                            new_prefix.push(character);
-                            new_prefix
-                        }));
+                        self.stack.push((*child, word_ix + 1, distance - 1));
                     }
                 }
 
                 // Deletion
-                self.stack
-                    .push((node, word_ix + 1, distance - 1, prefix.clone()));
+                self.stack.push((node, word_ix + 1, distance - 1));
 
                 // Insertion
                 for child in self.trie.children.ix(node.try_into().unwrap()) {
                     let character = self.trie.characters[(*child).try_into().unwrap()];
                     if character != c {
-                        self.stack.push((*child, word_ix, distance - 1, {
-                            let mut new_prefix = prefix.clone();
-                            new_prefix.push(character);
-                            new_prefix
-                        }));
+                        self.stack.push((*child, word_ix, distance - 1));
                     }
                 }
 
                 // Match
                 if let Some(child) = self.trie.get_child(c, node) {
-                    self.stack.push((*child, word_ix + 1, distance, {
-                        let mut new_prefix = prefix.clone();
-                        new_prefix.push(c);
-                        new_prefix
-                    }));
+                    self.stack.push((*child, word_ix + 1, distance));
                 }
             } else {
                 if distance == 0 && !self.continuations {
                     continue;
                 }
                 for child in self.trie.children.ix(node.try_into().unwrap()) {
-                    let character = self.trie.characters[(*child).try_into().unwrap()];
                     self.stack.push((
                         *child,
                         word_ix,
                         if distance > 0 { distance - 1 } else { distance },
-                        {
-                            let mut new_prefix = prefix.clone();
-                            new_prefix.push(character);
-                            new_prefix
-                        },
                     ));
                 }
             }
