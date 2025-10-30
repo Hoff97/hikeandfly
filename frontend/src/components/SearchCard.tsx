@@ -1,5 +1,5 @@
 import { EntityTitle, Intent, MenuItem, Spinner, SpinnerSize } from "@blueprintjs/core";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Suggest } from "@blueprintjs/select";
 import { useMap } from "react-leaflet";
 
@@ -16,50 +16,57 @@ export function SearchCard() {
     let [selectedItem, setSelectedItem] = useState<SearchResult | null>(null);
     let [searching, setSearching] = useState<boolean>(false);
 
+    const ws = useRef<WebSocket | null>(null);
+
     const map = useMap();
 
-    async function searchLocation(query: string) {
-        let url = new URL(window.location.origin + "/search");
-        url.search = new URLSearchParams({ query }).toString();
+    useEffect(() => {
+        const url = new URL(window.location.origin + "/search_ws/ws");
+        ws.current = new WebSocket(
+            `${window.location.protocol === "https:" ? "wss" : "ws"}://${url.host}/search_ws/ws`
+        );
 
-        let response = await fetch(url);
-        let body: SearchResult[] = await response.json();
+        ws.current.onmessage = (event) => {
+            let body: SearchResult[] = JSON.parse(event.data) as SearchResult[]
 
-        let result = [];
-        let existingIds = new Set<string>();
+            let result = [];
+            let existingIds = new Set<string>();
 
-        for (let item of body) {
-            item.id = item.name + "_" + item.center[0] + "_" + item.center[1];
-            if (existingIds.has(item.id)) {
-                continue;
+            for (let item of body) {
+                item.id = item.name + "_" + item.center[0] + "_" + item.center[1];
+                if (existingIds.has(item.id)) {
+                    continue;
+                }
+                existingIds.add(item.id);
+                result.push(item);
             }
-            existingIds.add(item.id);
-            result.push(item);
-        }
 
-        return result;
-    }
+            setItems(result);
+            if (result.length > 0) {
+                setSelectedItem(result[0]);
+            }
+            setSearching(false);
+        };
 
-    let handleFilterChange = async (e: string, event: React.ChangeEvent<HTMLInputElement> | undefined) => {
+        return () => {
+            ws.current?.close();
+        };
+    }, []);
+
+    let handleFilterChange = useCallback(async (e: string, event: React.ChangeEvent<HTMLInputElement> | undefined) => {
         if (e.length < 3) {
             return;
         }
         setSearchValue(e);
 
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => setTimeout(resolve, 50));
         if (event === undefined || e !== event?.target.value) {
             return;
         }
 
         setSearching(true);
-        let elements = await searchLocation(e);
-
-        setItems(elements);
-        if (elements.length > 0) {
-            setSelectedItem(elements[0]);
-        }
-        setSearching(false);
-    }
+        ws.current?.send(e);
+    }, [ws]);
 
     let renderItem = (item: SearchResult) => {
         return (

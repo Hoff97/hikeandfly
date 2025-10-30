@@ -34,6 +34,8 @@ impl Default for LocationInfo {
     }
 }
 
+unsafe impl Send for SearchLocation {}
+
 #[derive(Serialize, Deserialize)]
 pub struct SearchLocation {
     pub index: SearchIndex<PrefixTrie<LocationInfo, (), u32>>,

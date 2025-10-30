@@ -1034,26 +1034,30 @@ fn flying_site_search_index() -> &'static BTree<Location> {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[get("/search?<query>")]
-fn search(query: String) -> Result<Json<Vec<Location>>, Status> {
+#[get("/search_ws/ws")]
+fn search(ws: WebSocket) -> Stream!['static] {
     let ix = search_index();
 
-    let q = query.as_str();
-    let result = ix
-        .index
-        .find_with_max_edit_distance(q, (query.len() / 4).clamp(2, 255) as u8, true)
-        .flatten()
-        .take(10);
+    Stream! { ws =>
+        for await message in ws {
+            let m = message.unwrap();
+            if let rocket_ws::Message::Text(t) = m {
+                let q = t.as_str();
+                let result: Vec<_> = ix
+                    .index
+                    .find_with_max_edit_distance(q, (q.len() / 4).clamp(2, 255) as u8, true)
+                    .flatten()
+                    .take(10)
+                    .map(|x| Location {
+                        name: x.0.to_string(),
+                        center: x.1.center.clone(),
+                        additional_info: ix.additional_info.get(x.1.additional_info_ix).cloned(),
+                    }).collect();
 
-    Result::Ok(Json(
-        result
-            .map(|x| Location {
-                name: x.0.to_string(),
-                center: x.1.center.clone(),
-                additional_info: ix.additional_info.get(x.1.additional_info_ix).cloned(),
-            })
-            .collect(),
-    ))
+                yield rocket_ws::Message::Text(serde_json::to_string(&result).unwrap());
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
