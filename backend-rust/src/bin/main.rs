@@ -6,8 +6,10 @@ use std::{
     fs::{self, File},
     hash::{Hash, Hasher},
     io::{BufRead, BufReader, Cursor},
+    path::Path,
 };
 
+use fs_extra::dir::get_size;
 use once_cell::sync::OnceCell;
 use rocket_ws::{Stream, WebSocket};
 
@@ -1040,6 +1042,9 @@ fn search(ws: WebSocket) -> Stream!['static] {
 
     Stream! { ws =>
         for await message in ws {
+            if message.is_err() {
+                return;
+            }
             let m = message.unwrap();
             if let rocket_ws::Message::Text(t) = m {
                 let q = t.as_str();
@@ -1096,6 +1101,79 @@ fn search_flying_site(
     Result::Ok(Json(sites))
 }
 
+#[cached(size = 50000, sync_writes = "by_key", option = true)]
+fn load_tile_from_disk(path: String) -> Option<Vec<u8>> {
+    if Path::new(&path).exists() {
+        let bytes = fs::read(path).ok()?;
+        if bytes.len() < 1000 {
+            println!("Found broken file on disk, ignoring");
+            return None;
+        }
+        Some(bytes)
+    } else {
+        None
+    }
+}
+
+async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<u8>), Status> {
+    // Load from data/tiles/ if exists, otherwise fetch from server
+    let path = format!("data/tiles/{s}/{z}/{x}/{y}.png");
+    if let Some(bytes) = load_tile_from_disk(path.clone()) {
+        Result::Ok((ContentType::PNG, bytes))
+    } else {
+        println!("Fetching tile {s}/{z}/{x}/{y}");
+        let url = format!("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png");
+        let response = reqwest::get(&url)
+            .await
+            .map_err(|_| Status::InternalServerError)?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|_| Status::InternalServerError)?;
+
+        // Save to data/tiles/ for future use
+        fs::create_dir_all(format!("data/tiles/{s}/{z}/{x}"))
+            .map_err(|_| Status::InternalServerError)?;
+        fs::write(&path, &bytes).map_err(|_| Status::InternalServerError)?;
+
+        Result::Ok((ContentType::PNG, bytes.to_vec()))
+    }
+}
+
+#[get("/opentopomap/<s>/<z>/<x>/<y_p>")]
+async fn get_opentopomap_tile(
+    s: String,
+    z: u8,
+    x: u32,
+    y_p: String,
+) -> Result<(ContentType, Vec<u8>), Status> {
+    let y: u32 = y_p.split(".").next().unwrap().parse().unwrap();
+
+    get_tile(s, z, x, y).await
+}
+
+#[derive(Serialize)]
+struct OpenTopomapCacheStats {
+    cache_size: usize,
+    folder_size: u64,
+}
+
+#[get("/opentopomapstats")]
+fn get_opentopomap_cache_stats() -> Result<rocket::serde::json::Json<OpenTopomapCacheStats>, Status>
+{
+    let mut cache_size = 0;
+    if let Ok(guard) = LOAD_TILE_FROM_DISK.try_lock() {
+        cache_size = guard.len();
+    }
+
+    let folder_size = get_size("data/tiles/").unwrap();
+
+    Ok(Json(OpenTopomapCacheStats {
+        cache_size,
+        folder_size,
+    }))
+}
+
 #[launch]
 fn rocket() -> _ {
     search_index();
@@ -1112,5 +1190,7 @@ fn rocket() -> _ {
         .mount("/", routes![get_agl_image])
         .mount("/", routes![get_height_image])
         .mount("/", routes![get_kml])
+        .mount("/", routes![get_opentopomap_tile])
+        .mount("/", routes![get_opentopomap_cache_stats])
         .mount("/static", FileServer::from("./static"))
 }

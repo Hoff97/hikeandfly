@@ -59,6 +59,8 @@ function App() {
     const lastLocationLat = +(window.localStorage.getItem("lastLocationLat") || "47.42280178926773");
     const lastLocationLon = +(window.localStorage.getItem("lastLocationLon") || "10.984954833984375");
 
+    const openTopoMapProxy = `${window.location.origin}/opentopomap/{s}/{z}/{x}/{y}.png`;
+
     return (
         <div className="App">
             <OverlaysProvider>
@@ -86,6 +88,12 @@ function App() {
                             <TileLayer
                                 attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
                                 url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+                            />
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="OpenTopoMap Proxy">
+                            <TileLayer
+                                attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
+                                url={openTopoMapProxy}
                             />
                         </LayersControl.BaseLayer>
                         <LayersControl.BaseLayer name="OpenStreetMap">
