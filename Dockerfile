@@ -17,6 +17,9 @@ ARG pkg=main
 
 WORKDIR /build
 
+RUN apt-get update
+RUN apt-get install -y pkg-config libssl-dev
+
 COPY ./backend-rust .
 
 RUN --mount=type=cache,target=/build/target \
@@ -32,6 +35,8 @@ FROM docker.io/debian:bookworm-slim
 WORKDIR /app
 
 RUN mkdir data
+RUN apt-get update
+RUN apt-get install -y pkg-config libssl-dev
 
 ## copy the main binary
 COPY --from=backend_build /build/main ./
