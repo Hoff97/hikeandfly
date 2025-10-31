@@ -11,6 +11,7 @@ use std::{
 
 use fs_extra::dir::get_size;
 use once_cell::sync::OnceCell;
+use reqwest::{Client, ClientBuilder};
 use rocket_ws::{Stream, WebSocket};
 
 use backend_rust::{
@@ -1115,6 +1116,17 @@ fn load_tile_from_disk(path: String) -> Option<Vec<u8>> {
     }
 }
 
+fn reqwest_client() -> &'static Client {
+    static INSTANCE: OnceCell<Client> = OnceCell::new();
+    INSTANCE.get_or_init(|| {
+        println!("Building reqwest client...");
+        ClientBuilder::new()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+    })
+}
+
 async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<u8>), Status> {
     // Load from data/tiles/ if exists, otherwise fetch from server
     let path = format!("data/tiles/{s}/{z}/{x}/{y}.png");
@@ -1123,7 +1135,7 @@ async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<
     } else {
         println!("Fetching tile {s}/{z}/{x}/{y}");
         let url = format!("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png");
-        let response = reqwest::get(&url).await.map_err(|e| {
+        let response = reqwest_client().get(&url).send().await.map_err(|e| {
             println!("{e}");
             Status::InternalServerError
         })?;
