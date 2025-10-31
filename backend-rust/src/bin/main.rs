@@ -1123,13 +1123,14 @@ async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<
     } else {
         println!("Fetching tile {s}/{z}/{x}/{y}");
         let url = format!("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png");
-        let response = reqwest::get(&url)
-            .await
-            .map_err(|_| Status::InternalServerError)?;
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|_| Status::InternalServerError)?;
+        let response = reqwest::get(&url).await.map_err(|e| {
+            println!("{e}");
+            Status::InternalServerError
+        })?;
+        let bytes = response.bytes().await.map_err(|e| {
+            println!("{e}");
+            Status::InternalServerError
+        })?;
 
         // Save to data/tiles/ for future use
         fs::create_dir_all(format!("data/tiles/{s}/{z}/{x}"))
