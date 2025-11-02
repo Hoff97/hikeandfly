@@ -1129,7 +1129,7 @@ fn reqwest_client() -> &'static Client {
 
 async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<u8>), Status> {
     // Load from data/tiles/ if exists, otherwise fetch from server
-    let path_webp = format!("data/tiles/{s}/{z}/{x}/{y}.webp");
+    let path_webp = format!("data/tiles_webp/{s}/{z}/{x}/{y}.webp");
     let path_png = format!("data/tiles/{s}/{z}/{x}/{y}.png");
     if let Some(bytes) = load_tile_from_disk(path_webp.clone()) {
         Result::Ok((ContentType::WEBP, bytes))
