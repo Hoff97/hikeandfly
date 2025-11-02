@@ -1129,8 +1129,11 @@ fn reqwest_client() -> &'static Client {
 
 async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<u8>), Status> {
     // Load from data/tiles/ if exists, otherwise fetch from server
-    let path = format!("data/tiles/{s}/{z}/{x}/{y}.png");
-    if let Some(bytes) = load_tile_from_disk(path.clone()) {
+    let path_webp = format!("data/tiles/{s}/{z}/{x}/{y}.webp");
+    let path_png = format!("data/tiles/{s}/{z}/{x}/{y}.png");
+    if let Some(bytes) = load_tile_from_disk(path_webp.clone()) {
+        Result::Ok((ContentType::WEBP, bytes))
+    } else if let Some(bytes) = load_tile_from_disk(path_png.clone()) {
         Result::Ok((ContentType::PNG, bytes))
     } else {
         println!("Fetching tile {s}/{z}/{x}/{y}");
@@ -1147,7 +1150,7 @@ async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<
         // Save to data/tiles/ for future use
         fs::create_dir_all(format!("data/tiles/{s}/{z}/{x}"))
             .map_err(|_| Status::InternalServerError)?;
-        fs::write(&path, &bytes).map_err(|_| Status::InternalServerError)?;
+        fs::write(&path_png, &bytes).map_err(|_| Status::InternalServerError)?;
 
         Result::Ok((ContentType::PNG, bytes.to_vec()))
     }
@@ -1168,7 +1171,8 @@ async fn get_opentopomap_tile(
 #[derive(Serialize)]
 struct OpenTopomapCacheStats {
     cache_size: usize,
-    folder_size: u64,
+    folder_size_png: u64,
+    folder_size_webp: u64,
 }
 
 #[get("/opentopomapstats")]
@@ -1179,11 +1183,13 @@ fn get_opentopomap_cache_stats() -> Result<rocket::serde::json::Json<OpenTopomap
         cache_size = guard.len();
     }
 
-    let folder_size = get_size("data/tiles/").unwrap();
+    let folder_size_png = get_size("data/tiles/").unwrap();
+    let folder_size_webp = get_size("data/tiles_webp/").unwrap();
 
     Ok(Json(OpenTopomapCacheStats {
         cache_size,
-        folder_size,
+        folder_size_png,
+        folder_size_webp,
     }))
 }
 
