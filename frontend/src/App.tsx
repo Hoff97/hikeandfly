@@ -4,12 +4,11 @@ import {
     CircleMarker,
     LayersControl,
     MapContainer,
-    TileLayer,
 } from "react-leaflet";
 import { LatLng } from "leaflet";
 import { Spinner, Intent, OverlaysProvider } from "@blueprintjs/core";
 import { InfoPanel } from "./components/InfoPanel";
-import { GridState, GridTile, HeightPoint, ImageState, Settings } from "./utils/types";
+import { GridState, GridTile, HeightPoint, ImageState, SetSettings, Settings } from "./utils/types";
 import { SettingsCard } from "./components/SettingsCard";
 import { ImageOverlays } from "./components/ImageOverlay";
 import { HoverState, SearchComponent } from "./components/SearchComponent";
@@ -17,6 +16,7 @@ import { CurrenLocationPane } from "./components/CurrentLocation";
 import { HeightPlotCard } from "./components/HeightPlotCard";
 import { SearchCard } from "./components/SearchCard";
 import { FlyingSiteOverlay } from "./components/FlyingSiteOverlay";
+import { BaseLayers } from "./components/BaseLayers";
 
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
@@ -25,21 +25,46 @@ function App() {
     const urlParams = new URLSearchParams(window.location.search);
 
     const startHeight = urlParams.get('start_height');
-    const [settings, setSettings] = useState<Settings>({
+    const [settings, setSettingsState] = useState<Settings>({
         startHeight: (startHeight !== null ? (+startHeight) : undefined),
-        additionalHeight: +(urlParams.get('additional_height') || 5),
-        glideNumber: +(urlParams.get('glide_number') || 6.5),
-        gridSize: +(urlParams.get('cell_size') || 50),
+        additionalHeight: +(urlParams.get('additional_height') || window.localStorage.getItem("additionalHeight") || 5),
+        glideNumber: +(urlParams.get('glide_number') || window.localStorage.getItem("glideNumber") || 6.5),
+        gridSize: +(urlParams.get('cell_size') || window.localStorage.getItem("gridSize") || 50),
         minGridSize: 30,
-        trimSpeed: +(urlParams.get('trim_speed') || 37),
-        windSpeed: +(urlParams.get('wind_speed') || 0),
-        windDirection: +(urlParams.get('wind_direction') || 0),
-        safetyMargin: +(urlParams.get('safety_margin') || 0),
-        startDistance: +(urlParams.get('start_distance') || 50),
+        trimSpeed: +(urlParams.get('trim_speed') || window.localStorage.getItem("trimSpeed") || 37),
+        windSpeed: +(urlParams.get('wind_speed') || window.localStorage.getItem("windSpeed") || 0),
+        windDirection: +(urlParams.get('wind_direction') || window.localStorage.getItem("windDirection") || 0),
+        safetyMargin: +(urlParams.get('safety_margin') || window.localStorage.getItem("safetyMargin") || 0),
+        startDistance: +(urlParams.get('start_distance') || window.localStorage.getItem("startDistance") || 50),
         abortController: undefined,
         doLiveHoverSearch: false,
         fastInternet: false,
     });
+
+    let updatedSavedSettings = (newSettings: Settings) => {
+        window.localStorage.setItem("additionalHeight", newSettings.additionalHeight.toString());
+        window.localStorage.setItem("glideNumber", newSettings.glideNumber.toString());
+        window.localStorage.setItem("gridSize", newSettings.gridSize.toString());
+        window.localStorage.setItem("trimSpeed", newSettings.trimSpeed.toString());
+        window.localStorage.setItem("windSpeed", newSettings.windSpeed.toString());
+        window.localStorage.setItem("windDirection", newSettings.windDirection.toString());
+        window.localStorage.setItem("safetyMargin", newSettings.safetyMargin.toString());
+        window.localStorage.setItem("startDistance", newSettings.startDistance.toString());
+    }
+
+    let setSettings: SetSettings = (newSettings) => {
+        if (typeof newSettings === "function") {
+            setSettingsState((settings) => {
+                const updatedSettings = newSettings(settings);
+                updatedSavedSettings(updatedSettings);
+                return updatedSettings;
+            });
+        } else {
+            updatedSavedSettings(newSettings);
+            setSettingsState(newSettings);
+        }
+    };
+
     const [grid, setGrid] = useState<GridState>({
         loading: "done",
         grid: undefined,
@@ -58,8 +83,6 @@ function App() {
 
     const lastLocationLat = +(window.localStorage.getItem("lastLocationLat") || "47.42280178926773");
     const lastLocationLon = +(window.localStorage.getItem("lastLocationLon") || "10.984954833984375");
-
-    const openTopoMapProxy = `${window.location.origin}/opentopomap/{s}/{z}/{x}/{y}.png`;
 
     return (
         <div className="App">
@@ -84,30 +107,7 @@ function App() {
                 <HeightPlotCard heightPoints={pathAndNode.heightPoints} setCursorNode={setCursorNode} settings={settings} />
                 <MapContainer center={[lastLocationLat, lastLocationLon]} zoom={13} scrollWheelZoom={true}>
                     <LayersControl position="bottomright">
-                        <LayersControl.BaseLayer checked name="OpenTopoMap">
-                            <TileLayer
-                                attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
-                                url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-                            />
-                        </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer name="OpenTopoMap Proxy">
-                            <TileLayer
-                                attribution='&copy; <a href="https://opentopomap.org/credits">OpenTopoMap</a> contributors'
-                                url={openTopoMapProxy}
-                            />
-                        </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer name="OpenStreetMap">
-                            <TileLayer
-                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                            />
-                        </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer name="Satellite">
-                            <TileLayer
-                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                            />
-                        </LayersControl.BaseLayer>
+                        <BaseLayers></BaseLayers>
                         {imageState !== undefined ? (
                             <ImageOverlays state={imageState}></ImageOverlays>
                         ) : (
