@@ -1102,11 +1102,27 @@ fn search_flying_site(
     Result::Ok(Json(sites))
 }
 
-#[cached(size = 50000, sync_writes = "by_key", option = true)]
-fn load_tile_from_disk(path: String) -> Option<Vec<u8>> {
+#[cached(size = 1000, sync_writes = "by_key", option = true)]
+fn load_png_from_disk(path: String) -> Option<Vec<u8>> {
     if Path::new(&path).exists() {
-        let bytes = fs::read(path).ok()?;
+        let bytes = fs::read(&path).ok()?;
         if bytes.len() < 1000 {
+            let _ = fs::remove_file(&path);
+            println!("Found broken file on disk, ignoring");
+            return None;
+        }
+        Some(bytes)
+    } else {
+        None
+    }
+}
+
+#[cached(size = 15000, sync_writes = "by_key", option = true)]
+fn load_webp_from_disk(path: String) -> Option<Vec<u8>> {
+    if Path::new(&path).exists() {
+        let bytes = fs::read(&path).ok()?;
+        if bytes.len() < 1000 {
+            let _ = fs::remove_file(&path);
             println!("Found broken file on disk, ignoring");
             return None;
         }
@@ -1131,9 +1147,9 @@ async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<
     // Load from data/tiles/ if exists, otherwise fetch from server
     let path_webp = format!("data/tiles_webp/{s}/{z}/{x}/{y}.webp");
     let path_png = format!("data/tiles/{s}/{z}/{x}/{y}.png");
-    if let Some(bytes) = load_tile_from_disk(path_webp.clone()) {
+    if let Some(bytes) = load_webp_from_disk(path_webp.clone()) {
         Result::Ok((ContentType::WEBP, bytes))
-    } else if let Some(bytes) = load_tile_from_disk(path_png.clone()) {
+    } else if let Some(bytes) = load_png_from_disk(path_png.clone()) {
         Result::Ok((ContentType::PNG, bytes))
     } else {
         println!("Fetching tile {s}/{z}/{x}/{y}");
@@ -1170,7 +1186,8 @@ async fn get_opentopomap_tile(
 
 #[derive(Serialize)]
 struct OpenTopomapCacheStats {
-    cache_size: usize,
+    webp_cache_size: usize,
+    png_cache_size: usize,
     folder_size_png: u64,
     folder_size_webp: u64,
 }
@@ -1178,16 +1195,21 @@ struct OpenTopomapCacheStats {
 #[get("/opentopomapstats")]
 fn get_opentopomap_cache_stats() -> Result<rocket::serde::json::Json<OpenTopomapCacheStats>, Status>
 {
-    let mut cache_size = 0;
-    if let Ok(guard) = LOAD_TILE_FROM_DISK.try_lock() {
-        cache_size = guard.len();
+    let mut webp_cache_size = 0;
+    if let Ok(guard) = LOAD_WEBP_FROM_DISK.try_lock() {
+        webp_cache_size = guard.len();
+    }
+    let mut png_cache_size = 0;
+    if let Ok(guard) = LOAD_PNG_FROM_DISK.try_lock() {
+        png_cache_size = guard.len();
     }
 
     let folder_size_png = get_size("data/tiles/").unwrap();
     let folder_size_webp = get_size("data/tiles_webp/").unwrap();
 
     Ok(Json(OpenTopomapCacheStats {
-        cache_size,
+        webp_cache_size,
+        png_cache_size,
         folder_size_png,
         folder_size_webp,
     }))
