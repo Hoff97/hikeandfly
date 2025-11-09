@@ -36,7 +36,7 @@ use rocket::{
 
 use ndarray::{s, Array2};
 
-use cached::proc_macro::cached;
+use cached::{proc_macro::cached, Cached};
 use serde::Deserialize;
 
 #[macro_use]
@@ -1102,7 +1102,7 @@ fn search_flying_site(
     Result::Ok(Json(sites))
 }
 
-#[cached(size = 1000, sync_writes = "by_key", option = true)]
+#[cached(size = 1000, option = true)]
 fn load_png_from_disk(path: String) -> Option<Vec<u8>> {
     if Path::new(&path).exists() {
         let bytes = fs::read(&path).ok()?;
@@ -1117,7 +1117,7 @@ fn load_png_from_disk(path: String) -> Option<Vec<u8>> {
     }
 }
 
-#[cached(size = 15000, sync_writes = "by_key", option = true)]
+#[cached(size = 15000, option = true)]
 fn load_webp_from_disk(path: String) -> Option<Vec<u8>> {
     if Path::new(&path).exists() {
         let bytes = fs::read(&path).ok()?;
@@ -1197,11 +1197,11 @@ fn get_opentopomap_cache_stats() -> Result<rocket::serde::json::Json<OpenTopomap
 {
     let mut webp_cache_size = 0;
     if let Ok(guard) = LOAD_WEBP_FROM_DISK.try_lock() {
-        webp_cache_size = guard.len();
+        webp_cache_size = guard.cache_size();
     }
     let mut png_cache_size = 0;
     if let Ok(guard) = LOAD_PNG_FROM_DISK.try_lock() {
-        png_cache_size = guard.len();
+        png_cache_size = guard.cache_size();
     }
 
     let folder_size_png = get_size("data/tiles/").unwrap();
