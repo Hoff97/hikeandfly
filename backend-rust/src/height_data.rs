@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ByteOrder};
 use cached::proc_macro::cached;
+use cached::Cached;
 use ndarray::linspace;
 use ndarray::s;
 use ndarray::Array;
@@ -82,7 +83,7 @@ pub fn load_hgt(latitude: i32, longitude: i32) -> Array2<i16> {
     Array::from_shape_vec((shape, shape), result_vec).unwrap()
 }
 
-#[cached]
+#[cached(size = 80)]
 pub fn read_hgt_file(latitude: i32, longitude: i32) -> Vec<u8> {
     let file_name = get_file_name(latitude, longitude);
     let file = File::open(file_name).expect("Could not open hgt file");
@@ -96,6 +97,24 @@ pub fn read_hgt_file(latitude: i32, longitude: i32) -> Vec<u8> {
     assert!(total_read == HGT_N_BYTES, "Wrong number of bytes read!");
 
     content
+}
+
+pub fn cache_sizes() -> (usize, usize) {
+    let load_hgt_cache_size = {
+        if let Ok(guard) = LOAD_HGT.try_lock() {
+            guard.cache_size()
+        } else {
+            0
+        }
+    };
+    let read_hgt_cache_size = {
+        if let Ok(guard) = READ_HGT_FILE.try_lock() {
+            guard.cache_size()
+        } else {
+            0
+        }
+    };
+    (load_hgt_cache_size, read_hgt_cache_size)
 }
 
 pub fn arcsecond_in_meters(latitude: f32) -> f32 {

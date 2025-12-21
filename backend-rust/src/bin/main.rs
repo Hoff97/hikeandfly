@@ -17,7 +17,7 @@ use rocket_ws::{Stream, WebSocket};
 use backend_rust::{
     btree::BTree,
     colors::{f32_color_to_u8, lerp},
-    height_data::{location_supported, HeightGrid},
+    height_data::{cache_sizes, location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
     types::{Location, LocationWithQuery, SearchLocation},
 };
@@ -1102,7 +1102,7 @@ fn search_flying_site(
     Result::Ok(Json(sites))
 }
 
-#[cached(size = 1000, option = true)]
+#[cached(size = 500, option = true)]
 fn load_png_from_disk(path: String) -> Option<Vec<u8>> {
     if Path::new(&path).exists() {
         let bytes = fs::read(&path).ok()?;
@@ -1117,7 +1117,7 @@ fn load_png_from_disk(path: String) -> Option<Vec<u8>> {
     }
 }
 
-#[cached(size = 15000, option = true)]
+#[cached(size = 4000, option = true)]
 fn load_webp_from_disk(path: String) -> Option<Vec<u8>> {
     if Path::new(&path).exists() {
         let bytes = fs::read(&path).ok()?;
@@ -1185,16 +1185,18 @@ async fn get_opentopomap_tile(
 }
 
 #[derive(Serialize)]
-struct OpenTopomapCacheStats {
+struct CacheStats {
     webp_cache_size: usize,
     png_cache_size: usize,
     folder_size_png: u64,
     folder_size_webp: u64,
+    cone_cache_size: usize,
+    hgt_read_cache_size: usize,
+    hgt_file_cache_size: usize,
 }
 
 #[get("/opentopomapstats")]
-fn get_opentopomap_cache_stats() -> Result<rocket::serde::json::Json<OpenTopomapCacheStats>, Status>
-{
+fn get_cache_stats() -> Result<rocket::serde::json::Json<CacheStats>, Status> {
     let mut webp_cache_size = 0;
     if let Ok(guard) = LOAD_WEBP_FROM_DISK.try_lock() {
         webp_cache_size = guard.cache_size();
@@ -1203,15 +1205,23 @@ fn get_opentopomap_cache_stats() -> Result<rocket::serde::json::Json<OpenTopomap
     if let Ok(guard) = LOAD_PNG_FROM_DISK.try_lock() {
         png_cache_size = guard.cache_size();
     }
+    let mut cone_cache_size = 0;
+    if let Ok(guard) = SEARCH_FROM_POINT_MEMOIZED.try_lock() {
+        cone_cache_size = guard.cache_size();
+    }
+    let (hgt_read_cache_size, hgt_file_cache_size) = cache_sizes();
 
     let folder_size_png = get_size("data/tiles/").unwrap();
     let folder_size_webp = get_size("data/tiles_webp/").unwrap();
 
-    Ok(Json(OpenTopomapCacheStats {
+    Ok(Json(CacheStats {
         webp_cache_size,
         png_cache_size,
         folder_size_png,
         folder_size_webp,
+        cone_cache_size,
+        hgt_read_cache_size,
+        hgt_file_cache_size,
     }))
 }
 
@@ -1232,6 +1242,6 @@ fn rocket() -> _ {
         .mount("/", routes![get_height_image])
         .mount("/", routes![get_kml])
         .mount("/", routes![get_opentopomap_tile])
-        .mount("/", routes![get_opentopomap_cache_stats])
+        .mount("/", routes![get_cache_stats])
         .mount("/static", FileServer::from("./static"))
 }
