@@ -121,7 +121,7 @@ impl SearchQueryHashable {
     }
 }
 
-#[cached(size = 1000, sync_writes = "by_key")]
+#[cached(size = 200, sync_writes = "by_key")]
 fn search_from_point_memoized(
     latitude: Distance,
     longitude: Distance,
