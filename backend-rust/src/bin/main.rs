@@ -121,7 +121,7 @@ impl SearchQueryHashable {
     }
 }
 
-#[cached(size = 200, sync_writes = "by_key")]
+#[cached(size = 200)]
 fn search_from_point_memoized(
     latitude: Distance,
     longitude: Distance,
@@ -1192,7 +1192,6 @@ struct CacheStats {
     folder_size_webp: u64,
     cone_cache_size: usize,
     hgt_read_cache_size: usize,
-    hgt_file_cache_size: usize,
 }
 
 #[get("/opentopomapstats")]
@@ -1209,7 +1208,7 @@ fn get_cache_stats() -> Result<rocket::serde::json::Json<CacheStats>, Status> {
     if let Ok(guard) = SEARCH_FROM_POINT_MEMOIZED.try_lock() {
         cone_cache_size = guard.cache_size();
     }
-    let (hgt_read_cache_size, hgt_file_cache_size) = cache_sizes();
+    let hgt_read_cache_size = cache_sizes();
 
     let folder_size_png = get_size("data/tiles/").unwrap();
     let folder_size_webp = get_size("data/tiles_webp/").unwrap();
@@ -1221,7 +1220,6 @@ fn get_cache_stats() -> Result<rocket::serde::json::Json<CacheStats>, Status> {
         folder_size_webp,
         cone_cache_size,
         hgt_read_cache_size,
-        hgt_file_cache_size,
     }))
 }
 
