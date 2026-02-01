@@ -51,7 +51,7 @@ fn num_index_accesses() -> &'static Mutex<usize> {
 fn index() -> Redirect {
     {
         let mut lock = num_index_accesses().lock().unwrap();
-        *lock = *lock + 1;
+        *lock += 1;
     }
     Redirect::to("/static/index.html")
 }
@@ -299,7 +299,7 @@ fn get_flight_cone(
 
     {
         let mut lock = num_searches().lock().unwrap();
-        *lock = *lock + 1;
+        *lock += 1;
     }
 
     let search_from_request_result = search_from_request(
@@ -372,7 +372,7 @@ fn get_flight_cone_stream(
 ) -> Stream!['static] {
     {
         let mut lock = num_searches().lock().unwrap();
-        *lock = *lock + 1;
+        *lock += 1;
     }
 
     let search_from_request_result = search_from_request(
