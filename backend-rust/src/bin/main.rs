@@ -1,5 +1,10 @@
 #![allow(unused_variables)]
 use core::f32;
+use fs_extra::dir::get_size;
+use once_cell::sync::OnceCell;
+use reqwest::{Client, ClientBuilder};
+use rocket_ws::{Stream, WebSocket};
+use std::sync::{Mutex, OnceLock};
 use std::{
     cmp::{max, min, Ordering},
     f32::consts::PI,
@@ -8,11 +13,6 @@ use std::{
     io::{BufRead, BufReader, Cursor},
     path::Path,
 };
-
-use fs_extra::dir::get_size;
-use once_cell::sync::OnceCell;
-use reqwest::{Client, ClientBuilder};
-use rocket_ws::{Stream, WebSocket};
 
 use backend_rust::{
     btree::BTree,
@@ -42,8 +42,17 @@ use serde::Deserialize;
 #[macro_use]
 extern crate rocket;
 
+fn num_index_accesses() -> &'static Mutex<usize> {
+    static ARRAY: OnceLock<Mutex<usize>> = OnceLock::new();
+    ARRAY.get_or_init(|| Mutex::new(0))
+}
+
 #[get("/")]
 fn index() -> Redirect {
+    {
+        let mut lock = num_index_accesses().lock().unwrap();
+        *lock = *lock + 1;
+    }
     Redirect::to("/static/index.html")
 }
 
@@ -264,6 +273,11 @@ struct FlightConeResponse {
     start_height: f32,
 }
 
+fn num_searches() -> &'static Mutex<usize> {
+    static ARRAY: OnceLock<Mutex<usize>> = OnceLock::new();
+    ARRAY.get_or_init(|| Mutex::new(0))
+}
+
 #[allow(clippy::too_many_arguments)]
 #[get("/flight_cone?<lat>&<lon>&<cell_size>&<glide_number>&<additional_height>&<start_height>&<wind_speed>&<wind_direction>&<trim_speed>&<safety_margin>&<start_distance>")]
 fn get_flight_cone(
@@ -281,6 +295,11 @@ fn get_flight_cone(
 ) -> Result<Json<FlightConeResponse>, Status> {
     if !location_supported(lat, lon) {
         return Result::Err(Status::NotFound);
+    }
+
+    {
+        let mut lock = num_searches().lock().unwrap();
+        *lock = *lock + 1;
     }
 
     let search_from_request_result = search_from_request(
@@ -351,6 +370,11 @@ fn get_flight_cone_stream(
     safety_margin: Option<f32>,
     start_distance: Option<f32>,
 ) -> Stream!['static] {
+    {
+        let mut lock = num_searches().lock().unwrap();
+        *lock = *lock + 1;
+    }
+
     let search_from_request_result = search_from_request(
         lat,
         lon,
@@ -1185,17 +1209,19 @@ async fn get_opentopomap_tile(
 }
 
 #[derive(Serialize)]
-struct CacheStats {
+struct Stats {
     webp_cache_size: usize,
     png_cache_size: usize,
     folder_size_png: u64,
     folder_size_webp: u64,
     cone_cache_size: usize,
     hgt_read_cache_size: usize,
+    num_searches: usize,
+    num_index_accesses: usize,
 }
 
-#[get("/opentopomapstats")]
-fn get_cache_stats() -> Result<rocket::serde::json::Json<CacheStats>, Status> {
+#[get("/stats")]
+fn get_stats() -> Result<rocket::serde::json::Json<Stats>, Status> {
     let mut webp_cache_size = 0;
     if let Ok(guard) = LOAD_WEBP_FROM_DISK.try_lock() {
         webp_cache_size = guard.cache_size();
@@ -1210,16 +1236,21 @@ fn get_cache_stats() -> Result<rocket::serde::json::Json<CacheStats>, Status> {
     }
     let hgt_read_cache_size = cache_sizes();
 
-    let folder_size_png = get_size("data/tiles/").unwrap();
-    let folder_size_webp = get_size("data/tiles_webp/").unwrap();
+    let folder_size_png = get_size("data/tiles/").unwrap_or(0);
+    let folder_size_webp = get_size("data/tiles_webp/").unwrap_or(0);
 
-    Ok(Json(CacheStats {
+    let num_searches = *num_searches().lock().unwrap();
+    let num_index_accesses = *num_index_accesses().lock().unwrap();
+
+    Ok(Json(Stats {
         webp_cache_size,
         png_cache_size,
         folder_size_png,
         folder_size_webp,
         cone_cache_size,
         hgt_read_cache_size,
+        num_searches,
+        num_index_accesses,
     }))
 }
 
@@ -1240,6 +1271,6 @@ fn rocket() -> _ {
         .mount("/", routes![get_height_image])
         .mount("/", routes![get_kml])
         .mount("/", routes![get_opentopomap_tile])
-        .mount("/", routes![get_cache_stats])
+        .mount("/", routes![get_stats])
         .mount("/static", FileServer::from("./static"))
 }
