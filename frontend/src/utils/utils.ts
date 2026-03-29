@@ -7,6 +7,7 @@ import {
   HeightPoint,
   ImageState,
   PathAndNode,
+  ReducedNodeResponse,
   SetSettings,
   Settings,
 } from "./types";
@@ -31,6 +32,29 @@ interface GeoBounds {
 }
 
 let cachedLargeHeightMap: HeightMapResponse | undefined;
+
+function getEffectiveGlideRatio(
+  effectiveWindAngle: number,
+  windSpeed: number,
+  trimSpeed: number,
+  glideRatio: number,
+): number {
+  const sideWind = Math.sin(effectiveWindAngle) * windSpeed;
+  const backWind = Math.cos(effectiveWindAngle) * windSpeed;
+
+  const restSpeedSquared = trimSpeed * trimSpeed - sideWind * sideWind;
+  if (restSpeedSquared <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const restSpeed = Math.sqrt(restSpeedSquared);
+  const effectiveSpeed = restSpeed + backWind;
+  if (effectiveSpeed <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return glideRatio / (effectiveSpeed / trimSpeed);
+}
 
 export function updateSearchParams(
   latLng: LatLng | undefined,
@@ -381,16 +405,151 @@ function createAglImageData(
   return imageData;
 }
 
-function imageDataToDataUrl(imageData: ImageData): string {
-  const canvas = document.createElement("canvas");
+function initializeGrid(cone: ConeSearchResponse): GridTile[][] {
+  const grid = new Array(cone.grid_shape[0]);
+  for (let i = 0; i < cone.grid_shape[0]; i++) {
+    grid[i] = new Array(cone.grid_shape[1]);
+  }
+  return grid;
+}
+
+function clearOverlayCanvas(width: number, height: number): void {
+  const canvas = document.getElementById("canvas-overlay") as HTMLCanvasElement;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    throw new Error("Could not get canvas context");
+  }
+  ctx.clearRect(0, 0, width, height);
+}
+
+function createOverlayLoadingMask(
+  imageData: ImageData,
+): CanvasRenderingContext2D {
+  const canvas = document.getElementById("canvas-overlay") as HTMLCanvasElement;
   canvas.width = imageData.width;
   canvas.height = imageData.height;
   const ctx = canvas.getContext("2d");
   if (ctx === null) {
     throw new Error("Could not get canvas context");
   }
-  ctx.putImageData(imageData, 0, 0);
-  return canvas.toDataURL("image/png");
+
+  ctx.clearRect(0, 0, imageData.width, imageData.height);
+  ctx.fillStyle = "rgba(0,0,0,255)";
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    if (imageData.data[i + 2] !== 0) {
+      const ix = i / 4;
+      const x = ix % imageData.width;
+      const y = Math.floor(ix / imageData.width);
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  return ctx;
+}
+
+function updateGrid(
+  cone: ConeSearchResponse,
+  grid: GridTile[][] | undefined,
+  ctx: CanvasRenderingContext2D,
+  options:
+    | {
+        mode: "server";
+        nodes: ReducedNodeResponse[];
+        settings: Settings;
+        lastReference: number[] | undefined;
+        heightData: ImageData;
+      }
+    | {
+        mode: "local";
+        nodes: GridTile[];
+      },
+): number[] | undefined {
+  if (grid === undefined) {
+    return undefined;
+  }
+
+  if (options.mode === "local") {
+    for (const node of options.nodes) {
+      grid[node.index[0]][node.index[1]] = node;
+      const x = node.index[1];
+      const y = cone.grid_shape[0] - node.index[0] - 1;
+      ctx.clearRect(x, y, 1, 1);
+    }
+    return undefined;
+  }
+
+  let lastReference = options.lastReference;
+  for (const reducedResp of options.nodes) {
+    const insertedNode: GridTile = {
+      index: reducedResp.i,
+      height: 0,
+      distance: 0,
+      reference: [],
+      agl: 0,
+    };
+    grid[reducedResp.i[0]][reducedResp.i[1]] = insertedNode;
+
+    if (reducedResp.r === undefined && lastReference === undefined) {
+      insertedNode.height =
+        options.settings.startHeight !== undefined
+          ? options.settings.startHeight
+          : cone.start_height + options.settings.additionalHeight;
+      insertedNode.distance = 0;
+      insertedNode.agl = getHeightAt(
+        reducedResp.i,
+        options.heightData,
+        cone.grid_shape,
+      );
+      insertedNode.reference = undefined;
+      const x = insertedNode.index[1];
+      const y = cone.grid_shape[0] - insertedNode.index[0] - 1;
+      ctx.clearRect(x, y, 1, 1);
+      continue;
+    }
+
+    if (reducedResp.r === undefined && lastReference !== undefined) {
+      insertedNode.reference = lastReference;
+    } else {
+      lastReference = reducedResp.r;
+      insertedNode.reference = reducedResp.r;
+    }
+
+    const ref = grid[insertedNode.reference![0]][insertedNode.reference![1]];
+    const diff = [
+      insertedNode.index[0] - ref.index[0],
+      insertedNode.index[1] - ref.index[1],
+    ];
+
+    const windDir = (options.settings.windDirection / 180.0) * Math.PI;
+    const angle = Math.atan2(diff[0], diff[1]);
+    const effectiveWindAngle = windDir + angle + Math.PI / 2;
+    const refDistance =
+      Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1]) * cone.cell_size;
+
+    insertedNode.distance = ref.distance + refDistance;
+    insertedNode.height =
+      ref.height -
+      refDistance *
+        getEffectiveGlideRatio(
+          effectiveWindAngle,
+          options.settings.windSpeed,
+          options.settings.trimSpeed,
+          1 / options.settings.glideNumber,
+        );
+    insertedNode.agl = getHeightAt(
+      reducedResp.i,
+      options.heightData,
+      cone.grid_shape,
+    );
+
+    const x = insertedNode.index[1];
+    const y = cone.grid_shape[0] - insertedNode.index[0] - 1;
+    ctx.clearRect(x, y, 1, 1);
+  }
+
+  return lastReference;
 }
 
 async function loadImageData(imageSRC: URL) {
@@ -575,7 +734,7 @@ export async function doSearchFromLocation(
   let controller = new AbortController();
   setSettings({ ...settings, abortController: controller });
   let cone: ConeSearchResponse;
-  let nodes: GridTile[];
+  let imageData: ImageData;
 
   try {
     if (settings.localComputeEnabled) {
@@ -622,7 +781,7 @@ export async function doSearchFromLocation(
         start_height: wasmResult.start_height,
       };
 
-      nodes = wasmResult.nodes.map((node) => ({
+      const nodes = wasmResult.nodes.map((node) => ({
         index: [node.index[0], node.index[1]],
         reference: node.reference
           ? [node.reference[0], node.reference[1]]
@@ -632,11 +791,58 @@ export async function doSearchFromLocation(
         agl: node.agl,
         inSafetyMargin: node.in_safety_margin,
       }));
-    } else {
-      const flightConeUrl = new URL(window.location.origin + "/flight_cone");
-      flightConeUrl.search = getSearchParams(latLng, settings).toString();
 
-      const response = await fetch(flightConeUrl, {
+      imageData = createAglImageData(cone, nodes);
+
+      let newSettings = settings;
+      setSettings((prev) => {
+        newSettings = {
+          ...prev,
+          gridSize: cone.cell_size,
+          minGridSize: cone.min_cell_size,
+        };
+        return newSettings;
+      });
+
+      const bounds = new LatLngBounds(
+        new LatLng(cone.lat[0], cone.lon[0]),
+        new LatLng(cone.lat[1], cone.lon[1]),
+      );
+      setImageState({ bounds });
+      if (!imageOnly) {
+        updateSearchParams(latLng, newSettings);
+      }
+      await new Promise((r) => setTimeout(r, 100));
+      drawAGLImage(imageData);
+
+      if (imageOnly) {
+        clearOverlayCanvas(imageData.width, imageData.height);
+        if (map !== undefined) {
+          map.flyToBounds(bounds);
+        }
+        grid.loading = "done";
+        grid.response = cone;
+        grid.startPosition = latLng;
+        setGrid(grid);
+        return;
+      }
+
+      const overlayCtx = createOverlayLoadingMask(imageData);
+      grid.loading = "grid";
+      grid.response = cone;
+      grid.startPosition = latLng;
+      grid.grid = initializeGrid(cone);
+      updateGrid(cone, grid.grid, overlayCtx, {
+        mode: "local",
+        nodes,
+      });
+      setGrid({ ...grid, loading: "done" });
+    } else {
+      const searchParams = getSearchParams(latLng, settings).toString();
+      const boundsUrl = new URL(window.location.origin + "/flight_cone_bounds");
+      boundsUrl.search = searchParams;
+
+      const response = await fetch(boundsUrl, {
         signal: controller.signal,
       });
       if (response.status === 404) {
@@ -646,21 +852,82 @@ export async function doSearchFromLocation(
         return;
       }
       if (!response.ok) {
-        throw new Error("Failed to fetch flight cone from server");
+        throw new Error("Failed to fetch flight cone bounds from server");
       }
 
-      const serverCone = (await response.json()) as ConeSearchResponse;
-      cone = serverCone;
-      nodes = (serverCone.nodes ?? []).map((node) => ({
-        index: [node.index[0], node.index[1]],
-        reference: node.reference
-          ? [node.reference[0], node.reference[1]]
-          : undefined,
-        height: node.height,
-        distance: node.distance,
-        agl: node.agl,
-        inSafetyMargin: node.inSafetyMargin,
-      }));
+      cone = (await response.json()) as ConeSearchResponse;
+
+      let newSettings = settings;
+      setSettings((prev) => {
+        newSettings = {
+          ...prev,
+          gridSize: cone.cell_size,
+          minGridSize: cone.min_cell_size,
+        };
+        return newSettings;
+      });
+
+      const rawHeightUrl = new URL(
+        window.location.origin + "/raw_height_image",
+      );
+      rawHeightUrl.search = searchParams;
+      imageData = (await loadImageData(rawHeightUrl)).imageData;
+
+      const bounds = new LatLngBounds(
+        new LatLng(cone.lat[0], cone.lon[0]),
+        new LatLng(cone.lat[1], cone.lon[1]),
+      );
+      setImageState({ bounds });
+      if (!imageOnly) {
+        updateSearchParams(latLng, newSettings);
+      }
+      await new Promise((r) => setTimeout(r, 100));
+      drawAGLImage(imageData);
+
+      if (imageOnly) {
+        clearOverlayCanvas(imageData.width, imageData.height);
+        if (map !== undefined) {
+          map.flyToBounds(bounds);
+        }
+        grid.loading = "done";
+        grid.response = cone;
+        grid.startPosition = latLng;
+        setGrid(grid);
+        return;
+      }
+
+      const overlayCtx = createOverlayLoadingMask(imageData);
+      grid.loading = "grid";
+      grid.response = cone;
+      grid.startPosition = latLng;
+      grid.grid = initializeGrid(cone);
+      setGrid({ ...grid });
+
+      const wsUrl = new URL(window.location.origin + "/flight_cone_ws/ws");
+      wsUrl.search = searchParams;
+      const socket = new WebSocket(
+        `${window.location.protocol === "https:" ? "wss" : "ws"}://${wsUrl.host}/flight_cone_ws/ws?${wsUrl.searchParams.toString()}`,
+      );
+
+      controller.signal.addEventListener("abort", () => {
+        socket.close();
+      });
+
+      let lastReference: number[] | undefined;
+      socket.onmessage = (event) => {
+        const nodes = JSON.parse(event.data) as ReducedNodeResponse[];
+        lastReference = updateGrid(cone, grid.grid, overlayCtx, {
+          mode: "server",
+          nodes,
+          settings,
+          lastReference,
+          heightData: imageData,
+        });
+        setGrid({ ...grid, grid: grid.grid });
+      };
+      socket.onclose = () => {
+        setGrid({ ...grid, loading: "done", grid: grid.grid });
+      };
     }
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
@@ -677,83 +944,6 @@ export async function doSearchFromLocation(
     }
     throw error;
   }
-
-  const imageData = createAglImageData(cone, nodes);
-
-  grid.loading = imageOnly ? "done" : "grid";
-  grid.response = cone;
-  grid.startPosition = latLng;
-  setGrid(grid);
-
-  let newSettings = settings;
-
-  setSettings((prev) => {
-    newSettings = {
-      ...prev,
-      gridSize: cone.cell_size,
-      minGridSize: cone.min_cell_size,
-    };
-    return newSettings;
-  });
-
-  const searchParams = getSearchParams(latLng, settings).toString();
-
-  if (imageOnly) {
-    const bounds = new LatLngBounds(
-      new LatLng(cone.lat[0], cone.lon[0]),
-      new LatLng(cone.lat[1], cone.lon[1]),
-    );
-    let imageState: ImageState = {
-      heightAGLUrl: imageDataToDataUrl(imageData),
-      bounds,
-    };
-    setImageState(imageState);
-    if (map !== undefined) {
-      map.flyToBounds(bounds);
-    }
-    return;
-  }
-
-  const bounds = new LatLngBounds(
-    new LatLng(cone.lat[0], cone.lon[0]),
-    new LatLng(cone.lat[1], cone.lon[1]),
-  );
-  let imageState: ImageState = {
-    heightAGLUrl: undefined,
-    bounds,
-  };
-  setImageState(imageState);
-  updateSearchParams(latLng, newSettings);
-  await new Promise((r) => setTimeout(r, 100));
-  drawAGLImage(imageData);
-
-  let canvas = document.getElementById("canvas-overlay") as HTMLCanvasElement;
-  canvas.width = imageData.width;
-  canvas.height = imageData.height;
-  var ctx = canvas.getContext("2d");
-  if (ctx === null) {
-    throw new Error("Could not get canvas context");
-  }
-  ctx.fillStyle = "rgba(0,0,0,255)";
-  for (let i = 0; i < imageData.data.length; i += 4) {
-    if (imageData.data[i + 2] !== 0) {
-      let ix = i / 4;
-      let x = (ix % imageData.width) | 0;
-      let y = Math.floor(ix / imageData.width);
-      ctx.fillRect(x, y, 1, 1);
-    }
-  }
-
-  grid.grid = new Array(cone.grid_shape[0]);
-  for (let i = 0; i < cone.grid_shape[0]; i++) {
-    grid.grid[i] = new Array(cone.grid_shape[1]);
-  }
-
-  for (const node of nodes) {
-    grid.grid[node.index[0]][node.index[1]] = node;
-  }
-
-  setGrid({ ...grid, loading: "done" });
 }
 
 export function ixToLatLon(ix: number[], response: ConeSearchResponse) {

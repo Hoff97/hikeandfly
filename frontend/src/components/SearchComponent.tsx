@@ -95,7 +95,7 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
             doSearchFromLocation(
                 (is) => { setHoverState({ imageState: is, lastHoverSearch: Date.now() }); },
                 (g) => { }, (g) => { }, e.latlng, {
-                ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200
+                ...settings, gridSize: settings.localComputeEnabled || settings.fastInternet ? settings.gridSize : 200
             }, {
                 path: undefined,
                 node: undefined,
@@ -118,7 +118,7 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
             doSearchFromLocation(
                 (is) => { setHoverState({ imageState: is, lastHoverSearch: Date.now() }); },
                 (g) => { }, (g) => { }, map.getCenter(), {
-                ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200
+                ...settings, gridSize: settings.localComputeEnabled || settings.fastInternet ? settings.gridSize : 200
             }, {
                 path: undefined,
                 node: undefined,

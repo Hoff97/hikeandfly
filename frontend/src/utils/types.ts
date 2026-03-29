@@ -65,7 +65,6 @@ export interface GridState {
 }
 
 export interface ImageState {
-  heightAGLUrl: string | undefined;
   bounds: LatLngBounds;
 }
 

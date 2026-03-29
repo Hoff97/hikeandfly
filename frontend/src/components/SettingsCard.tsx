@@ -166,7 +166,10 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
     function rerun(preview: boolean = false) {
         if (grid.startPosition !== undefined) {
             if (preview) {
-                let searchSettings = { ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200 };
+                let searchSettings = {
+                    ...settings,
+                    gridSize: settings.localComputeEnabled || settings.fastInternet ? settings.gridSize : 200,
+                };
                 doSearchFromLocation(setImageState, (g) => { }, (s) => { }, grid.startPosition, searchSettings, pathAndNode, undefined, preview);
             } else {
                 doSearchFromLocation(setImageState, setGrid, setSettings, grid.startPosition, settings, pathAndNode, undefined, preview);
