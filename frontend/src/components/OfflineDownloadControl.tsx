@@ -229,9 +229,7 @@ export function OfflineDownloadControl({
               <HTMLTable condensed striped className="offlineDownloadsTable">
                 <thead>
                   <tr>
-                    <th>Date</th>
                     <th>Grid</th>
-                    <th>Layer</th>
                     <th>Tiles</th>
                     <th>Sites</th>
                     <th>Actions</th>
@@ -240,9 +238,7 @@ export function OfflineDownloadControl({
                 <tbody>
                   {downloads.map((download) => (
                     <tr key={download.id}>
-                      <td>{new Date(download.createdAt).toLocaleString()}</td>
                       <td>{download.gridSize} m</td>
-                      <td>{download.baseLayerName}</td>
                       <td>{download.tileCount}</td>
                       <td>{download.siteCount}</td>
                       <td className="offlineDownloadActions">
