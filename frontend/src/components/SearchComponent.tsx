@@ -19,11 +19,13 @@ interface SearchComponentProps {
     pathAndNode: PathAndNode;
 }
 
+function abortableClassList(e: any) {
+    return "classList" in e && (e.classList.contains("locationButton") || e.classList.contains("bp5-input") || e.classList.contains("offlineButton"));
+}
+
 function abortEvent(e: LeafletMouseEvent) {
-    return ("classList" in (e.originalEvent.target as any) &&
-        ((e.originalEvent.target as any).classList.contains("locationButton") || (e.originalEvent.target as any).classList.contains("bp5-input")))
-        || ("parentElement" in (e.originalEvent.target as any) && "classList" in (e.originalEvent.target as any).parentElement &&
-            (e.originalEvent.target as any).parentElement.classList.contains("locationButton"));
+    return abortableClassList(e.originalEvent.target) ||
+        ("parentElement" in (e.originalEvent.target as any) && abortableClassList((e.originalEvent.target as any).parentElement));
 }
 
 function doHoverSearch(grid: GridState, hoverState: HoverState, imageState: ImageState | undefined, settings: Settings, useTimer = true) {
