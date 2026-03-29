@@ -39,9 +39,14 @@
         top: 90px;
     }
 
+    .search-card {
+        width: 165px;
+    }
+
     .offlineButton {
-        top: 45px;
-        left: 10px;
+        top: 10px;
+        left: 225px;
+        white-space: nowrap;
     }
 
     .infoButton {
