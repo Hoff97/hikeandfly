@@ -14,6 +14,24 @@ import { computeFlightCone } from "../wasm/glide";
 
 import { Map as MapLeaflet } from "leaflet";
 
+interface HeightMapMetaResponse {
+  cell_size: number;
+  min_cell_size: number;
+  lat: [number, number];
+  lon: [number, number];
+  start_ix: [number, number];
+  grid_shape: [number, number];
+}
+
+interface GeoBounds {
+  latMin: number;
+  latMax: number;
+  lonMin: number;
+  lonMax: number;
+}
+
+let cachedLargeHeightMap: HeightMapResponse | undefined;
+
 export function updateSearchParams(
   latLng: LatLng | undefined,
   settings: Settings,
@@ -81,6 +99,256 @@ function estimateSearchMarginMeters(settings: Settings): number {
   const estimatedRange = estimatedStartHeight / effectiveGlideRatio;
 
   return Math.round(Math.max(5000, Math.min(120000, estimatedRange + 2000)));
+}
+
+function computeRequiredBounds(latLng: LatLng, marginM: number): GeoBounds {
+  const earthMetersPerDegree = 111_320;
+  const latDelta = marginM / earthMetersPerDegree;
+  const lonScale = Math.max(Math.cos((latLng.lat * Math.PI) / 180), 0.05);
+  const lonDelta = marginM / (earthMetersPerDegree * lonScale);
+
+  return {
+    latMin: latLng.lat - latDelta,
+    latMax: latLng.lat + latDelta,
+    lonMin: latLng.lng - lonDelta,
+    lonMax: latLng.lng + lonDelta,
+  };
+}
+
+function mapContainsBounds(map: HeightMapResponse, bounds: GeoBounds): boolean {
+  return (
+    bounds.latMin >= map.lat[0] &&
+    bounds.latMax <= map.lat[1] &&
+    bounds.lonMin >= map.lon[0] &&
+    bounds.lonMax <= map.lon[1]
+  );
+}
+
+function toGridIndex(
+  lat: number,
+  lon: number,
+  map: HeightMapResponse,
+): [number, number] {
+  const rows = map.grid_shape[0];
+  const cols = map.grid_shape[1];
+
+  const row = Math.floor(
+    ((lat - map.lat[0]) / (map.lat[1] - map.lat[0])) * rows,
+  );
+  const col = Math.floor(
+    ((lon - map.lon[0]) / (map.lon[1] - map.lon[0])) * cols,
+  );
+
+  return [
+    Math.max(0, Math.min(rows - 1, row)),
+    Math.max(0, Math.min(cols - 1, col)),
+  ];
+}
+
+function cropHeightMap(
+  map: HeightMapResponse,
+  latLng: LatLng,
+  marginM: number,
+): HeightMapResponse {
+  const rows = map.grid_shape[0];
+  const cols = map.grid_shape[1];
+  const [centerRow, centerCol] = toGridIndex(latLng.lat, latLng.lng, map);
+
+  const halfSpan = Math.max(1, Math.ceil(marginM / map.cell_size));
+  const rowStart = Math.max(0, centerRow - halfSpan);
+  const rowEnd = Math.min(rows - 1, centerRow + halfSpan);
+  const colStart = Math.max(0, centerCol - halfSpan);
+  const colEnd = Math.min(cols - 1, centerCol + halfSpan);
+
+  const croppedRows = rowEnd - rowStart + 1;
+  const croppedCols = colEnd - colStart + 1;
+  const croppedHeights: number[] = [];
+
+  for (let row = rowStart; row <= rowEnd; row++) {
+    const offset = row * cols;
+    for (let col = colStart; col <= colEnd; col++) {
+      croppedHeights.push(map.heights[offset + col]);
+    }
+  }
+
+  const latStart = map.lat[0] + (rowStart / rows) * (map.lat[1] - map.lat[0]);
+  const latEnd = map.lat[0] + ((rowEnd + 1) / rows) * (map.lat[1] - map.lat[0]);
+  const lonStart = map.lon[0] + (colStart / cols) * (map.lon[1] - map.lon[0]);
+  const lonEnd = map.lon[0] + ((colEnd + 1) / cols) * (map.lon[1] - map.lon[0]);
+
+  return {
+    cell_size: map.cell_size,
+    min_cell_size: map.min_cell_size,
+    lat: [latStart, latEnd],
+    lon: [lonStart, lonEnd],
+    start_ix: [centerRow - rowStart, centerCol - colStart],
+    grid_shape: [croppedRows, croppedCols],
+    heights: croppedHeights,
+  };
+}
+
+function getHeightMapMetaUrl(
+  latLng: LatLng,
+  cellSize: number,
+  marginM: number,
+): URL {
+  const url = new URL(window.location.origin + "/height_map_meta");
+  url.searchParams.set("lat", latLng.lat.toString());
+  url.searchParams.set("lon", latLng.lng.toString());
+  url.searchParams.set("cell_size", cellSize.toString());
+  url.searchParams.set("margin_m", marginM.toString());
+  return url;
+}
+
+function getHeightMapImageUrl(
+  latLng: LatLng,
+  cellSize: number,
+  marginM: number,
+): URL {
+  const url = new URL(window.location.origin + "/height_map_image");
+  url.searchParams.set("lat", latLng.lat.toString());
+  url.searchParams.set("lon", latLng.lng.toString());
+  url.searchParams.set("cell_size", cellSize.toString());
+  url.searchParams.set("margin_m", marginM.toString());
+  return url;
+}
+
+function getHeightMapJsonUrl(
+  latLng: LatLng,
+  cellSize: number,
+  marginM: number,
+): URL {
+  const url = new URL(window.location.origin + "/height_map");
+  url.searchParams.set("lat", latLng.lat.toString());
+  url.searchParams.set("lon", latLng.lng.toString());
+  url.searchParams.set("cell_size", cellSize.toString());
+  url.searchParams.set("margin_m", marginM.toString());
+  return url;
+}
+
+async function decodeHeightsFromImageResponse(
+  imageResponse: Response,
+  expectedShape: [number, number],
+): Promise<number[]> {
+  const blob = await imageResponse.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const { imageData, img } = await loadImageData(new URL(objectUrl));
+    if (img.height !== expectedShape[0] || img.width !== expectedShape[1]) {
+      throw new Error("Height map image dimensions do not match metadata");
+    }
+
+    const heights: number[] = new Array(expectedShape[0] * expectedShape[1]);
+    for (let row = 0; row < expectedShape[0]; row++) {
+      for (let col = 0; col < expectedShape[1]; col++) {
+        const height = getHeightAt([row, col], imageData, [
+          img.height,
+          img.width,
+        ]);
+        heights[row * expectedShape[1] + col] = height;
+      }
+    }
+
+    return heights;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function fetchHeightMapPngWithMeta(
+  latLng: LatLng,
+  cellSize: number,
+  marginM: number,
+  signal: AbortSignal,
+): Promise<HeightMapResponse> {
+  const metaUrl = getHeightMapMetaUrl(latLng, cellSize, marginM);
+  const imageUrl = getHeightMapImageUrl(latLng, cellSize, marginM);
+
+  const [metaResponse, imageResponse] = await Promise.all([
+    fetch(metaUrl, { signal }),
+    fetch(imageUrl, { signal }),
+  ]);
+
+  if (metaResponse.status === 404 || imageResponse.status === 404) {
+    throw new Error("Location not yet supported");
+  }
+  if (!metaResponse.ok || !imageResponse.ok) {
+    throw new Error("Failed to fetch height map metadata/image");
+  }
+
+  const meta = (await metaResponse.json()) as HeightMapMetaResponse;
+  const heights = await decodeHeightsFromImageResponse(
+    imageResponse,
+    meta.grid_shape,
+  );
+
+  return {
+    cell_size: meta.cell_size,
+    min_cell_size: meta.min_cell_size,
+    lat: meta.lat,
+    lon: meta.lon,
+    start_ix: meta.start_ix,
+    grid_shape: meta.grid_shape,
+    heights,
+  };
+}
+
+async function fetchHeightMapJson(
+  latLng: LatLng,
+  cellSize: number,
+  marginM: number,
+  signal: AbortSignal,
+): Promise<HeightMapResponse> {
+  const response = await fetch(getHeightMapJsonUrl(latLng, cellSize, marginM), {
+    signal,
+  });
+  if (response.status === 404) {
+    throw new Error("Location not yet supported");
+  }
+  if (!response.ok) {
+    throw new Error("Failed to fetch height map JSON");
+  }
+  return (await response.json()) as HeightMapResponse;
+}
+
+async function getHeightMapForLocalCompute(
+  latLng: LatLng,
+  settings: Settings,
+  signal: AbortSignal,
+): Promise<HeightMapResponse> {
+  const normalMargin = estimateSearchMarginMeters(settings);
+  const normalBounds = computeRequiredBounds(latLng, normalMargin);
+
+  if (
+    cachedLargeHeightMap !== undefined &&
+    Math.abs(cachedLargeHeightMap.cell_size - settings.gridSize) < 0.001 &&
+    mapContainsBounds(cachedLargeHeightMap, normalBounds)
+  ) {
+    return cropHeightMap(cachedLargeHeightMap, latLng, normalMargin);
+  }
+
+  const largeMargin = normalMargin * 2;
+  try {
+    cachedLargeHeightMap = await fetchHeightMapPngWithMeta(
+      latLng,
+      settings.gridSize,
+      largeMargin,
+      signal,
+    );
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+
+    cachedLargeHeightMap = await fetchHeightMapJson(
+      latLng,
+      settings.gridSize,
+      largeMargin,
+      signal,
+    );
+  }
+
+  return cropHeightMap(cachedLargeHeightMap, latLng, normalMargin);
 }
 
 function createAglImageData(
@@ -300,96 +568,115 @@ export async function doSearchFromLocation(
   pathAndNode.setHeightPoints(undefined);
   pathAndNode.setCursorNode(undefined);
 
-  let heightMapUrl = new URL(window.location.origin + "/height_map");
-  heightMapUrl.searchParams.set("lat", latLng.lat.toString());
-  heightMapUrl.searchParams.set("lon", latLng.lng.toString());
-  heightMapUrl.searchParams.set("cell_size", settings.gridSize.toString());
-  heightMapUrl.searchParams.set(
-    "margin_m",
-    estimateSearchMarginMeters(settings).toString(),
-  );
-
   if (settings.abortController !== undefined) {
     settings.abortController.abort();
   }
 
   let controller = new AbortController();
   setSettings({ ...settings, abortController: controller });
+  let cone: ConeSearchResponse;
+  let nodes: GridTile[];
 
-  let response;
   try {
-    response = await fetch(heightMapUrl, { signal: controller.signal });
+    if (settings.localComputeEnabled) {
+      const heightMap = await getHeightMapForLocalCompute(
+        latLng,
+        settings,
+        controller.signal,
+      );
+
+      const wasmResult = await computeFlightCone({
+        height_map: {
+          heights: heightMap.heights,
+          grid_shape: [heightMap.grid_shape[0], heightMap.grid_shape[1]],
+          cell_size: heightMap.cell_size,
+          min_cell_size: heightMap.min_cell_size,
+          lat: [heightMap.lat[0], heightMap.lat[1]],
+          lon: [heightMap.lon[0], heightMap.lon[1]],
+          start_ix: [heightMap.start_ix[0], heightMap.start_ix[1]],
+        },
+        search: {
+          glide_number: settings.glideNumber,
+          additional_height: settings.additionalHeight,
+          start_height: settings.startHeight,
+          wind_speed: settings.windSpeed,
+          wind_direction: settings.windDirection,
+          trim_speed: settings.trimSpeed,
+          safety_margin: settings.safetyMargin,
+          start_distance: settings.startDistance,
+        },
+      });
+
+      cone = {
+        nodes: undefined,
+        cell_size: wasmResult.cell_size,
+        min_cell_size: wasmResult.min_cell_size,
+        lat: [wasmResult.lat[0], wasmResult.lat[1]],
+        lon: [wasmResult.lon[0], wasmResult.lon[1]],
+        start_ix: [wasmResult.start_ix[0], wasmResult.start_ix[1]],
+        grid_shape: [wasmResult.grid_shape[0], wasmResult.grid_shape[1]],
+        angular_resolution: [
+          (wasmResult.lat[1] - wasmResult.lat[0]) / wasmResult.grid_shape[0],
+          (wasmResult.lon[1] - wasmResult.lon[0]) / wasmResult.grid_shape[1],
+        ],
+        start_height: wasmResult.start_height,
+      };
+
+      nodes = wasmResult.nodes.map((node) => ({
+        index: [node.index[0], node.index[1]],
+        reference: node.reference
+          ? [node.reference[0], node.reference[1]]
+          : undefined,
+        height: node.height,
+        distance: node.distance,
+        agl: node.agl,
+        inSafetyMargin: node.in_safety_margin,
+      }));
+    } else {
+      const flightConeUrl = new URL(window.location.origin + "/flight_cone");
+      flightConeUrl.search = getSearchParams(latLng, settings).toString();
+
+      const response = await fetch(flightConeUrl, {
+        signal: controller.signal,
+      });
+      if (response.status === 404) {
+        grid.loading = "done";
+        setGrid(grid);
+        alert("Location not yet supported!");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error("Failed to fetch flight cone from server");
+      }
+
+      const serverCone = (await response.json()) as ConeSearchResponse;
+      cone = serverCone;
+      nodes = (serverCone.nodes ?? []).map((node) => ({
+        index: [node.index[0], node.index[1]],
+        reference: node.reference
+          ? [node.reference[0], node.reference[1]]
+          : undefined,
+        height: node.height,
+        distance: node.distance,
+        agl: node.agl,
+        inSafetyMargin: node.inSafetyMargin,
+      }));
+    }
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return;
     }
-    throw error;
-  }
-
-  if (response.status === 404) {
-    grid.loading = "done";
-    setGrid(grid);
-    alert("Location not yet supported!");
-    return;
-  }
-
-  let heightMap: HeightMapResponse;
-  try {
-    heightMap = await response.json();
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (
+      error instanceof Error &&
+      error.message === "Location not yet supported"
+    ) {
+      grid.loading = "done";
+      setGrid(grid);
+      alert("Location not yet supported!");
       return;
     }
     throw error;
   }
-
-  const wasmResult = await computeFlightCone({
-    height_map: {
-      heights: heightMap.heights,
-      grid_shape: [heightMap.grid_shape[0], heightMap.grid_shape[1]],
-      cell_size: heightMap.cell_size,
-      min_cell_size: heightMap.min_cell_size,
-      lat: [heightMap.lat[0], heightMap.lat[1]],
-      lon: [heightMap.lon[0], heightMap.lon[1]],
-      start_ix: [heightMap.start_ix[0], heightMap.start_ix[1]],
-    },
-    search: {
-      glide_number: settings.glideNumber,
-      additional_height: settings.additionalHeight,
-      start_height: settings.startHeight,
-      wind_speed: settings.windSpeed,
-      wind_direction: settings.windDirection,
-      trim_speed: settings.trimSpeed,
-      safety_margin: settings.safetyMargin,
-      start_distance: settings.startDistance,
-    },
-  });
-
-  const cone: ConeSearchResponse = {
-    nodes: undefined,
-    cell_size: wasmResult.cell_size,
-    min_cell_size: wasmResult.min_cell_size,
-    lat: [wasmResult.lat[0], wasmResult.lat[1]],
-    lon: [wasmResult.lon[0], wasmResult.lon[1]],
-    start_ix: [wasmResult.start_ix[0], wasmResult.start_ix[1]],
-    grid_shape: [wasmResult.grid_shape[0], wasmResult.grid_shape[1]],
-    angular_resolution: [
-      (wasmResult.lat[1] - wasmResult.lat[0]) / wasmResult.grid_shape[0],
-      (wasmResult.lon[1] - wasmResult.lon[0]) / wasmResult.grid_shape[1],
-    ],
-    start_height: wasmResult.start_height,
-  };
-
-  const nodes: GridTile[] = wasmResult.nodes.map((node) => ({
-    index: [node.index[0], node.index[1]],
-    reference: node.reference
-      ? [node.reference[0], node.reference[1]]
-      : undefined,
-    height: node.height,
-    distance: node.distance,
-    agl: node.agl,
-    inSafetyMargin: node.in_safety_margin,
-  }));
 
   const imageData = createAglImageData(cone, nodes);
 

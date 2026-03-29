@@ -14,6 +14,7 @@ export interface Settings {
   abortController: AbortController | undefined;
   doLiveHoverSearch: boolean;
   fastInternet: boolean;
+  localComputeEnabled: boolean;
 }
 
 export type SetSettings = (

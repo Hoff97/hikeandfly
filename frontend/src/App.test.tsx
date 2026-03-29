@@ -17,6 +17,7 @@ describe("getSearchParams", () => {
       abortController: undefined,
       doLiveHoverSearch: false,
       fastInternet: true,
+      localComputeEnabled: false,
     });
 
     expect(params.get("lat")).toBe("47.1");

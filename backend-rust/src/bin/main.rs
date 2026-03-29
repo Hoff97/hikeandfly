@@ -284,18 +284,22 @@ struct HeightMapResponse {
     heights: Vec<i16>,
 }
 
-fn num_searches() -> &'static Mutex<usize> {
-    static ARRAY: OnceLock<Mutex<usize>> = OnceLock::new();
-    ARRAY.get_or_init(|| Mutex::new(0))
+#[derive(Serialize)]
+struct HeightMapMetaResponse {
+    cell_size: f32,
+    min_cell_size: f32,
+    lat: (f32, f32),
+    lon: (f32, f32),
+    start_ix: GridIx,
+    grid_shape: (usize, usize),
 }
 
-#[get("/height_map?<lat>&<lon>&<margin_m>&<cell_size>")]
-fn get_height_map(
+fn build_height_grid(
     lat: f32,
     lon: f32,
     margin_m: Option<f32>,
     cell_size: Option<f32>,
-) -> Result<Json<HeightMapResponse>, Status> {
+) -> Result<HeightGrid, Status> {
     if !location_supported(lat, lon) {
         return Result::Err(Status::NotFound);
     }
@@ -308,18 +312,89 @@ fn get_height_map(
         grid = grid.scale(grid.cell_size / effective_cell_size);
     }
 
-    let start_ix = (
-        (grid.heights.shape()[0] / 2) as u16,
-        (grid.heights.shape()[1] / 2) as u16,
-    );
+    Result::Ok(grid)
+}
 
-    let response = HeightMapResponse {
+fn height_map_meta_from_grid(grid: &HeightGrid) -> HeightMapMetaResponse {
+    HeightMapMetaResponse {
         cell_size: grid.cell_size,
         min_cell_size: grid.min_cell_size,
         lat: grid.latitudes,
         lon: grid.longitudes,
-        start_ix,
+        start_ix: (
+            (grid.heights.shape()[0] / 2) as u16,
+            (grid.heights.shape()[1] / 2) as u16,
+        ),
         grid_shape: (grid.heights.shape()[0], grid.heights.shape()[1]),
+    }
+}
+
+#[get("/height_map_meta?<lat>&<lon>&<margin_m>&<cell_size>")]
+fn get_height_map_meta(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<Json<HeightMapMetaResponse>, Status> {
+    let grid = build_height_grid(lat, lon, margin_m, cell_size)?;
+    Result::Ok(Json(height_map_meta_from_grid(&grid)))
+}
+
+#[get("/height_map_image?<lat>&<lon>&<margin_m>&<cell_size>")]
+fn get_height_map_image(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<(ContentType, Vec<u8>), Status> {
+    let grid = build_height_grid(lat, lon, margin_m, cell_size)?;
+
+    let rows = grid.heights.shape()[0];
+    let cols = grid.heights.shape()[1];
+    let mut img = DynamicImage::new_rgba8(cols as u32, rows as u32);
+
+    // Encode each terrain height as two bytes in RG channels.
+    for row in 0..rows {
+        for col in 0..cols {
+            let x = col as u32;
+            let y = (rows - row - 1) as u32;
+            let height = grid.heights[(row, col)] as i32;
+
+            let clamped = height.clamp(0, 65_535);
+            let hi = ((clamped >> 8) & 0xFF) as u8;
+            let lo = (clamped & 0xFF) as u8;
+            img.put_pixel(x, y, Rgba([hi, lo, 0, 255]));
+        }
+    }
+
+    let mut c = Cursor::new(Vec::new());
+    img.write_to(&mut c, ImageFormat::Png)
+        .expect("png encode failed");
+    Result::Ok((ContentType::PNG, c.into_inner()))
+}
+
+fn num_searches() -> &'static Mutex<usize> {
+    static ARRAY: OnceLock<Mutex<usize>> = OnceLock::new();
+    ARRAY.get_or_init(|| Mutex::new(0))
+}
+
+#[get("/height_map?<lat>&<lon>&<margin_m>&<cell_size>")]
+fn get_height_map(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<Json<HeightMapResponse>, Status> {
+    let grid = build_height_grid(lat, lon, margin_m, cell_size)?;
+    let meta = height_map_meta_from_grid(&grid);
+
+    let response = HeightMapResponse {
+        cell_size: meta.cell_size,
+        min_cell_size: meta.min_cell_size,
+        lat: meta.lat,
+        lon: meta.lon,
+        start_ix: meta.start_ix,
+        grid_shape: meta.grid_shape,
         heights: grid.heights.iter().copied().collect(),
     };
 
@@ -1321,5 +1396,7 @@ fn rocket() -> _ {
         .mount("/", routes![get_opentopomap_tile])
         .mount("/", routes![get_stats])
         .mount("/", routes![get_height_map])
+        .mount("/", routes![get_height_map_meta])
+        .mount("/", routes![get_height_map_image])
         .mount("/static", FileServer::from("./static"))
 }

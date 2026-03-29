@@ -39,6 +39,7 @@ function App() {
         abortController: undefined,
         doLiveHoverSearch: false,
         fastInternet: false,
+        localComputeEnabled: window.localStorage.getItem("localComputeEnabled") === "true",
     });
 
     let updatedSavedSettings = (newSettings: Settings) => {
@@ -50,6 +51,7 @@ function App() {
         window.localStorage.setItem("windDirection", newSettings.windDirection.toString());
         window.localStorage.setItem("safetyMargin", newSettings.safetyMargin.toString());
         window.localStorage.setItem("startDistance", newSettings.startDistance.toString());
+        window.localStorage.setItem("localComputeEnabled", newSettings.localComputeEnabled ? "true" : "false");
     }
 
     let setSettings: SetSettings = (newSettings) => {
