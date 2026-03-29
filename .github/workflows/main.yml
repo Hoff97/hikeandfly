@@ -36,7 +36,7 @@ jobs:
           sha256sum frontend/package.json frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: cd frontend && npm ci
+        run: cd frontend && npm install && npm ci
 
       - name: Run frontend tests
         run: cd frontend && npm test
