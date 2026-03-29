@@ -17,6 +17,10 @@ export default defineConfig({
       strategies: "injectManifest",
       srcDir: "src",
       filename: "sw.ts",
+      devOptions: {
+        enabled: true,
+        type: "module",
+      },
       injectManifest: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm}"],
       },

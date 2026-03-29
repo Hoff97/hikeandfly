@@ -75,3 +75,16 @@ export async function computeFlightCone(
   await wasm.default();
   return wasm.compute_flight_cone(request) as WasmFlightConeResponse;
 }
+
+// Warm-load the JS shim and wasm binary early while online so first offline
+// glide requests do not fail on a lazy import/fetch.
+export async function preloadWasmRuntime(): Promise<void> {
+  try {
+    const wasm = await loadWasmApi();
+    await wasm.default();
+  } catch (error) {
+    // Best effort preloading only; normal compute path retries and surfaces
+    // errors if the runtime is actually needed.
+    console.debug("WASM preload skipped:", error);
+  }
+}

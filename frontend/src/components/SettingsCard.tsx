@@ -317,7 +317,7 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
                     <Checkbox checked={settings.fastInternet} label="Fast internet" onChange={e => setSettings({ ...settings, fastInternet: e.target.checked })} />
                     <Checkbox
                         checked={settings.localComputeEnabled}
-                        label="Local compute (height-map fetch + WASM)"
+                        label="Local compute"
                         onChange={e => setLocalComputeEnabled(e.target.checked)}
                     />
                     {grid.response !== undefined ?

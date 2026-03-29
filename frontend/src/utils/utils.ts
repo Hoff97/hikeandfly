@@ -180,34 +180,43 @@ function cropHeightMap(
   const [centerRow, centerCol] = toGridIndex(latLng.lat, latLng.lng, map);
 
   const halfSpan = Math.max(1, Math.ceil(marginM / map.cell_size));
-  const rowStart = Math.max(0, centerRow - halfSpan);
-  const rowEnd = Math.min(rows - 1, centerRow + halfSpan);
-  const colStart = Math.max(0, centerCol - halfSpan);
-  const colEnd = Math.min(cols - 1, centerCol + halfSpan);
 
-  const croppedRows = rowEnd - rowStart + 1;
-  const croppedCols = colEnd - colStart + 1;
-  const croppedHeights: number[] = [];
+  // The desired row/col range — may extend outside the stored map.
+  const desiredRowStart = centerRow - halfSpan;
+  const desiredRowEnd = centerRow + halfSpan;
+  const desiredColStart = centerCol - halfSpan;
+  const desiredColEnd = centerCol + halfSpan;
 
-  for (let row = rowStart; row <= rowEnd; row++) {
-    const offset = row * cols;
-    for (let col = colStart; col <= colEnd; col++) {
-      croppedHeights.push(map.heights[offset + col]);
+  const outRows = desiredRowEnd - desiredRowStart + 1;
+  const outCols = desiredColEnd - desiredColStart + 1;
+
+  // Start with all zeros; fill in whatever is covered by the stored map.
+  const croppedHeights = new Array<number>(outRows * outCols).fill(0);
+
+  for (let row = desiredRowStart; row <= desiredRowEnd; row++) {
+    if (row < 0 || row >= rows) continue;
+    for (let col = desiredColStart; col <= desiredColEnd; col++) {
+      if (col < 0 || col >= cols) continue;
+      const outRow = row - desiredRowStart;
+      const outCol = col - desiredColStart;
+      croppedHeights[outRow * outCols + outCol] = map.heights[row * cols + col];
     }
   }
 
-  const latStart = map.lat[0] + (rowStart / rows) * (map.lat[1] - map.lat[0]);
-  const latEnd = map.lat[0] + ((rowEnd + 1) / rows) * (map.lat[1] - map.lat[0]);
-  const lonStart = map.lon[0] + (colStart / cols) * (map.lon[1] - map.lon[0]);
-  const lonEnd = map.lon[0] + ((colEnd + 1) / cols) * (map.lon[1] - map.lon[0]);
+  const latPerRow = (map.lat[1] - map.lat[0]) / rows;
+  const lonPerCol = (map.lon[1] - map.lon[0]) / cols;
+  const latStart = map.lat[0] + desiredRowStart * latPerRow;
+  const latEnd = map.lat[0] + (desiredRowEnd + 1) * latPerRow;
+  const lonStart = map.lon[0] + desiredColStart * lonPerCol;
+  const lonEnd = map.lon[0] + (desiredColEnd + 1) * lonPerCol;
 
   return {
     cell_size: map.cell_size,
     min_cell_size: map.min_cell_size,
     lat: [latStart, latEnd],
     lon: [lonStart, lonEnd],
-    start_ix: [centerRow - rowStart, centerCol - colStart],
-    grid_shape: [croppedRows, croppedCols],
+    start_ix: [halfSpan, halfSpan],
+    grid_shape: [outRows, outCols],
     heights: croppedHeights,
   };
 }
@@ -353,12 +362,8 @@ async function getHeightMapForLocalCompute(
   }
 
   const storedHeightMap = await findStoredHeightMap(
-    [
-      normalBounds.latMin,
-      normalBounds.lonMin,
-      normalBounds.latMax,
-      normalBounds.lonMax,
-    ],
+    latLng.lat,
+    latLng.lng,
     settings.gridSize,
   );
   if (storedHeightMap !== undefined) {

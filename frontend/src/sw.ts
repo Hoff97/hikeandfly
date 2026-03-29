@@ -15,8 +15,31 @@ declare const self: ServiceWorkerGlobalScope & {
 };
 
 // Activate the new SW immediately when it installs, and claim all open clients.
-self.addEventListener("install", () => {
+const APP_RUNTIME_CACHE = "app-runtime";
+const APP_SHELL_URLS = ["/static/", "/static/index.html", "/index.html"];
+
+self.addEventListener("install", (event) => {
   self.skipWaiting();
+
+  // Best-effort warmup for app shell URLs so the app can bootstrap offline
+  // even if navigation fallback key differs across dev/prod paths.
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(APP_RUNTIME_CACHE);
+      await Promise.all(
+        APP_SHELL_URLS.map(async (url) => {
+          try {
+            const response = await fetch(url, { cache: "reload" });
+            if (response.ok) {
+              await cache.put(url, response.clone());
+            }
+          } catch {
+            // Ignore individual warmup failures; runtime requests will retry.
+          }
+        }),
+      );
+    })(),
+  );
 });
 clientsClaim();
 
@@ -33,13 +56,98 @@ precacheAndRoute(self.__WB_MANIFEST);
 
 // Navigation fallback: serve the SPA shell for all navigate requests that are
 // not backend API endpoints.
-registerRoute(
-  new NavigationRoute(createHandlerBoundToURL("/static/index.html"), {
-    denylist: [
-      /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map|agl_image|height_image|kml|search_ws|flying_sites|opentopomap|stats)/,
-    ],
-  }),
-);
+//
+// In dev/prod, the precached URL key can vary with base path handling
+// (`/index.html`, `/static/index.html`, or `/static/`). We probe the known
+// candidates to avoid runtime registration errors.
+const navigationFallbackCandidates = [
+  "/static/index.html",
+  "/index.html",
+  "/static/",
+  "/",
+];
+
+let navigationHandler: ReturnType<typeof createHandlerBoundToURL> | undefined;
+for (const candidate of navigationFallbackCandidates) {
+  try {
+    navigationHandler = createHandlerBoundToURL(candidate);
+    break;
+  } catch {
+    // Try next candidate.
+  }
+}
+
+if (navigationHandler !== undefined) {
+  registerRoute(
+    new NavigationRoute(navigationHandler, {
+      denylist: [
+        /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map|agl_image|height_image|kml|search_ws|flying_sites|opentopomap|stats)/,
+      ],
+    }),
+  );
+}
+
+const API_PATH_PATTERN =
+  /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map|agl_image|height_image|kml|search_ws|flying_sites|opentopomap|stats)/;
+
+function isRuntimeDependencyRequest(request: Request, url: URL): boolean {
+  if (url.origin !== self.location.origin) {
+    return false;
+  }
+  if (API_PATH_PATTERN.test(url.pathname)) {
+    return false;
+  }
+
+  if (request.mode === "navigate") {
+    return true;
+  }
+
+  if (url.pathname.startsWith("/static/assets/")) {
+    return true;
+  }
+
+  return /\.(js|mjs|css|wasm|json|map)$/.test(url.pathname);
+}
+
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  if (!isRuntimeDependencyRequest(event.request, url)) {
+    return;
+  }
+
+  event.respondWith(
+    (async () => {
+      const cached = await caches.match(event.request);
+      if (cached !== undefined) {
+        return cached;
+      }
+
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) {
+          const cache = await caches.open(APP_RUNTIME_CACHE);
+          await cache.put(event.request, response.clone());
+        }
+        return response;
+      } catch {
+        if (event.request.mode === "navigate") {
+          const cache = await caches.open(APP_RUNTIME_CACHE);
+          return (
+            (await cache.match("/static/")) ??
+            (await cache.match("/static/index.html")) ??
+            (await cache.match("/index.html")) ??
+            new Response("Offline", { status: 503, statusText: "Offline" })
+          );
+        }
+
+        return new Response("Offline asset unavailable", {
+          status: 503,
+          statusText: "Offline",
+        });
+      }
+    })(),
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Map tile caching
@@ -57,18 +165,18 @@ registerRoute(
 
 const MAP_TILE_CACHE = "map-tiles";
 
-function isTileRequest(url: URL): boolean {
-  return (
-    /^https:\/\/[abc]\.tile\.opentopomap\.org\//.test(url.href) ||
-    /^https:\/\/[abc]\.tile\.openstreetmap\.org\//.test(url.href) ||
-    /^https:\/\/server\.arcgisonline\.com\//.test(url.href) ||
-    url.pathname.startsWith("/opentopomap/")
-  );
-}
-
+// Only intercept same-origin proxy tile requests (/opentopomap/...).
+// Cross-origin tile providers (opentopomap.org, openstreetmap.org, arcgis)
+// use no-cors mode which produces opaque responses that browsers like Firefox
+// refuse to serve offline. Limiting to the same-origin proxy avoids this.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (!isTileRequest(url)) return;
+  if (
+    url.origin !== self.location.origin ||
+    !url.pathname.startsWith("/opentopomap/")
+  ) {
+    return;
+  }
 
   event.respondWith(
     caches.open(MAP_TILE_CACHE).then(async (cache) => {
@@ -77,15 +185,8 @@ self.addEventListener("fetch", (event) => {
       if (cached !== undefined) return cached;
 
       try {
-        // Cross-origin tiles need no-cors; same-origin proxy tiles use the
-        // original request so cookies / auth headers are preserved.
-        const fetchReq =
-          url.origin !== self.location.origin
-            ? new Request(event.request.url, { mode: "no-cors" })
-            : event.request;
-        const response = await fetch(fetchReq);
-        if (response.ok || response.type === "opaque") {
-          // Store with URL string key so lookups are unambiguous.
+        const response = await fetch(event.request);
+        if (response.ok) {
           await cache.put(event.request.url, response.clone());
         }
         return response;

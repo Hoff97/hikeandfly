@@ -52,7 +52,6 @@ export function OfflineDownloadControl({
 
   const currentBounds = map.getBounds();
   const currentZoom = Math.round(map.getZoom());
-  const baseLayerName = window.localStorage.getItem("enabledBaseLayer") || "OpenTopoMap";
 
   const tileZoomLabel = useMemo(() => {
     return buildTileZoomLevels(currentZoom).join(", ");
@@ -131,7 +130,6 @@ export function OfflineDownloadControl({
         currentBounds,
         settings.gridSize,
         currentZoom,
-        baseLayerName,
         setProgress,
       );
       await refreshDownloads();
@@ -202,16 +200,13 @@ export function OfflineDownloadControl({
       >
         <div className={Classes.DIALOG_BODY}>
           <Callout>
-            The current viewport will be stored for offline use with height maps at {settings.gridSize} m grid size, flying-site data, and map tiles for zoom levels {tileZoomLabel}.
+            The current viewport will be stored for offline use with height maps at {settings.gridSize} m grid size, flying-site data, and map tiles (OpenTopoMap Proxy) for zoom levels {tileZoomLabel}.
           </Callout>
           {coveredDownloadId !== undefined ? (
             <Callout intent="success" className="offlineCoverageCallout">
               The current viewport is already covered by a downloaded area.
             </Callout>
           ) : null}
-          <p>
-            Base layer: <strong>{baseLayerName}</strong>
-          </p>
           <p>
             Viewport: {currentBounds.getSouth().toFixed(4)}, {currentBounds.getWest().toFixed(4)} to {currentBounds.getNorth().toFixed(4)}, {currentBounds.getEast().toFixed(4)}
           </p>

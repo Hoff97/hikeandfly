@@ -23,7 +23,7 @@ describe("offline tile coverage", () => {
 
   it("includes every intersecting tile for a viewport", () => {
     const bounds = new LatLngBounds([-1, -1], [1, 1]);
-    const urls = buildTileUrlsForBounds(bounds, [2], "OpenTopoMap Proxy");
+    const urls = buildTileUrlsForBounds(bounds, [2]);
     const tileSuffixes = urls.map((url) => url.split("/opentopomap/")[1]);
 
     expect(urls).toHaveLength(4);

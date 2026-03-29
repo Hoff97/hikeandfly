@@ -164,24 +164,12 @@ function clampTileY(y: number, zoom: number): number {
   return Math.max(0, Math.min(max, y));
 }
 
-function tileUrlForLayer(
-  baseLayerName: string,
-  zoom: number,
-  x: number,
-  y: number,
-): string {
-  const subdomain = getSubdomain(x, y);
-  switch (baseLayerName) {
-    case "OpenTopoMap Proxy":
-      return `${window.location.origin}/opentopomap/${subdomain}/${zoom}/${x}/${y}.png`;
-    case "OpenStreetMap":
-      return `https://${subdomain}.tile.openstreetmap.org/${zoom}/${x}/${y}.png`;
-    case "Satellite":
-      return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${y}/${x}`;
-    case "OpenTopoMap":
-    default:
-      return `https://${subdomain}.tile.opentopomap.org/${zoom}/${x}/${y}.png`;
-  }
+// Only the same-origin proxy layer is supported for offline tile caching.
+// Cross-origin tile providers return opaque (no-cors) responses which
+// Firefox and some other browsers refuse to serve from a service worker
+// while offline.
+function tileProxyUrl(zoom: number, x: number, y: number): string {
+  return `${window.location.origin}/opentopomap/${getSubdomain(x, y)}/${zoom}/${x}/${y}.png`;
 }
 
 export function buildTileZoomLevels(currentZoom: number): number[] {
@@ -217,7 +205,6 @@ function buildTileRange(
 export function buildTileUrlsForBounds(
   bounds: LatLngBounds,
   zoomLevels: number[],
-  baseLayerName: string,
 ): string[] {
   const urls = new Set<string>();
   for (const zoom of zoomLevels) {
@@ -225,7 +212,7 @@ export function buildTileUrlsForBounds(
 
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
-        urls.add(tileUrlForLayer(baseLayerName, zoom, x, y));
+        urls.add(tileProxyUrl(zoom, x, y));
       }
     }
   }
@@ -233,11 +220,7 @@ export function buildTileUrlsForBounds(
 }
 
 function buildTileUrlsForRecord(record: OfflineDownloadRecord): string[] {
-  return buildTileUrlsForBounds(
-    tupleToBounds(record.bounds),
-    record.tileZooms,
-    record.baseLayerName,
-  );
+  return buildTileUrlsForBounds(tupleToBounds(record.bounds), record.tileZooms);
 }
 
 async function decodeHeightMapFromBlob(
@@ -415,8 +398,14 @@ export async function getOfflineDownloadForBounds(
     .sort((a, b) => area(a.bounds) - area(b.bounds))[0];
 }
 
+// Find the smallest stored height map whose bounds contain the given center
+// point at the requested grid size.  We only require the center to be contained
+// (not the full search radius) so that locations near the boundary of a
+// downloaded area can still use the stored map — cropHeightMapWithPad will
+// zero-fill any region that extends outside the stored coverage.
 export async function findStoredHeightMap(
-  requiredBounds: BoundsTuple,
+  lat: number,
+  lon: number,
   gridSize: number,
 ): Promise<HeightMapResponse | undefined> {
   const maps = await withStore(HEIGHT_MAPS_STORE, "readonly", async (store) => {
@@ -427,7 +416,10 @@ export async function findStoredHeightMap(
     .filter(
       (entry) =>
         entry.gridSize === gridSize &&
-        tupleContainsBounds(entry.bounds, requiredBounds),
+        lat >= entry.bounds[0] &&
+        lat <= entry.bounds[2] &&
+        lon >= entry.bounds[1] &&
+        lon <= entry.bounds[3],
     )
     .sort((a, b) => area(a.bounds) - area(b.bounds));
 
@@ -497,12 +489,11 @@ export async function downloadOfflineWindow(
   bounds: LatLngBounds,
   gridSize: number,
   currentZoom: number,
-  baseLayerName: string,
   onProgress: (progress: OfflineDownloadProgress) => void,
 ): Promise<void> {
   const downloadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tileZooms = buildTileZoomLevels(currentZoom);
-  const tileUrls = buildTileUrlsForBounds(bounds, tileZooms, baseLayerName);
+  const tileUrls = buildTileUrlsForBounds(bounds, tileZooms);
   const totalSteps = tileUrls.length + 3;
   let completed = 0;
 
@@ -548,7 +539,7 @@ export async function downloadOfflineWindow(
     createdAt: Date.now(),
     bounds: boundsToTuple(bounds),
     gridSize,
-    baseLayerName,
+    baseLayerName: "OpenTopoMap Proxy",
     tileZooms,
     tileCount: tileUrls.length,
     siteCount: flyingSites.length,
