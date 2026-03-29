@@ -17,7 +17,7 @@ export interface Settings {
 }
 
 export type SetSettings = (
-  settings: Settings | ((settings: Settings) => Settings)
+  settings: Settings | ((settings: Settings) => Settings),
 ) => void;
 
 export interface ReducedNodeResponse {
@@ -29,8 +29,9 @@ export interface GridTile {
   index: number[];
   height: number;
   distance: number;
-  reference: number[];
+  reference?: number[];
   agl: number;
+  inSafetyMargin?: boolean;
 }
 
 export interface ConeSearchResponse {
@@ -43,6 +44,16 @@ export interface ConeSearchResponse {
   grid_shape: number[];
   angular_resolution: number[];
   start_height: number;
+}
+
+export interface HeightMapResponse {
+  cell_size: number;
+  min_cell_size: number;
+  lat: number[];
+  lon: number[];
+  start_ix: number[];
+  grid_shape: number[];
+  heights: number[];
 }
 
 export interface GridState {

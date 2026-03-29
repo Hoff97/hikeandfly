@@ -17,7 +17,7 @@ use std::{
 use backend_rust::{
     btree::BTree,
     colors::{f32_color_to_u8, lerp},
-    height_data::{cache_sizes, location_supported, HeightGrid},
+    height_data::{cache_sizes, get_height_data_around_point, location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
     types::{Location, LocationWithQuery, SearchLocation},
 };
@@ -273,9 +273,57 @@ struct FlightConeResponse {
     start_height: f32,
 }
 
+#[derive(Serialize)]
+struct HeightMapResponse {
+    cell_size: f32,
+    min_cell_size: f32,
+    lat: (f32, f32),
+    lon: (f32, f32),
+    start_ix: GridIx,
+    grid_shape: (usize, usize),
+    heights: Vec<i16>,
+}
+
 fn num_searches() -> &'static Mutex<usize> {
     static ARRAY: OnceLock<Mutex<usize>> = OnceLock::new();
     ARRAY.get_or_init(|| Mutex::new(0))
+}
+
+#[get("/height_map?<lat>&<lon>&<margin_m>&<cell_size>")]
+fn get_height_map(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<Json<HeightMapResponse>, Status> {
+    if !location_supported(lat, lon) {
+        return Result::Err(Status::NotFound);
+    }
+
+    let margin = margin_m.unwrap_or(15_000.0).clamp(1_000.0, 300_000.0);
+    let mut grid = get_height_data_around_point(lat, lon, Some(margin));
+
+    if let Some(requested_cell_size) = cell_size {
+        let effective_cell_size = requested_cell_size.max(grid.cell_size);
+        grid = grid.scale(grid.cell_size / effective_cell_size);
+    }
+
+    let start_ix = (
+        (grid.heights.shape()[0] / 2) as u16,
+        (grid.heights.shape()[1] / 2) as u16,
+    );
+
+    let response = HeightMapResponse {
+        cell_size: grid.cell_size,
+        min_cell_size: grid.min_cell_size,
+        lat: grid.latitudes,
+        lon: grid.longitudes,
+        start_ix,
+        grid_shape: (grid.heights.shape()[0], grid.heights.shape()[1]),
+        heights: grid.heights.iter().copied().collect(),
+    };
+
+    Result::Ok(Json(response))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1272,5 +1320,6 @@ fn rocket() -> _ {
         .mount("/", routes![get_kml])
         .mount("/", routes![get_opentopomap_tile])
         .mount("/", routes![get_stats])
+        .mount("/", routes![get_height_map])
         .mount("/static", FileServer::from("./static"))
 }

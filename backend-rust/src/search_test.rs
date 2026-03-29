@@ -2,7 +2,10 @@ use core::f32;
 
 use crate::{height_data::HeightGrid, search::l2_diff};
 
-use super::{get_effective_glide_ratio, search, search_from_point, SearchConfig, SearchQuery};
+use super::{
+    get_effective_glide_ratio, search, search_from_height_grid, search_from_point, SearchConfig,
+    SearchQuery,
+};
 
 use approx::assert_relative_eq;
 use ndarray::Array2;
@@ -59,6 +62,36 @@ fn test_search_from_point() {
         start_height: None,
     };
     let _ = search_from_point(47.6954, 11.8681, 200.0, query);
+}
+
+#[test]
+fn test_search_from_height_grid() {
+    let heights = Array2::from_elem((12, 12), 1000);
+    let query = SearchQuery {
+        glide_ratio: 1.0 / 8.0,
+        trim_speed: 38.0,
+        wind_direction: 0.0,
+        wind_speed: 0.0,
+        additional_height: 200.0,
+        safety_margin: 0.0,
+        start_distance: 0.0,
+        start_height: None,
+    };
+    let result = search_from_height_grid(
+        HeightGrid {
+            heights,
+            cell_size: 50.0,
+            min_cell_size: 50.0,
+            latitudes: (47.0, 47.1),
+            longitudes: (11.0, 11.1),
+        },
+        (6, 6),
+        query,
+    );
+
+    assert!(result.explored.iter().any(|n| n.reachable));
+    assert!(result.start_ix.0 < result.height_grid.heights.shape()[0] as u16);
+    assert!(result.start_ix.1 < result.height_grid.heights.shape()[1] as u16);
 }
 
 fn square(start: (usize, usize), end: (usize, usize), height: i16, grid: &mut Array2<i16>) {

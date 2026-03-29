@@ -3,19 +3,20 @@ import {
   ConeSearchResponse,
   GridState,
   GridTile,
+  HeightMapResponse,
   HeightPoint,
   ImageState,
   PathAndNode,
-  ReducedNodeResponse,
   SetSettings,
   Settings,
 } from "./types";
+import { computeFlightCone } from "../wasm/glide";
 
 import { Map as MapLeaflet } from "leaflet";
 
 export function updateSearchParams(
   latLng: LatLng | undefined,
-  settings: Settings
+  settings: Settings,
 ) {
   const searchParams = getSearchParams(latLng, settings);
 
@@ -28,7 +29,7 @@ export function updateSearchParams(
 
 export function getSearchParams(
   latlng: LatLng | undefined,
-  settings: Settings
+  settings: Settings,
 ) {
   let dict: any = {
     cell_size: settings.gridSize.toString(),
@@ -51,36 +52,10 @@ export function getSearchParams(
   return new URLSearchParams(dict);
 }
 
-function get_effective_glide_ratio(
-  effective_wind_angle: number,
-  wind_speed: number,
-  trim_speed: number,
-  glide_ratio: number
-) {
-  let side_wind = Math.sin(effective_wind_angle) * wind_speed;
-  let back_wind = Math.cos(effective_wind_angle) * wind_speed;
-
-  let rs = trim_speed * trim_speed - side_wind * side_wind;
-  if (rs <= 0) {
-    return parseFloat("inf");
-  }
-
-  let rest_speed = Math.sqrt(rs);
-
-  let effective_speed = rest_speed + back_wind;
-  if (effective_speed <= 0.0) {
-    return parseFloat("inf");
-  }
-
-  let effective_glide_ratio = glide_ratio / (effective_speed / trim_speed);
-
-  return effective_glide_ratio;
-}
-
 function getHeightAt(
   ix: number[],
   heightData: ImageData,
-  gridShape: number[]
+  gridShape: number[],
 ): number {
   let x = ix[1];
   let y = gridShape[0] - ix[0] - 1;
@@ -91,82 +66,63 @@ function getHeightAt(
   return a * 256 + b;
 }
 
-function updateGrid(
+function estimateSearchMarginMeters(settings: Settings): number {
+  const defaultGroundHeight = 1500;
+  const estimatedStartHeight =
+    settings.startHeight !== undefined
+      ? settings.startHeight
+      : defaultGroundHeight + settings.additionalHeight;
+  const glideRatio = Math.max(1 / settings.glideNumber, 0.01);
+  const effectiveSpeedFactor = Math.max(
+    (settings.trimSpeed - settings.windSpeed) / Math.max(settings.trimSpeed, 1),
+    0.1,
+  );
+  const effectiveGlideRatio = glideRatio / effectiveSpeedFactor;
+  const estimatedRange = estimatedStartHeight / effectiveGlideRatio;
+
+  return Math.round(Math.max(5000, Math.min(120000, estimatedRange + 2000)));
+}
+
+function createAglImageData(
   cone: ConeSearchResponse,
-  grid: GridTile[][] | undefined,
-  nodes: ReducedNodeResponse[] | undefined,
-  settings: Settings,
-  lastReference: number[] | undefined,
-  ctx: CanvasRenderingContext2D,
-  heightData: ImageData
-) {
-  if (nodes === undefined || grid === undefined) {
-    return lastReference;
+  nodes: GridTile[],
+): ImageData {
+  const width = cone.grid_shape[1];
+  const height = cone.grid_shape[0];
+  const imageData = new ImageData(width, height);
+
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    imageData.data[i] = 255;
+    imageData.data[i + 1] = 255;
+    imageData.data[i + 2] = 0;
+    imageData.data[i + 3] = 255;
   }
 
-  for (let reducedResp of nodes) {
-    let insertedNode: GridTile = {
-      index: reducedResp.i,
-      height: 0,
-      distance: 0,
-      reference: [],
-      agl: 0,
-    };
-    grid[reducedResp.i[0]][reducedResp.i[1]] = insertedNode;
+  for (const node of nodes) {
+    const x = node.index[1];
+    const y = cone.grid_shape[0] - node.index[0] - 1;
+    const idx = (y * width + x) * 4;
 
-    if (reducedResp.r === undefined && lastReference === undefined) {
-      insertedNode.height =
-        settings.startHeight !== undefined
-          ? settings.startHeight
-          : cone.start_height + settings.additionalHeight;
-      insertedNode.distance = 0;
-      insertedNode.agl = getHeightAt(
-        reducedResp.i,
-        heightData,
-        cone.grid_shape
-      );
-      // @ts-ignore
-      insertedNode.reference = undefined;
-      continue;
-    } else if (reducedResp.r === undefined && lastReference !== undefined) {
-      insertedNode.reference = lastReference;
-    } else {
-      lastReference = reducedResp.r;
-      // @ts-ignore
-      insertedNode.reference = reducedResp.r;
-    }
-    let ref = grid[insertedNode.reference[0]][insertedNode.reference[1]];
-
-    let diff = [
-      insertedNode.index[0] - ref.index[0],
-      insertedNode.index[1] - ref.index[1],
-    ];
-
-    let windDir = (settings.windDirection / 180.0) * Math.PI;
-    let angle = Math.atan2(diff[0], diff[1]);
-    let effective_wind_angle = windDir + angle + Math.PI / 2;
-
-    let ref_distance =
-      Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1]) * cone.cell_size;
-    let newDistance = ref.distance + ref_distance;
-    insertedNode.distance = newDistance;
-
-    let effective_glide_ratio = get_effective_glide_ratio(
-      effective_wind_angle,
-      settings.windSpeed,
-      settings.trimSpeed,
-      1 / settings.glideNumber
-    );
-    let height_loss = ref_distance * effective_glide_ratio;
-    let newHeight = ref.height - height_loss;
-    insertedNode.height = newHeight;
-    insertedNode.agl = getHeightAt(reducedResp.i, heightData, cone.grid_shape);
-
-    let x = insertedNode.index[1];
-    let y = cone.grid_shape[0] - insertedNode.index[0] - 1;
-    ctx.clearRect(x, y, 1, 1);
+    const agl = Math.max(Math.round(node.agl), 0);
+    imageData.data[idx] = Math.floor(agl / 256);
+    imageData.data[idx + 1] = agl % 256;
+    imageData.data[idx + 2] = node.inSafetyMargin ? 128 : 255;
+    imageData.data[idx + 3] = 255;
   }
-  return lastReference;
+
+  return imageData;
+}
+
+function imageDataToDataUrl(imageData: ImageData): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    throw new Error("Could not get canvas context");
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
 }
 
 async function loadImageData(imageSRC: URL) {
@@ -236,14 +192,14 @@ function lerp(
   lerp_colors: number[][],
   diffs: number[][],
   steps: number[],
-  s: number
+  s: number,
 ): number[] {
   for (let i = 0; i < steps.length - 1; i++) {
     if (s >= steps[i] && s < steps[i + 1]) {
       return lerp_color(
         lerp_colors[i],
         diffs[i],
-        (s - steps[i]) / step_diffs[i]
+        (s - steps[i]) / step_diffs[i],
       );
     }
   }
@@ -299,7 +255,7 @@ function drawAGLImage(aglData: ImageData) {
         safety_margin ? safety_margin_lerp_colors : default_lerp_colors,
         safety_margin ? safety_margin_diffs : diffs,
         default_lerp_steps,
-        (height - hmin) / hdiff
+        (height - hmin) / hdiff,
       );
 
       imageData.data[ix] = color[0];
@@ -324,7 +280,7 @@ export async function doSearchFromLocation(
   settings: Settings,
   pathAndNode: PathAndNode,
   map: MapLeaflet | undefined,
-  imageOnly: boolean = false
+  imageOnly: boolean = false,
 ) {
   latLng = latLng.wrap();
 
@@ -344,8 +300,14 @@ export async function doSearchFromLocation(
   pathAndNode.setHeightPoints(undefined);
   pathAndNode.setCursorNode(undefined);
 
-  let url = new URL(window.location.origin + "/flight_cone_bounds");
-  url.search = getSearchParams(latLng, settings).toString();
+  let heightMapUrl = new URL(window.location.origin + "/height_map");
+  heightMapUrl.searchParams.set("lat", latLng.lat.toString());
+  heightMapUrl.searchParams.set("lon", latLng.lng.toString());
+  heightMapUrl.searchParams.set("cell_size", settings.gridSize.toString());
+  heightMapUrl.searchParams.set(
+    "margin_m",
+    estimateSearchMarginMeters(settings).toString(),
+  );
 
   if (settings.abortController !== undefined) {
     settings.abortController.abort();
@@ -356,7 +318,7 @@ export async function doSearchFromLocation(
 
   let response;
   try {
-    response = await fetch(url, { signal: controller.signal });
+    response = await fetch(heightMapUrl, { signal: controller.signal });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return;
@@ -371,15 +333,65 @@ export async function doSearchFromLocation(
     return;
   }
 
-  let cone: ConeSearchResponse;
+  let heightMap: HeightMapResponse;
   try {
-    cone = await response.json();
+    heightMap = await response.json();
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return;
     }
     throw error;
   }
+
+  const wasmResult = await computeFlightCone({
+    height_map: {
+      heights: heightMap.heights,
+      grid_shape: [heightMap.grid_shape[0], heightMap.grid_shape[1]],
+      cell_size: heightMap.cell_size,
+      min_cell_size: heightMap.min_cell_size,
+      lat: [heightMap.lat[0], heightMap.lat[1]],
+      lon: [heightMap.lon[0], heightMap.lon[1]],
+      start_ix: [heightMap.start_ix[0], heightMap.start_ix[1]],
+    },
+    search: {
+      glide_number: settings.glideNumber,
+      additional_height: settings.additionalHeight,
+      start_height: settings.startHeight,
+      wind_speed: settings.windSpeed,
+      wind_direction: settings.windDirection,
+      trim_speed: settings.trimSpeed,
+      safety_margin: settings.safetyMargin,
+      start_distance: settings.startDistance,
+    },
+  });
+
+  const cone: ConeSearchResponse = {
+    nodes: undefined,
+    cell_size: wasmResult.cell_size,
+    min_cell_size: wasmResult.min_cell_size,
+    lat: [wasmResult.lat[0], wasmResult.lat[1]],
+    lon: [wasmResult.lon[0], wasmResult.lon[1]],
+    start_ix: [wasmResult.start_ix[0], wasmResult.start_ix[1]],
+    grid_shape: [wasmResult.grid_shape[0], wasmResult.grid_shape[1]],
+    angular_resolution: [
+      (wasmResult.lat[1] - wasmResult.lat[0]) / wasmResult.grid_shape[0],
+      (wasmResult.lon[1] - wasmResult.lon[0]) / wasmResult.grid_shape[1],
+    ],
+    start_height: wasmResult.start_height,
+  };
+
+  const nodes: GridTile[] = wasmResult.nodes.map((node) => ({
+    index: [node.index[0], node.index[1]],
+    reference: node.reference
+      ? [node.reference[0], node.reference[1]]
+      : undefined,
+    height: node.height,
+    distance: node.distance,
+    agl: node.agl,
+    inSafetyMargin: node.in_safety_margin,
+  }));
+
+  const imageData = createAglImageData(cone, nodes);
 
   grid.loading = imageOnly ? "done" : "grid";
   grid.response = cone;
@@ -400,17 +412,12 @@ export async function doSearchFromLocation(
   const searchParams = getSearchParams(latLng, settings).toString();
 
   if (imageOnly) {
-    let heightAglUrl = new URL(window.location.origin + "/agl_image");
-    heightAglUrl.search = searchParams;
-    let heightUrl = new URL(window.location.origin + "/height_image");
-    heightUrl.search = searchParams;
-
     const bounds = new LatLngBounds(
       new LatLng(cone.lat[0], cone.lon[0]),
-      new LatLng(cone.lat[1], cone.lon[1])
+      new LatLng(cone.lat[1], cone.lon[1]),
     );
     let imageState: ImageState = {
-      heightAGLUrl: heightAglUrl.toString(),
+      heightAGLUrl: imageDataToDataUrl(imageData),
       bounds,
     };
     setImageState(imageState);
@@ -420,13 +427,9 @@ export async function doSearchFromLocation(
     return;
   }
 
-  let rawHeightUrl = new URL(window.location.origin + "/raw_height_image");
-  rawHeightUrl.search = searchParams;
-  let { imageData, img } = await loadImageData(rawHeightUrl);
-
   const bounds = new LatLngBounds(
     new LatLng(cone.lat[0], cone.lon[0]),
-    new LatLng(cone.lat[1], cone.lon[1])
+    new LatLng(cone.lat[1], cone.lon[1]),
   );
   let imageState: ImageState = {
     heightAGLUrl: undefined,
@@ -438,8 +441,8 @@ export async function doSearchFromLocation(
   drawAGLImage(imageData);
 
   let canvas = document.getElementById("canvas-overlay") as HTMLCanvasElement;
-  canvas.width = img.width;
-  canvas.height = img.height;
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
   var ctx = canvas.getContext("2d");
   if (ctx === null) {
     throw new Error("Could not get canvas context");
@@ -448,49 +451,22 @@ export async function doSearchFromLocation(
   for (let i = 0; i < imageData.data.length; i += 4) {
     if (imageData.data[i + 2] !== 0) {
       let ix = i / 4;
-      let x = ix % img.width | 0;
-      let y = Math.floor(ix / img.width);
+      let x = (ix % imageData.width) | 0;
+      let y = Math.floor(ix / imageData.width);
       ctx.fillRect(x, y, 1, 1);
     }
   }
-
-  let grid_url = new URL(window.location.origin + "/flight_cone");
-  grid_url.search = getSearchParams(latLng, settings).toString();
 
   grid.grid = new Array(cone.grid_shape[0]);
   for (let i = 0; i < cone.grid_shape[0]; i++) {
     grid.grid[i] = new Array(cone.grid_shape[1]);
   }
-  setGrid(grid);
-  const socket = new WebSocket(
-    `${window.location.protocol === "https:" ? "wss" : "ws"}://${
-      grid_url.host
-    }/flight_cone_ws/ws?${grid_url.searchParams.toString()}`
-  );
-  let total = 0;
-  controller.signal.addEventListener("abort", () => {
-    socket.close();
-  });
-  let lastReference: number[] | undefined = undefined;
-  socket.onmessage = (event) => {
-    let nodes = JSON.parse(event.data) as ReducedNodeResponse[];
-    total += nodes.length;
-    lastReference = updateGrid(
-      cone,
-      grid.grid,
-      nodes,
-      settings,
-      lastReference,
-      // @ts-ignore
-      ctx,
-      imageData
-    );
-    setGrid(grid);
-  };
-  socket.onclose = () => {
-    console.log("WebSocket closed with total nodes", total);
-    setGrid({ ...grid, loading: "done" });
-  };
+
+  for (const node of nodes) {
+    grid.grid[node.index[0]][node.index[1]] = node;
+  }
+
+  setGrid({ ...grid, loading: "done" });
 }
 
 export function ixToLatLon(ix: number[], response: ConeSearchResponse) {
@@ -511,7 +487,7 @@ export function searchFromCurrentLocation(
   setSettings: SetSettings,
   settings: Settings,
   pathAndNode: PathAndNode,
-  map: MapLeaflet
+  map: MapLeaflet,
 ) {
   if (!("geolocation" in navigator)) {
     return;
@@ -532,7 +508,7 @@ export function searchFromCurrentLocation(
           new LatLng(position.coords.latitude, position.coords.longitude),
           newSettings,
           pathAndNode,
-          map
+          map,
         );
       } else {
         doSearchFromLocation(
@@ -542,20 +518,20 @@ export function searchFromCurrentLocation(
           new LatLng(position.coords.latitude, position.coords.longitude),
           settings,
           pathAndNode,
-          map
+          map,
         );
       }
     },
     null,
     {
       enableHighAccuracy: true,
-    }
+    },
   );
 }
 
 export function nodeInGrid(
   latlng: LatLng,
-  grid: GridState
+  grid: GridState,
 ): GridTile | undefined {
   if (grid.response === undefined || grid.grid === undefined) {
     return;
@@ -570,12 +546,12 @@ export function nodeInGrid(
     const latIx = Math.floor(
       ((latlng.lat - grid.response.lat[0]) /
         (grid.response.lat[1] - grid.response.lat[0])) *
-        grid.response.grid_shape[0]
+        grid.response.grid_shape[0],
     );
     const lonIx = Math.floor(
       ((latlng.lng - grid.response.lon[0]) /
         (grid.response.lon[1] - grid.response.lon[0])) *
-        grid.response.grid_shape[1]
+        grid.response.grid_shape[1],
     );
 
     if (
@@ -591,7 +567,7 @@ export function nodeInGrid(
 export function setPath(
   node: GridTile,
   grid: GridState,
-  pathAndNode: PathAndNode
+  pathAndNode: PathAndNode,
 ): GridTile[] {
   if (grid.grid === undefined) {
     return [];
@@ -630,7 +606,7 @@ export function setPath(
 function heightsBetweenNodes(
   a: GridTile,
   b: GridTile,
-  grid: GridState
+  grid: GridState,
 ): HeightPoint[] {
   if (grid.response === undefined || grid.grid === undefined) {
     return [];
@@ -678,7 +654,7 @@ function heightsBetweenNodes(
 
 export function computeHeights(
   nodes: GridTile[],
-  grid: GridState
+  grid: GridState,
 ): HeightPoint[] {
   if (grid.response === undefined || grid.grid === undefined) {
     return [];

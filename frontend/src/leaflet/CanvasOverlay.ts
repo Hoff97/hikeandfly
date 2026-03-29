@@ -7,8 +7,9 @@ export class CanvasOverlay extends Layer {
   _bounds?: LatLngBounds;
   _canvas?: HTMLCanvasElement;
 
-  initialize(bounds: LatLngBoundsLiteral, options: any = {}) {
-    this._bounds = new LatLngBounds(bounds);
+  initialize(bounds: LatLngBoundsLiteral | LatLngBounds, options: any = {}) {
+    this._bounds =
+      bounds instanceof LatLngBounds ? bounds : new LatLngBounds(bounds);
 
     Util.setOptions(this, options);
   }
@@ -156,7 +157,7 @@ export class CanvasOverlay extends Layer {
     let offset = this._map._latLngBoundsToNewLayerBounds(
       this._bounds,
       e.zoom,
-      e.center
+      e.center,
     ).min;
 
     // @ts-ignore
@@ -171,7 +172,7 @@ export class CanvasOverlay extends Layer {
     }
     let bounds = new Bounds(
       this._map.latLngToLayerPoint(bnd.getNorthWest()),
-      this._map.latLngToLayerPoint(bnd.getSouthEast())
+      this._map.latLngToLayerPoint(bnd.getSouthEast()),
     );
     let size = bounds.getSize();
 

@@ -24,11 +24,27 @@ according to your needs if you do not want to download all the data.
 
 # Frontend
 
-The frontend is built with react and can be run with
+The frontend is built with React + Vite and can be run with
 ```
 $ cd frontend
 $ npm install
 $ npm run start
+```
+The start/build/test scripts compile the Rust WASM module first using `wasm-pack`.
+Install it once with:
+```
+$ cargo install wasm-pack
+```
+
+# WASM search module
+
+The glide area search algorithm is compiled to WebAssembly from:
+```
+backend-rust-wasm/
+```
+Frontend builds automatically place generated artifacts under:
+```
+frontend/src/wasm/pkg/
 ```
 
 # Backend
