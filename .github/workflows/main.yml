@@ -39,7 +39,10 @@ jobs:
         run: cd frontend && npm test
 
       - name: Run backend tests
-        run: cd backend-rust && cargo test
+        run: |
+          cd backend-rust
+          ./download_test_data.sh
+          cargo test
 
   docker:
     runs-on: ubuntu-latest
