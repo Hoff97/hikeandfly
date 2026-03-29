@@ -12,7 +12,7 @@ RUN cargo install wasm-pack
 COPY ./frontend/package.json ./frontend/
 COPY ./frontend/package-lock.json ./frontend/
 
-RUN cd frontend && npm install && npm ci
+RUN cd frontend && npm install --include=optional
 
 COPY ./backend-rust ./backend-rust
 COPY ./backend-rust-wasm ./backend-rust-wasm
