@@ -3,8 +3,22 @@ import { describe, expect, it } from "vitest";
 import { buildTileUrlsForBounds, buildTileZoomLevels } from "./offline";
 
 describe("offline tile coverage", () => {
-  it("downloads the current zoom band around the viewport", () => {
+  it("always includes zoom 13 and 15", () => {
+    // low zoom — appends 13 and 15 beyond the ±2 band
+    const low = buildTileZoomLevels(8);
+    expect(low).toContain(13);
+    expect(low).toContain(15);
+    expect(low).toEqual([6, 8, 10, 13, 15]);
+  });
+
+  it("deduplicates when current zoom is already 13 or 15", () => {
     expect(buildTileZoomLevels(13)).toEqual([11, 13, 15]);
+    expect(buildTileZoomLevels(15)).toEqual([13, 15, 17]);
+  });
+
+  it("does not include sub-zero or above-18 zooms", () => {
+    const zooms = buildTileZoomLevels(1);
+    expect(zooms.every((z) => z >= 0 && z <= 18)).toBe(true);
   });
 
   it("includes every intersecting tile for a viewport", () => {

@@ -12,7 +12,7 @@ import {
   Settings,
 } from "./types";
 import { computeFlightCone } from "../wasm/glide";
-import { findStoredHeightMap } from "./offline";
+import { findStoredHeightMap, isLocationDownloaded } from "./offline";
 
 import { Map as MapLeaflet } from "leaflet";
 
@@ -724,6 +724,18 @@ export async function doSearchFromLocation(
   imageOnly: boolean = false,
 ) {
   latLng = latLng.wrap();
+
+  // When fully offline and the clicked location has not been downloaded, bail
+  // early before setting the loading spinner so the UI stays responsive.
+  if (!imageOnly && !navigator.onLine) {
+    const covered = await isLocationDownloaded(latLng);
+    if (!covered) {
+      alert(
+        "This area has not been downloaded for offline use.\nDownload it first using the Offline button.",
+      );
+      return;
+    }
+  }
 
   if (!imageOnly) {
     setImageState(undefined);

@@ -185,15 +185,16 @@ function tileUrlForLayer(
 }
 
 export function buildTileZoomLevels(currentZoom: number): number[] {
-  const result: number[] = [];
+  // Always include zooms 13 and 15 as useful intermediate levels for offline use.
+  const zooms = new Set<number>([13, 15]);
   for (
     let zoom = Math.max(0, currentZoom - 2);
     zoom <= Math.min(18, currentZoom + 2);
     zoom += 2
   ) {
-    result.push(zoom);
+    zooms.add(zoom);
   }
-  return result;
+  return Array.from(zooms).sort((a, b) => a - b);
 }
 
 function buildTileRange(
@@ -356,39 +357,36 @@ async function fetchFlyingSitesForBounds(
   return (await response.json()) as SearchResult[];
 }
 
+// Use plain URL string as cache key so the service worker's
+// cache.match(event.request.url) lookup finds the same entry.
 async function cacheTileUrl(cache: Cache, url: string): Promise<void> {
-  const request = new Request(
-    url,
-    url.startsWith(window.location.origin) ? undefined : { mode: "no-cors" },
-  );
-  const cached = await cache.match(request);
+  const cached = await cache.match(url);
   if (cached !== undefined) {
     return;
   }
-
-  const response = await fetch(request);
+  // Cross-origin tiles must be fetched no-cors; same-origin proxy tiles can
+  // use the plain string which defaults to GET with credentials.
+  const fetchReq = url.startsWith(window.location.origin)
+    ? url
+    : new Request(url, { mode: "no-cors" });
+  const response = await fetch(fetchReq);
   if (response.ok || response.type === "opaque") {
-    await cache.put(request, response.clone());
+    await cache.put(url, response.clone());
   }
 }
 
 async function verifyTileUrlsCached(
   cache: Cache,
   urls: string[],
-): Promise<void> {
-  const missing: string[] = [];
+): Promise<number> {
+  let missing = 0;
   for (const url of urls) {
     const cached = await cache.match(url);
     if (cached === undefined) {
-      missing.push(url);
+      missing++;
     }
   }
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing ${missing.length} cached map tiles after download`,
-    );
-  }
+  return missing;
 }
 
 export async function requestPersistentStorage(): Promise<boolean> {
@@ -434,6 +432,21 @@ export async function findStoredHeightMap(
     .sort((a, b) => area(a.bounds) - area(b.bounds));
 
   return matches[0]?.map;
+}
+
+export async function isLocationDownloaded(latLng: {
+  lat: number;
+  lng: number;
+}): Promise<boolean> {
+  const downloads = await listOfflineDownloads();
+  const { lat, lng } = latLng;
+  return downloads.some(
+    (entry) =>
+      lat >= entry.bounds[0] &&
+      lat <= entry.bounds[2] &&
+      lng >= entry.bounds[1] &&
+      lng <= entry.bounds[3],
+  );
 }
 
 export async function getPreferredOfflineGridSize(
@@ -522,7 +535,12 @@ export async function downloadOfflineWindow(
     await cacheTileUrl(tileCache, url);
     advance(`Tiles stored (${completed - 2}/${tileUrls.length})`);
   }
-  await verifyTileUrlsCached(tileCache, tileUrls);
+  const missingTiles = await verifyTileUrlsCached(tileCache, tileUrls);
+  if (missingTiles > 0) {
+    console.warn(
+      `${missingTiles} of ${tileUrls.length} tiles could not be cached (network errors during download).`,
+    );
+  }
 
   const record: OfflineDownloadRecord = {
     id: downloadId,

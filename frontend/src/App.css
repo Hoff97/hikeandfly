@@ -209,9 +209,20 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
 }
 
 .offlineDownloadActions {
-    white-space: nowrap;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 100px;
 }
 
-.offlineDownloadActions .bp5-button {
-    margin-right: 4px;
+/* Wider dialog on larger screens */
+.bp5-dialog.offlineDialog {
+    width: min(720px, 92vw);
+}
+
+@media only screen and (max-width: 480px) {
+    .offlineDownloadActions {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }

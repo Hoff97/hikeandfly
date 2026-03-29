@@ -14,6 +14,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm}"],
+      },
       includeAssets: ["favicon.ico", "logo192.png", "logo512.png"],
       manifest: {
         name: "Hike and Fly Glide Area",
@@ -34,69 +40,6 @@ export default defineConfig({
             src: "logo512.png",
             sizes: "512x512",
             type: "image/png",
-          },
-        ],
-      },
-      workbox: {
-        navigateFallbackDenylist: [
-          /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map)/,
-        ],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/[abc]\.tile\.opentopomap\.org\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "map-tiles",
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-              expiration: {
-                maxEntries: 5000,
-                maxAgeSeconds: 60 * 60 * 24 * 30,
-              },
-            },
-          },
-          {
-            urlPattern: /^https:\/\/[abc]\.tile\.openstreetmap\.org\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "map-tiles",
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-              expiration: {
-                maxEntries: 5000,
-                maxAgeSeconds: 60 * 60 * 24 * 30,
-              },
-            },
-          },
-          {
-            urlPattern: /^https:\/\/server\.arcgisonline\.com\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "map-tiles",
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-              expiration: {
-                maxEntries: 5000,
-                maxAgeSeconds: 60 * 60 * 24 * 30,
-              },
-            },
-          },
-          {
-            urlPattern: /\/opentopomap\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "map-tiles",
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-              expiration: {
-                maxEntries: 5000,
-                maxAgeSeconds: 60 * 60 * 24 * 30,
-              },
-            },
           },
         ],
       },

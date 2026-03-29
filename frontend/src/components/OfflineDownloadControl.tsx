@@ -177,10 +177,10 @@ export function OfflineDownloadControl({
             [download.bounds[2], download.bounds[3]],
           ]}
           pathOptions={{
-            color: coveredDownloadId === download.id ? "#2f6b48" : "#6f8c7a",
-            weight: coveredDownloadId === download.id ? 2 : 1,
-            opacity: coveredDownloadId === download.id ? 0.6 : 0.35,
-            fillOpacity: coveredDownloadId === download.id ? 0.06 : 0.03,
+            color: coveredDownloadId === download.id ? "#1a7a42" : "#2d6a4f",
+            weight: coveredDownloadId === download.id ? 3 : 2,
+            opacity: coveredDownloadId === download.id ? 0.9 : 0.65,
+            fillOpacity: coveredDownloadId === download.id ? 0.15 : 0.07,
           }}
         />
       ))}
@@ -198,6 +198,7 @@ export function OfflineDownloadControl({
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         title="Download Offline Data"
+        className="offlineDialog"
       >
         <div className={Classes.DIALOG_BODY}>
           <Callout>
