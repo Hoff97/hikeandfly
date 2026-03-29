@@ -190,8 +190,8 @@ function cropHeightMap(
   const outRows = desiredRowEnd - desiredRowStart + 1;
   const outCols = desiredColEnd - desiredColStart + 1;
 
-  // Start with all zeros; fill in whatever is covered by the stored map.
-  const croppedHeights = new Array<number>(outRows * outCols).fill(0);
+  // Fill with a very high value outside downloaded area so glide calculation stops at coverage boundaries.
+  const croppedHeights = new Array<number>(outRows * outCols).fill(9999);
 
   for (let row = desiredRowStart; row <= desiredRowEnd; row++) {
     if (row < 0 || row >= rows) continue;
