@@ -192,3 +192,26 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     width: 100%;
     margin-top: 12px;
 }
+
+.offlineCoverageCallout {
+    margin-top: 12px;
+}
+
+.offlineDownloadsHeaderRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+}
+
+.offlineDownloadsHeaderRow .bp5-heading {
+    margin: 0;
+}
+
+.offlineDownloadActions {
+    white-space: nowrap;
+}
+
+.offlineDownloadActions .bp5-button {
+    margin-right: 4px;
+}

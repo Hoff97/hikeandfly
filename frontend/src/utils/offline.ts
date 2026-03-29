@@ -130,6 +130,10 @@ function area(bounds: BoundsTuple): number {
   return Math.abs((bounds[2] - bounds[0]) * (bounds[3] - bounds[1]));
 }
 
+function tupleToBounds(bounds: BoundsTuple): LatLngBounds {
+  return new LatLngBounds([bounds[0], bounds[1]], [bounds[2], bounds[3]]);
+}
+
 function getSubdomain(x: number, y: number): string {
   return ["a", "b", "c"][(x + y) % 3];
 }
@@ -148,6 +152,16 @@ function latToTileY(lat: number, zoom: number): number {
     ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
       2 ** zoom,
   );
+}
+
+function clampTileX(x: number, zoom: number): number {
+  const max = 2 ** zoom - 1;
+  return Math.max(0, Math.min(max, x));
+}
+
+function clampTileY(y: number, zoom: number): number {
+  const max = 2 ** zoom - 1;
+  return Math.max(0, Math.min(max, y));
 }
 
 function tileUrlForLayer(
@@ -170,7 +184,7 @@ function tileUrlForLayer(
   }
 }
 
-function buildTileZoomLevels(currentZoom: number): number[] {
+export function buildTileZoomLevels(currentZoom: number): number[] {
   const result: number[] = [];
   for (
     let zoom = Math.max(0, currentZoom - 2);
@@ -182,17 +196,31 @@ function buildTileZoomLevels(currentZoom: number): number[] {
   return result;
 }
 
-function buildTileUrls(
+function buildTileRange(
   bounds: LatLngBounds,
-  currentZoom: number,
+  zoom: number,
+): { minX: number; maxX: number; minY: number; maxY: number } {
+  const west = clampTileX(lonToTileX(bounds.getWest(), zoom), zoom);
+  const east = clampTileX(lonToTileX(bounds.getEast(), zoom), zoom);
+  const north = clampTileY(latToTileY(bounds.getNorth(), zoom), zoom);
+  const south = clampTileY(latToTileY(bounds.getSouth(), zoom), zoom);
+
+  return {
+    minX: Math.min(west, east),
+    maxX: Math.max(west, east),
+    minY: Math.min(north, south),
+    maxY: Math.max(north, south),
+  };
+}
+
+export function buildTileUrlsForBounds(
+  bounds: LatLngBounds,
+  zoomLevels: number[],
   baseLayerName: string,
 ): string[] {
   const urls = new Set<string>();
-  for (const zoom of buildTileZoomLevels(currentZoom)) {
-    const minX = lonToTileX(bounds.getWest(), zoom);
-    const maxX = lonToTileX(bounds.getEast(), zoom);
-    const minY = latToTileY(bounds.getNorth(), zoom);
-    const maxY = latToTileY(bounds.getSouth(), zoom);
+  for (const zoom of zoomLevels) {
+    const { minX, maxX, minY, maxY } = buildTileRange(bounds, zoom);
 
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
@@ -201,6 +229,14 @@ function buildTileUrls(
     }
   }
   return Array.from(urls);
+}
+
+function buildTileUrlsForRecord(record: OfflineDownloadRecord): string[] {
+  return buildTileUrlsForBounds(
+    tupleToBounds(record.bounds),
+    record.tileZooms,
+    record.baseLayerName,
+  );
 }
 
 async function decodeHeightMapFromBlob(
@@ -336,6 +372,25 @@ async function cacheTileUrl(cache: Cache, url: string): Promise<void> {
   }
 }
 
+async function verifyTileUrlsCached(
+  cache: Cache,
+  urls: string[],
+): Promise<void> {
+  const missing: string[] = [];
+  for (const url of urls) {
+    const cached = await cache.match(url);
+    if (cached === undefined) {
+      missing.push(url);
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing ${missing.length} cached map tiles after download`,
+    );
+  }
+}
+
 export async function requestPersistentStorage(): Promise<boolean> {
   if (
     !("storage" in navigator) ||
@@ -350,6 +405,16 @@ export async function listOfflineDownloads(): Promise<OfflineDownloadRecord[]> {
   return withStore(DOWNLOADS_STORE, "readonly", async (store) => {
     return (await promisifyRequest(store.getAll())) as OfflineDownloadRecord[];
   });
+}
+
+export async function getOfflineDownloadForBounds(
+  bounds: LatLngBounds,
+): Promise<OfflineDownloadRecord | undefined> {
+  const downloads = await listOfflineDownloads();
+  const viewport = boundsToTuple(bounds);
+  return downloads
+    .filter((entry) => tupleContainsBounds(entry.bounds, viewport))
+    .sort((a, b) => area(a.bounds) - area(b.bounds))[0];
 }
 
 export async function findStoredHeightMap(
@@ -374,13 +439,7 @@ export async function findStoredHeightMap(
 export async function getPreferredOfflineGridSize(
   bounds: LatLngBounds,
 ): Promise<number | undefined> {
-  const downloads = await listOfflineDownloads();
-  const viewport = boundsToTuple(bounds);
-  const candidates = downloads
-    .filter((entry) => tupleContainsBounds(entry.bounds, viewport))
-    .map((entry) => entry.gridSize)
-    .sort((a, b) => a - b);
-  return candidates[0];
+  return (await getOfflineDownloadForBounds(bounds))?.gridSize;
 }
 
 export async function getOfflineFlyingSites(
@@ -430,7 +489,7 @@ export async function downloadOfflineWindow(
 ): Promise<void> {
   const downloadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tileZooms = buildTileZoomLevels(currentZoom);
-  const tileUrls = buildTileUrls(bounds, currentZoom, baseLayerName);
+  const tileUrls = buildTileUrlsForBounds(bounds, tileZooms, baseLayerName);
   const totalSteps = tileUrls.length + 3;
   let completed = 0;
 
@@ -463,6 +522,7 @@ export async function downloadOfflineWindow(
     await cacheTileUrl(tileCache, url);
     advance(`Tiles stored (${completed - 2}/${tileUrls.length})`);
   }
+  await verifyTileUrlsCached(tileCache, tileUrls);
 
   const record: OfflineDownloadRecord = {
     id: downloadId,
@@ -517,4 +577,46 @@ export async function downloadOfflineWindow(
     completed: totalSteps,
     total: totalSteps,
   });
+}
+
+export async function deleteOfflineDownload(downloadId: string): Promise<void> {
+  const downloads = await listOfflineDownloads();
+  const record = downloads.find((entry) => entry.id === downloadId);
+  if (record === undefined) {
+    return;
+  }
+
+  await withStore(DOWNLOADS_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.delete(downloadId));
+    return undefined;
+  });
+  await withStore(HEIGHT_MAPS_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.delete(`${downloadId}-height-map`));
+    return undefined;
+  });
+  await withStore(FLYING_SITES_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.delete(`${downloadId}-sites`));
+    return undefined;
+  });
+
+  const cache = await caches.open(MAP_TILE_CACHE_NAME);
+  for (const url of buildTileUrlsForRecord(record)) {
+    await cache.delete(url);
+  }
+}
+
+export async function clearOfflineDownloads(): Promise<void> {
+  await withStore(DOWNLOADS_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.clear());
+    return undefined;
+  });
+  await withStore(HEIGHT_MAPS_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.clear());
+    return undefined;
+  });
+  await withStore(FLYING_SITES_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.clear());
+    return undefined;
+  });
+  await caches.delete(MAP_TILE_CACHE_NAME);
 }

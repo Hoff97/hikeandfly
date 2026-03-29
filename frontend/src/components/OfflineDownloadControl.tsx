@@ -3,16 +3,21 @@ import {
   Callout,
   Classes,
   Dialog,
+  H5,
   HTMLTable,
   ProgressBar,
 } from "@blueprintjs/core";
-import { Download } from "@blueprintjs/icons";
-import { useEffect, useMemo, useState } from "react";
-import { useMap, useMapEvents } from "react-leaflet";
+import { Download, Trash } from "@blueprintjs/icons";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Rectangle, useMap, useMapEvents } from "react-leaflet";
 import {
+  buildTileZoomLevels,
+  clearOfflineDownloads,
+  deleteOfflineDownload,
   downloadOfflineWindow,
   type OfflineDownloadProgress,
   type OfflineDownloadRecord,
+  getOfflineDownloadForBounds,
   getPreferredOfflineGridSize,
   listOfflineDownloads,
 } from "../utils/offline";
@@ -21,6 +26,7 @@ import type { SetSettings, Settings } from "../utils/types";
 interface OfflineDownloadControlProps {
   settings: Settings;
   setSettings: SetSettings;
+  onStartupReady?: () => void;
 }
 
 const EMPTY_PROGRESS: OfflineDownloadProgress = {
@@ -33,23 +39,23 @@ const EMPTY_PROGRESS: OfflineDownloadProgress = {
 export function OfflineDownloadControl({
   settings,
   setSettings,
+  onStartupReady,
 }: OfflineDownloadControlProps) {
   const map = useMap();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [downloads, setDownloads] = useState<OfflineDownloadRecord[]>([]);
   const [progress, setProgress] = useState<OfflineDownloadProgress>(EMPTY_PROGRESS);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [coveredDownloadId, setCoveredDownloadId] = useState<string | undefined>();
+  const startupReadyRef = useRef(false);
 
   const currentBounds = map.getBounds();
   const currentZoom = Math.round(map.getZoom());
   const baseLayerName = window.localStorage.getItem("enabledBaseLayer") || "OpenTopoMap";
 
   const tileZoomLabel = useMemo(() => {
-    const zooms: number[] = [];
-    for (let zoom = Math.max(0, currentZoom - 2); zoom <= Math.min(18, currentZoom + 2); zoom += 2) {
-      zooms.push(zoom);
-    }
-    return zooms.join(", ");
+    return buildTileZoomLevels(currentZoom).join(", ");
   }, [currentZoom]);
 
   async function refreshDownloads() {
@@ -57,14 +63,20 @@ export function OfflineDownloadControl({
     setDownloads(items.sort((a, b) => b.createdAt - a.createdAt));
   }
 
-  async function syncOfflineGridSize() {
+  async function syncOfflineState() {
+    const bounds = map.getBounds();
+    const coveredDownload = await getOfflineDownloadForBounds(bounds);
+    setCoveredDownloadId(coveredDownload?.id);
+
     if (navigator.onLine) {
       return;
     }
-    const preferred = await getPreferredOfflineGridSize(map.getBounds());
+
+    const preferred = await getPreferredOfflineGridSize(bounds);
     if (preferred === undefined) {
       return;
     }
+
     setSettings((prev) => {
       if (prev.gridSize === preferred && prev.localComputeEnabled) {
         return prev;
@@ -78,23 +90,37 @@ export function OfflineDownloadControl({
   }
 
   useEffect(() => {
-    refreshDownloads();
-    syncOfflineGridSize();
+    let cancelled = false;
+
+    const initialize = async () => {
+      await refreshDownloads();
+      if (cancelled) {
+        return;
+      }
+      await syncOfflineState();
+      if (!cancelled && !startupReadyRef.current) {
+        startupReadyRef.current = true;
+        onStartupReady?.();
+      }
+    };
+
+    void initialize();
 
     const handleConnectivityChange = () => {
-      syncOfflineGridSize();
+      void syncOfflineState();
     };
     window.addEventListener("online", handleConnectivityChange);
     window.addEventListener("offline", handleConnectivityChange);
     return () => {
+      cancelled = true;
       window.removeEventListener("online", handleConnectivityChange);
       window.removeEventListener("offline", handleConnectivityChange);
     };
-  }, []);
+  }, [map, onStartupReady]);
 
   useMapEvents({
     moveend() {
-      syncOfflineGridSize();
+      void syncOfflineState();
     },
   });
 
@@ -109,6 +135,7 @@ export function OfflineDownloadControl({
         setProgress,
       );
       await refreshDownloads();
+      await syncOfflineState();
       setIsDialogOpen(false);
       setTimeout(() => {
         setProgress(EMPTY_PROGRESS);
@@ -118,8 +145,45 @@ export function OfflineDownloadControl({
     }
   }
 
+  async function handleDeleteDownload(downloadId: string) {
+    setIsDeleting(true);
+    try {
+      await deleteOfflineDownload(downloadId);
+      await refreshDownloads();
+      await syncOfflineState();
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  async function handleClearAllDownloads() {
+    setIsDeleting(true);
+    try {
+      await clearOfflineDownloads();
+      await refreshDownloads();
+      await syncOfflineState();
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   return (
     <>
+      {downloads.map((download) => (
+        <Rectangle
+          key={download.id}
+          bounds={[
+            [download.bounds[0], download.bounds[1]],
+            [download.bounds[2], download.bounds[3]],
+          ]}
+          pathOptions={{
+            color: coveredDownloadId === download.id ? "#2f6b48" : "#6f8c7a",
+            weight: coveredDownloadId === download.id ? 2 : 1,
+            opacity: coveredDownloadId === download.id ? 0.6 : 0.35,
+            fillOpacity: coveredDownloadId === download.id ? 0.06 : 0.03,
+          }}
+        />
+      ))}
       <Button
         icon={<Download />}
         text="Offline"
@@ -139,6 +203,11 @@ export function OfflineDownloadControl({
           <Callout>
             The current viewport will be stored for offline use with height maps at {settings.gridSize} m grid size, flying-site data, and map tiles for zoom levels {tileZoomLabel}.
           </Callout>
+          {coveredDownloadId !== undefined ? (
+            <Callout intent="success" className="offlineCoverageCallout">
+              The current viewport is already covered by a downloaded area.
+            </Callout>
+          ) : null}
           <p>
             Base layer: <strong>{baseLayerName}</strong>
           </p>
@@ -149,26 +218,67 @@ export function OfflineDownloadControl({
             Existing downloaded windows: {downloads.length}
           </p>
           {downloads.length > 0 ? (
-            <HTMLTable condensed striped className="offlineDownloadsTable">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Grid</th>
-                  <th>Layer</th>
-                  <th>Sites</th>
-                </tr>
-              </thead>
-              <tbody>
-                {downloads.slice(0, 5).map((download) => (
-                  <tr key={download.id}>
-                    <td>{new Date(download.createdAt).toLocaleString()}</td>
-                    <td>{download.gridSize} m</td>
-                    <td>{download.baseLayerName}</td>
-                    <td>{download.siteCount}</td>
+            <>
+              <div className="offlineDownloadsHeaderRow">
+                <H5>Downloaded areas</H5>
+                <Button
+                  minimal
+                  intent="danger"
+                  disabled={isDownloading || isDeleting}
+                  onClick={handleClearAllDownloads}
+                >
+                  Remove all
+                </Button>
+              </div>
+              <HTMLTable condensed striped className="offlineDownloadsTable">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Grid</th>
+                    <th>Layer</th>
+                    <th>Tiles</th>
+                    <th>Sites</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </HTMLTable>
+                </thead>
+                <tbody>
+                  {downloads.map((download) => (
+                    <tr key={download.id}>
+                      <td>{new Date(download.createdAt).toLocaleString()}</td>
+                      <td>{download.gridSize} m</td>
+                      <td>{download.baseLayerName}</td>
+                      <td>{download.tileCount}</td>
+                      <td>{download.siteCount}</td>
+                      <td className="offlineDownloadActions">
+                        <Button
+                          small
+                          minimal
+                          onClick={() =>
+                            map.fitBounds([
+                              [download.bounds[0], download.bounds[1]],
+                              [download.bounds[2], download.bounds[3]],
+                            ])
+                          }
+                          disabled={isDownloading || isDeleting}
+                        >
+                          Show
+                        </Button>
+                        <Button
+                          small
+                          minimal
+                          intent="danger"
+                          icon={<Trash />}
+                          onClick={() => handleDeleteDownload(download.id)}
+                          disabled={isDownloading || isDeleting}
+                        >
+                          Delete
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </HTMLTable>
+            </>
           ) : null}
           {!navigator.onLine ? (
             <Callout intent="warning">
@@ -185,7 +295,7 @@ export function OfflineDownloadControl({
               intent="primary"
               onClick={handleDownloadConfirm}
               loading={isDownloading}
-              disabled={!navigator.onLine}
+              disabled={!navigator.onLine || isDeleting}
             >
               Download current viewport
             </Button>

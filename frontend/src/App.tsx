@@ -22,6 +22,7 @@ import { OfflineDownloadControl } from "./components/OfflineDownloadControl";
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
     const [hoverState, setHoverState] = useState<HoverState>({ imageState: undefined, lastHoverSearch: 0 });
+    const [offlineStartupReady, setOfflineStartupReady] = useState(false);
 
     const urlParams = new URLSearchParams(window.location.search);
 
@@ -126,12 +127,14 @@ function App() {
                         </LayersControl.Overlay>
                     </LayersControl>
                     <FlyingSiteOverlay></FlyingSiteOverlay>
+                    <OfflineDownloadControl settings={settings} setSettings={setSettings} onStartupReady={() => setOfflineStartupReady(true)} />
                     <SearchComponent
                         setImageState={setImageState}
                         imageState={imageState}
                         setHoverState={setHoverState}
                         hoverState={hoverState}
                         settings={settings}
+                        startupReady={offlineStartupReady}
                         grid={grid}
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}
@@ -142,7 +145,6 @@ function App() {
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}
                         setSettings={setSettings}></CurrenLocationPane>
-                    <OfflineDownloadControl settings={settings} setSettings={setSettings} />
                     <SearchCard></SearchCard>
                 </MapContainer>
             </OverlaysProvider>
