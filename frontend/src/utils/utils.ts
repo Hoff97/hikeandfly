@@ -12,6 +12,7 @@ import {
   Settings,
 } from "./types";
 import { computeFlightCone } from "../wasm/glide";
+import { findStoredHeightMap } from "./offline";
 
 import { Map as MapLeaflet } from "leaflet";
 
@@ -349,6 +350,19 @@ async function getHeightMapForLocalCompute(
     mapContainsBounds(cachedLargeHeightMap, normalBounds)
   ) {
     return cropHeightMap(cachedLargeHeightMap, latLng, normalMargin);
+  }
+
+  const storedHeightMap = await findStoredHeightMap(
+    [
+      normalBounds.latMin,
+      normalBounds.lonMin,
+      normalBounds.latMax,
+      normalBounds.lonMax,
+    ],
+    settings.gridSize,
+  );
+  if (storedHeightMap !== undefined) {
+    return cropHeightMap(storedHeightMap, latLng, normalMargin);
   }
 
   const largeMargin = normalMargin * 2;
@@ -735,9 +749,11 @@ export async function doSearchFromLocation(
   setSettings({ ...settings, abortController: controller });
   let cone: ConeSearchResponse;
   let imageData: ImageData;
+  const shouldUseLocalCompute =
+    settings.localComputeEnabled || !navigator.onLine;
 
   try {
-    if (settings.localComputeEnabled) {
+    if (shouldUseLocalCompute) {
       const heightMap = await getHeightMapForLocalCompute(
         latLng,
         settings,

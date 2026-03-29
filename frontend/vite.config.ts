@@ -41,6 +41,64 @@ export default defineConfig({
         navigateFallbackDenylist: [
           /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map)/,
         ],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/[abc]\.tile\.opentopomap\.org\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "map-tiles",
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+              expiration: {
+                maxEntries: 5000,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/[abc]\.tile\.openstreetmap\.org\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "map-tiles",
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+              expiration: {
+                maxEntries: 5000,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/server\.arcgisonline\.com\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "map-tiles",
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+              expiration: {
+                maxEntries: 5000,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
+          {
+            urlPattern: /\/opentopomap\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "map-tiles",
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+              expiration: {
+                maxEntries: 5000,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
+        ],
       },
     }),
   ],

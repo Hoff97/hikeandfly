@@ -17,6 +17,7 @@ import { HeightPlotCard } from "./components/HeightPlotCard";
 import { SearchCard } from "./components/SearchCard";
 import { FlyingSiteOverlay } from "./components/FlyingSiteOverlay";
 import { BaseLayers } from "./components/BaseLayers";
+import { OfflineDownloadControl } from "./components/OfflineDownloadControl";
 
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
@@ -141,6 +142,7 @@ function App() {
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}
                         setSettings={setSettings}></CurrenLocationPane>
+                    <OfflineDownloadControl settings={settings} setSettings={setSettings} />
                     <SearchCard></SearchCard>
                 </MapContainer>
             </OverlaysProvider>

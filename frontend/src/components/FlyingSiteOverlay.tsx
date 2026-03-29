@@ -7,6 +7,7 @@ import {
 } from "react-leaflet";
 import { SearchResult } from "./SearchCard";
 import { useCallback, useEffect, useState } from "react";
+import { getOfflineFlyingSites } from "../utils/offline";
 
 function isSubset(boundsA: L.LatLngBounds, boundsB: L.LatLngBounds) {
     return boundsA.getSouth() >= boundsB.getSouth() &&
@@ -23,17 +24,27 @@ export function FlyingSiteOverlay() {
     const [showSites, setShowSites] = useState<boolean>(true);
 
     let searchSites = useCallback(async () => {
-        let url = new URL(window.location.origin + "/flying_sites");
         const bounds = map.getBounds();
-        url.search = new URLSearchParams({
-            min_lat: bounds.getSouth().toString(),
-            max_lat: bounds.getNorth().toString(),
-            min_lon: bounds.getWest().toString(),
-            max_lon: bounds.getEast().toString()
-        }).toString();
+        let body: SearchResult[] = [];
 
-        let response = await fetch(url);
-        let body: SearchResult[] = await response.json();
+        if (!navigator.onLine) {
+            body = await getOfflineFlyingSites(bounds);
+        } else {
+            try {
+                let url = new URL(window.location.origin + "/flying_sites");
+                url.search = new URLSearchParams({
+                    min_lat: bounds.getSouth().toString(),
+                    max_lat: bounds.getNorth().toString(),
+                    min_lon: bounds.getWest().toString(),
+                    max_lon: bounds.getEast().toString()
+                }).toString();
+
+                let response = await fetch(url);
+                body = await response.json();
+            } catch {
+                body = await getOfflineFlyingSites(bounds);
+            }
+        }
 
         setLoadedBounds(bounds);
         setSites(body);

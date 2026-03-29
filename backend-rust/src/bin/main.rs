@@ -1230,18 +1230,20 @@ fn search(ws: WebSocket) -> Stream!['static] {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[get("/flying_sites?<min_lat>&<max_lat>&<min_lon>&<max_lon>")]
+#[get("/flying_sites?<min_lat>&<max_lat>&<min_lon>&<max_lon>&<limit>")]
 fn search_flying_site(
     min_lat: f32,
     max_lat: f32,
     min_lon: f32,
     max_lon: f32,
+    limit: Option<usize>,
 ) -> Result<Json<Vec<Location>>, Status> {
     let ix = flying_site_search_index();
+    let limit = limit.unwrap_or(200).clamp(1, 10_000);
 
     let sites = ix
         .in_interval(&[min_lon, min_lat], &[max_lon, max_lat], None)
-        .take(200)
+        .take(limit)
         .map(|x| x.1)
         .cloned()
         .collect();

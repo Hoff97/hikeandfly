@@ -23,6 +23,13 @@
     z-index: 490;
 }
 
+.offlineButton {
+    position: absolute;
+    left: 270px;
+    top: 10px;
+    z-index: 500;
+}
+
 @media only screen and (max-width: 620px) {
     .settings {
         top: 45px;
@@ -30,6 +37,11 @@
 
     .locationButton {
         top: 90px;
+    }
+
+    .offlineButton {
+        top: 45px;
+        left: 10px;
     }
 
     .infoButton {
@@ -157,4 +169,26 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     border-radius: 5px;
     background-color: white;
     font-size: 12px;
+}
+
+.offlineProgressBar {
+    position: absolute;
+    left: calc(50% - 170px);
+    bottom: 18px;
+    width: 340px;
+    z-index: 550;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #d8e1e8;
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+
+.offlineProgressLabel {
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+
+.offlineDownloadsTable {
+    width: 100%;
+    margin-top: 12px;
 }
