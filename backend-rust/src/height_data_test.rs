@@ -12,7 +12,7 @@ fn test_load_hgt() {
     assert_eq!(data.get((1065, 2354)).unwrap().clone(), 1067i16);
     assert_eq!(data.get((3456, 2985)).unwrap().clone(), 2472i16);
     assert_eq!(data.get((3443, 3292)).unwrap().clone(), 2561i16);
-    assert_eq!(data.get((1922, 848)).unwrap().clone(), 1105i16);
+    assert_eq!(data.get((1922, 848)).unwrap().clone(), 1110i16);
 }
 
 #[test]

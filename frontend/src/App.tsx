@@ -17,10 +17,12 @@ import { HeightPlotCard } from "./components/HeightPlotCard";
 import { SearchCard } from "./components/SearchCard";
 import { FlyingSiteOverlay } from "./components/FlyingSiteOverlay";
 import { BaseLayers } from "./components/BaseLayers";
+import { OfflineDownloadControl } from "./components/OfflineDownloadControl";
 
 function App() {
     const [imageState, setImageState] = useState<ImageState | undefined>();
     const [hoverState, setHoverState] = useState<HoverState>({ imageState: undefined, lastHoverSearch: 0 });
+    const [offlineStartupReady, setOfflineStartupReady] = useState(false);
 
     const urlParams = new URLSearchParams(window.location.search);
 
@@ -39,6 +41,7 @@ function App() {
         abortController: undefined,
         doLiveHoverSearch: false,
         fastInternet: false,
+        localComputeEnabled: window.localStorage.getItem("localComputeEnabled") === "true",
     });
 
     let updatedSavedSettings = (newSettings: Settings) => {
@@ -50,6 +53,7 @@ function App() {
         window.localStorage.setItem("windDirection", newSettings.windDirection.toString());
         window.localStorage.setItem("safetyMargin", newSettings.safetyMargin.toString());
         window.localStorage.setItem("startDistance", newSettings.startDistance.toString());
+        window.localStorage.setItem("localComputeEnabled", newSettings.localComputeEnabled ? "true" : "false");
     }
 
     let setSettings: SetSettings = (newSettings) => {
@@ -123,12 +127,14 @@ function App() {
                         </LayersControl.Overlay>
                     </LayersControl>
                     <FlyingSiteOverlay></FlyingSiteOverlay>
+                    <OfflineDownloadControl settings={settings} setSettings={setSettings} onStartupReady={() => setOfflineStartupReady(true)} />
                     <SearchComponent
                         setImageState={setImageState}
                         imageState={imageState}
                         setHoverState={setHoverState}
                         hoverState={hoverState}
                         settings={settings}
+                        startupReady={offlineStartupReady}
                         grid={grid}
                         setGrid={setGrid}
                         pathAndNode={pathAndNode}

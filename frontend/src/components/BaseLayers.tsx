@@ -1,8 +1,25 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LayersControl, TileLayer, useMapEvents } from "react-leaflet";
 
 export function BaseLayers() {
     const [enabledBaseLayer, setEnabledBaseLayer] = useState<string>(window.localStorage.getItem("enabledBaseLayer") || "OpenTopoMap");
+
+    // When the browser goes offline, switch to the proxy layer which is the
+    // only one supported for offline tile caching (same-origin, no CORS issues).
+    useEffect(() => {
+        const handleOffline = () => {
+            if (enabledBaseLayer !== "OpenTopoMap Proxy") {
+                setEnabledBaseLayer("OpenTopoMap Proxy");
+                window.localStorage.setItem("enabledBaseLayer", "OpenTopoMap Proxy");
+            }
+        };
+        window.addEventListener("offline", handleOffline);
+        // Also apply immediately if already offline on mount.
+        if (!navigator.onLine && enabledBaseLayer !== "OpenTopoMap Proxy") {
+            handleOffline();
+        }
+        return () => window.removeEventListener("offline", handleOffline);
+    }, [enabledBaseLayer]);
 
     useMapEvents({
         baselayerchange(e) {

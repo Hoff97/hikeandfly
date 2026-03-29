@@ -4,6 +4,7 @@ import { CircleMarker, useMap, useMapEvents } from "react-leaflet";
 import { GridState, ImageState, PathAndNode, SetSettings, Settings } from "../utils/types";
 import { Grid } from "./Grid";
 import { StartMarker } from "./StartMarker";
+import { useEffect } from "react";
 
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
@@ -11,6 +12,7 @@ interface SearchComponentProps {
     setHoverState: (state: HoverState) => void;
     hoverState: HoverState;
     settings: Settings;
+    startupReady: boolean;
     setSettings: SetSettings;
     grid: GridState;
     setGrid: (grid: GridState) => void;
@@ -39,7 +41,7 @@ export interface HoverState {
     lastHoverSearch: number;
 }
 
-export function SearchComponent({ setImageState, imageState, setHoverState, hoverState, settings, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
+export function SearchComponent({ setImageState, imageState, setHoverState, hoverState, settings, startupReady, setSettings, grid, setGrid, pathAndNode }: SearchComponentProps) {
     const map = useMap();
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -95,7 +97,7 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
             doSearchFromLocation(
                 (is) => { setHoverState({ imageState: is, lastHoverSearch: Date.now() }); },
                 (g) => { }, (g) => { }, e.latlng, {
-                ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200
+                ...settings, gridSize: settings.localComputeEnabled || settings.fastInternet ? settings.gridSize : 200
             }, {
                 path: undefined,
                 node: undefined,
@@ -118,7 +120,7 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
             doSearchFromLocation(
                 (is) => { setHoverState({ imageState: is, lastHoverSearch: Date.now() }); },
                 (g) => { }, (g) => { }, map.getCenter(), {
-                ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200
+                ...settings, gridSize: settings.localComputeEnabled || settings.fastInternet ? settings.gridSize : 200
             }, {
                 path: undefined,
                 node: undefined,
@@ -157,10 +159,14 @@ export function SearchComponent({ setImageState, imageState, setHoverState, hove
 
     const lat = urlParams.get('lat');
     const lon = urlParams.get('lon');
-    if (lat !== null && lon !== null && grid.loading === "done" && grid.response === undefined) {
+    useEffect(() => {
+        if (!startupReady || lat === null || lon === null || grid.loading !== "done" || grid.response !== undefined) {
+            return;
+        }
+
         const latlon = new LatLng(+lat, +lon);
         doSearchFromLocation(setImageState, setGrid, setSettings, latlon, settings, pathAndNode, map);
-    }
+    }, [startupReady, lat, lon, grid.loading, grid.response, map, pathAndNode, setGrid, setImageState, setSettings, settings]);
 
     const blackOptions = {
         color: "black",

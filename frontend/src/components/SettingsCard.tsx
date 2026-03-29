@@ -152,10 +152,24 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
         }
     }
 
+    const setLocalComputeEnabled = (value: boolean) => {
+        settings = {
+            ...settings,
+            localComputeEnabled: value,
+        };
+        setSettings(settings);
+        setTimeout(() => {
+            rerun(false);
+        }, 0);
+    };
+
     function rerun(preview: boolean = false) {
         if (grid.startPosition !== undefined) {
             if (preview) {
-                let searchSettings = { ...settings, gridSize: settings.fastInternet ? settings.gridSize : 200 };
+                let searchSettings = {
+                    ...settings,
+                    gridSize: settings.localComputeEnabled || settings.fastInternet ? settings.gridSize : 200,
+                };
                 doSearchFromLocation(setImageState, (g) => { }, (s) => { }, grid.startPosition, searchSettings, pathAndNode, undefined, preview);
             } else {
                 doSearchFromLocation(setImageState, setGrid, setSettings, grid.startPosition, settings, pathAndNode, undefined, preview);
@@ -301,6 +315,11 @@ export function SettingsCard({ settings, setSettings, setImageState, setGrid, gr
                         labelStepSize={200} stepSize={10}></Slider>
                     <Divider />
                     <Checkbox checked={settings.fastInternet} label="Fast internet" onChange={e => setSettings({ ...settings, fastInternet: e.target.checked })} />
+                    <Checkbox
+                        checked={settings.localComputeEnabled}
+                        label="Local compute"
+                        onChange={e => setLocalComputeEnabled(e.target.checked)}
+                    />
                     {grid.response !== undefined ?
                         <>
                             <Button text="Clear" onClick={clear} className="marginRight" />

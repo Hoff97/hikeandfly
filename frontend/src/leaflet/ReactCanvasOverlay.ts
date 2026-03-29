@@ -18,11 +18,15 @@ export const ReactCanvasOverlay = createLayerComponent<
   CanvasOverlayProps
 >(
   function createCanvasOverlay(options, ctx) {
+    const bounds =
+      options.bounds instanceof LatLngBounds
+        ? options.bounds
+        : new LatLngBounds(options.bounds);
     // @ts-ignore
-    const overlay = new CanvasOverlay(options.bounds, options);
+    const overlay = new CanvasOverlay(bounds, options);
     return createElementObject(
       overlay,
-      extendContext(ctx, { overlayContainer: overlay })
+      extendContext(ctx, { overlayContainer: overlay }),
     );
   },
   function updateCanvasOverlay(overlay, props, prevProps) {
@@ -35,5 +39,5 @@ export const ReactCanvasOverlay = createLayerComponent<
           : new LatLngBounds(props.bounds);
       overlay.setBounds(bounds);
     }
-  }
+  },
 );

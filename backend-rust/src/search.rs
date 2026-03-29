@@ -1011,6 +1011,33 @@ pub fn search_from_point(
     }
 }
 
+pub fn search_from_height_grid(
+    height_grid: HeightGrid,
+    start_ix: GridIx,
+    query: SearchQuery,
+) -> SearchResult {
+    let ground_height = height_grid.heights[[start_ix.0 as usize, start_ix.1 as usize]] as f32;
+    let start_height = query
+        .start_height
+        .unwrap_or(ground_height + query.additional_height)
+        .max(ground_height);
+
+    let config = SearchConfig {
+        grid: height_grid,
+        query,
+    };
+
+    let state = search(start_ix, start_height, &config);
+    let (explored, new_grid, new_start_ix) = reindex(state.explored, &config.grid, start_ix);
+
+    SearchResult {
+        explored,
+        height_grid: new_grid,
+        ground_height,
+        start_ix: new_start_ix,
+    }
+}
+
 #[cfg(test)]
 #[path = "./search_test.rs"]
 mod search_test;

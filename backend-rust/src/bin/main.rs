@@ -17,7 +17,7 @@ use std::{
 use backend_rust::{
     btree::BTree,
     colors::{f32_color_to_u8, lerp},
-    height_data::{cache_sizes, location_supported, HeightGrid},
+    height_data::{cache_sizes, get_height_data_around_point, location_supported, HeightGrid},
     search::{search_from_point, GridIx, Node, SearchQuery},
     types::{Location, LocationWithQuery, SearchLocation},
 };
@@ -51,7 +51,7 @@ fn num_index_accesses() -> &'static Mutex<usize> {
 fn index() -> Redirect {
     {
         let mut lock = num_index_accesses().lock().unwrap();
-        *lock = *lock + 1;
+        *lock += 1;
     }
     Redirect::to("/static/index.html")
 }
@@ -273,9 +273,132 @@ struct FlightConeResponse {
     start_height: f32,
 }
 
+#[derive(Serialize)]
+struct HeightMapResponse {
+    cell_size: f32,
+    min_cell_size: f32,
+    lat: (f32, f32),
+    lon: (f32, f32),
+    start_ix: GridIx,
+    grid_shape: (usize, usize),
+    heights: Vec<i16>,
+}
+
+#[derive(Serialize)]
+struct HeightMapMetaResponse {
+    cell_size: f32,
+    min_cell_size: f32,
+    lat: (f32, f32),
+    lon: (f32, f32),
+    start_ix: GridIx,
+    grid_shape: (usize, usize),
+}
+
+fn build_height_grid(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<HeightGrid, Status> {
+    if !location_supported(lat, lon) {
+        return Result::Err(Status::NotFound);
+    }
+
+    let margin = margin_m.unwrap_or(15_000.0).clamp(1_000.0, 300_000.0);
+    let mut grid = get_height_data_around_point(lat, lon, Some(margin));
+
+    if let Some(requested_cell_size) = cell_size {
+        let effective_cell_size = requested_cell_size.max(grid.cell_size);
+        grid = grid.scale(grid.cell_size / effective_cell_size);
+    }
+
+    Result::Ok(grid)
+}
+
+fn height_map_meta_from_grid(grid: &HeightGrid) -> HeightMapMetaResponse {
+    HeightMapMetaResponse {
+        cell_size: grid.cell_size,
+        min_cell_size: grid.min_cell_size,
+        lat: grid.latitudes,
+        lon: grid.longitudes,
+        start_ix: (
+            (grid.heights.shape()[0] / 2) as u16,
+            (grid.heights.shape()[1] / 2) as u16,
+        ),
+        grid_shape: (grid.heights.shape()[0], grid.heights.shape()[1]),
+    }
+}
+
+#[get("/height_map_meta?<lat>&<lon>&<margin_m>&<cell_size>")]
+fn get_height_map_meta(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<Json<HeightMapMetaResponse>, Status> {
+    let grid = build_height_grid(lat, lon, margin_m, cell_size)?;
+    Result::Ok(Json(height_map_meta_from_grid(&grid)))
+}
+
+#[get("/height_map_image?<lat>&<lon>&<margin_m>&<cell_size>")]
+fn get_height_map_image(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<(ContentType, Vec<u8>), Status> {
+    let grid = build_height_grid(lat, lon, margin_m, cell_size)?;
+
+    let rows = grid.heights.shape()[0];
+    let cols = grid.heights.shape()[1];
+    let mut img = DynamicImage::new_rgba8(cols as u32, rows as u32);
+
+    // Encode each terrain height as two bytes in RG channels.
+    for row in 0..rows {
+        for col in 0..cols {
+            let x = col as u32;
+            let y = (rows - row - 1) as u32;
+            let height = grid.heights[(row, col)] as i32;
+
+            let clamped = height.clamp(0, 65_535);
+            let hi = ((clamped >> 8) & 0xFF) as u8;
+            let lo = (clamped & 0xFF) as u8;
+            img.put_pixel(x, y, Rgba([hi, lo, 0, 255]));
+        }
+    }
+
+    let mut c = Cursor::new(Vec::new());
+    img.write_to(&mut c, ImageFormat::Png)
+        .expect("png encode failed");
+    Result::Ok((ContentType::PNG, c.into_inner()))
+}
+
 fn num_searches() -> &'static Mutex<usize> {
     static ARRAY: OnceLock<Mutex<usize>> = OnceLock::new();
     ARRAY.get_or_init(|| Mutex::new(0))
+}
+
+#[get("/height_map?<lat>&<lon>&<margin_m>&<cell_size>")]
+fn get_height_map(
+    lat: f32,
+    lon: f32,
+    margin_m: Option<f32>,
+    cell_size: Option<f32>,
+) -> Result<Json<HeightMapResponse>, Status> {
+    let grid = build_height_grid(lat, lon, margin_m, cell_size)?;
+    let meta = height_map_meta_from_grid(&grid);
+
+    let response = HeightMapResponse {
+        cell_size: meta.cell_size,
+        min_cell_size: meta.min_cell_size,
+        lat: meta.lat,
+        lon: meta.lon,
+        start_ix: meta.start_ix,
+        grid_shape: meta.grid_shape,
+        heights: grid.heights.iter().copied().collect(),
+    };
+
+    Result::Ok(Json(response))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -299,7 +422,7 @@ fn get_flight_cone(
 
     {
         let mut lock = num_searches().lock().unwrap();
-        *lock = *lock + 1;
+        *lock += 1;
     }
 
     let search_from_request_result = search_from_request(
@@ -372,7 +495,7 @@ fn get_flight_cone_stream(
 ) -> Stream!['static] {
     {
         let mut lock = num_searches().lock().unwrap();
-        *lock = *lock + 1;
+        *lock += 1;
     }
 
     let search_from_request_result = search_from_request(
@@ -1107,18 +1230,20 @@ fn search(ws: WebSocket) -> Stream!['static] {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[get("/flying_sites?<min_lat>&<max_lat>&<min_lon>&<max_lon>")]
+#[get("/flying_sites?<min_lat>&<max_lat>&<min_lon>&<max_lon>&<limit>")]
 fn search_flying_site(
     min_lat: f32,
     max_lat: f32,
     min_lon: f32,
     max_lon: f32,
+    limit: Option<usize>,
 ) -> Result<Json<Vec<Location>>, Status> {
     let ix = flying_site_search_index();
+    let limit = limit.unwrap_or(200).clamp(1, 10_000);
 
     let sites = ix
         .in_interval(&[min_lon, min_lat], &[max_lon, max_lat], None)
-        .take(200)
+        .take(limit)
         .map(|x| x.1)
         .cloned()
         .collect();
@@ -1272,5 +1397,8 @@ fn rocket() -> _ {
         .mount("/", routes![get_kml])
         .mount("/", routes![get_opentopomap_tile])
         .mount("/", routes![get_stats])
+        .mount("/", routes![get_height_map])
+        .mount("/", routes![get_height_map_meta])
+        .mount("/", routes![get_height_map_image])
         .mount("/static", FileServer::from("./static"))
 }
