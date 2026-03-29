@@ -3,6 +3,11 @@
     "version": "0.1.0",
     "private": true,
     "type": "module",
+    "packageManager": "npm@10.9.4",
+    "engines": {
+        "node": "22.x",
+        "npm": "10.x"
+    },
     "dependencies": {
         "@blueprintjs/core": "^5.13.0",
         "@blueprintjs/select": "^5.2.5",
