@@ -36,6 +36,7 @@ jobs:
       - name: Install frontend dependencies
         run: |
           cd frontend
+          npm install
           npm ci
 
   test:
