@@ -213,6 +213,40 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     margin: 0;
 }
 
+.offlineSelectionRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.offlineSizeEstimate {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.offlineSizePlaceholder {
+    color: #5f6b7a;
+}
+
+.offlineLayerSelection {
+    margin-top: 12px;
+}
+
+.offlineLayerSelection .bp5-heading {
+    margin-bottom: 8px;
+}
+
+.offlineLayerSelectionGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    gap: 4px 12px;
+}
+
+.offlineLayerLabelEstimate {
+    color: #738091;
+}
+
 .offlineDownloadActions {
     display: flex;
     flex-wrap: wrap;
@@ -229,5 +263,14 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     .offlineDownloadActions {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .offlineSelectionRow {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .offlineLayerSelectionGrid {
+        grid-template-columns: 1fr;
     }
 }

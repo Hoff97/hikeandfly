@@ -61,8 +61,12 @@ export default defineConfig({
       "/search_ws": apiProxy,
       "/flying_sites": apiProxy,
       "/opentopomap": apiProxy,
+      "/openstreetmap": apiProxy,
+      "/satellite": apiProxy,
       "/stats": apiProxy,
       "/height_map": apiProxy,
+      "/height_map_meta": apiProxy,
+      "/height_map_image": apiProxy,
     },
   },
   test: {

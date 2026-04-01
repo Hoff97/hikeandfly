@@ -10,6 +10,17 @@ const FLYING_SITES_STORE = "flyingSites";
 
 export const MAP_TILE_CACHE_NAME = "map-tiles";
 
+export type OfflineTileLayer =
+  | "OpenTopoMap Proxy"
+  | "OpenStreetMap"
+  | "Satellite";
+
+export const OFFLINE_TILE_LAYERS: OfflineTileLayer[] = [
+  "OpenTopoMap Proxy",
+  "OpenStreetMap",
+  "Satellite",
+];
+
 export type BoundsTuple = [number, number, number, number];
 
 export interface OfflineDownloadRecord {
@@ -19,9 +30,21 @@ export interface OfflineDownloadRecord {
   bounds: BoundsTuple;
   gridSize: number;
   baseLayerName: string;
+  tileLayers?: OfflineTileLayer[];
   tileZooms: number[];
   tileCount: number;
   siteCount: number;
+  status?: "pending" | "complete" | "failed";
+  lastError?: string;
+  updatedAt?: number;
+  /** Total bytes stored (tiles only). Undefined for records created before this field was added. */
+  totalBytes?: number;
+}
+
+export interface LayerEstimate {
+  layer: OfflineTileLayer;
+  tileCount: number;
+  bytes: number;
 }
 
 interface StoredHeightMapRecord {
@@ -55,6 +78,16 @@ interface HeightMapMetaResponse {
   lon: [number, number];
   start_ix: [number, number];
   grid_shape: [number, number];
+}
+
+let offlineAreaSelectionActive = false;
+
+export function setOfflineAreaSelectionActive(active: boolean): void {
+  offlineAreaSelectionActive = active;
+}
+
+export function isOfflineAreaSelectionActive(): boolean {
+  return offlineAreaSelectionActive;
 }
 
 function promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
@@ -164,11 +197,22 @@ function clampTileY(y: number, zoom: number): number {
   return Math.max(0, Math.min(max, y));
 }
 
-// Only the same-origin proxy layer is supported for offline tile caching.
+// Use same-origin proxy tile endpoints for all offline-cached layers.
 // Cross-origin tile providers return opaque (no-cors) responses which
 // Firefox and some other browsers refuse to serve from a service worker
 // while offline.
-function tileProxyUrl(zoom: number, x: number, y: number): string {
+function tileProxyUrl(
+  layer: OfflineTileLayer,
+  zoom: number,
+  x: number,
+  y: number,
+): string {
+  if (layer === "OpenStreetMap") {
+    return `${window.location.origin}/openstreetmap/${getSubdomain(x, y)}/${zoom}/${x}/${y}.png`;
+  }
+  if (layer === "Satellite") {
+    return `${window.location.origin}/satellite/${zoom}/${y}/${x}.jpg`;
+  }
   return `${window.location.origin}/opentopomap/${getSubdomain(x, y)}/${zoom}/${x}/${y}.png`;
 }
 
@@ -205,6 +249,7 @@ function buildTileRange(
 export function buildTileUrlsForBounds(
   bounds: LatLngBounds,
   zoomLevels: number[],
+  tileLayers: OfflineTileLayer[] = ["OpenTopoMap Proxy"],
 ): string[] {
   const urls = new Set<string>();
   for (const zoom of zoomLevels) {
@@ -212,7 +257,9 @@ export function buildTileUrlsForBounds(
 
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
-        urls.add(tileProxyUrl(zoom, x, y));
+        for (const layer of tileLayers) {
+          urls.add(tileProxyUrl(layer, zoom, x, y));
+        }
       }
     }
   }
@@ -220,7 +267,11 @@ export function buildTileUrlsForBounds(
 }
 
 function buildTileUrlsForRecord(record: OfflineDownloadRecord): string[] {
-  return buildTileUrlsForBounds(tupleToBounds(record.bounds), record.tileZooms);
+  return buildTileUrlsForBounds(
+    tupleToBounds(record.bounds),
+    record.tileZooms,
+    record.tileLayers ?? ["OpenTopoMap Proxy"],
+  );
 }
 
 async function decodeHeightMapFromBlob(
@@ -278,47 +329,79 @@ function computeViewportMarginMeters(bounds: LatLngBounds): number {
   return Math.ceil(Math.max(latHalfSpanMeters, lonHalfSpanMeters));
 }
 
+function mapCoversBounds(
+  map: HeightMapResponse,
+  bounds: LatLngBounds,
+): boolean {
+  const latMin = Math.min(map.lat[0], map.lat[1]);
+  const latMax = Math.max(map.lat[0], map.lat[1]);
+  const lonMin = Math.min(map.lon[0], map.lon[1]);
+  const lonMax = Math.max(map.lon[0], map.lon[1]);
+
+  return (
+    bounds.getSouth() >= latMin &&
+    bounds.getNorth() <= latMax &&
+    bounds.getWest() >= lonMin &&
+    bounds.getEast() <= lonMax
+  );
+}
+
 async function fetchHeightMapForBounds(
   bounds: LatLngBounds,
   gridSize: number,
 ): Promise<HeightMapResponse> {
   const center = bounds.getCenter();
-  const marginMeters = computeViewportMarginMeters(bounds);
+  // Include a small buffer to avoid off-by-one/grid rounding misses at bounds edges.
+  let marginMeters =
+    computeViewportMarginMeters(bounds) +
+    Math.max(500, Math.round(gridSize * 8));
 
-  const metaUrl = new URL(window.location.origin + "/height_map_meta");
-  metaUrl.search = new URLSearchParams({
-    lat: center.lat.toString(),
-    lon: center.lng.toString(),
-    cell_size: gridSize.toString(),
-    margin_m: marginMeters.toString(),
-  }).toString();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const metaUrl = new URL(window.location.origin + "/height_map_meta");
+    metaUrl.search = new URLSearchParams({
+      lat: center.lat.toString(),
+      lon: center.lng.toString(),
+      cell_size: gridSize.toString(),
+      margin_m: marginMeters.toString(),
+    }).toString();
 
-  const imageUrl = new URL(window.location.origin + "/height_map_image");
-  imageUrl.search = metaUrl.search;
+    const imageUrl = new URL(window.location.origin + "/height_map_image");
+    imageUrl.search = metaUrl.search;
 
-  const [metaResponse, imageResponse] = await Promise.all([
-    fetch(metaUrl),
-    fetch(imageUrl),
-  ]);
-  if (!metaResponse.ok || !imageResponse.ok) {
-    throw new Error("Failed to download height map data");
+    const [metaResponse, imageResponse] = await Promise.all([
+      fetch(metaUrl),
+      fetch(imageUrl),
+    ]);
+    if (!metaResponse.ok || !imageResponse.ok) {
+      throw new Error("Failed to download height map data");
+    }
+
+    const meta = (await metaResponse.json()) as HeightMapMetaResponse;
+    const heights = await decodeHeightMapFromBlob(
+      await imageResponse.blob(),
+      meta.grid_shape,
+    );
+
+    const map: HeightMapResponse = {
+      cell_size: meta.cell_size,
+      min_cell_size: meta.min_cell_size,
+      lat: meta.lat,
+      lon: meta.lon,
+      start_ix: meta.start_ix,
+      grid_shape: meta.grid_shape,
+      heights,
+    };
+
+    if (mapCoversBounds(map, bounds)) {
+      return map;
+    }
+
+    marginMeters = Math.round(
+      marginMeters * 1.35 + Math.max(500, gridSize * 6),
+    );
   }
 
-  const meta = (await metaResponse.json()) as HeightMapMetaResponse;
-  const heights = await decodeHeightMapFromBlob(
-    await imageResponse.blob(),
-    meta.grid_shape,
-  );
-
-  return {
-    cell_size: meta.cell_size,
-    min_cell_size: meta.min_cell_size,
-    lat: meta.lat,
-    lon: meta.lon,
-    start_ix: meta.start_ix,
-    grid_shape: meta.grid_shape,
-    heights,
-  };
+  throw new Error("Downloaded height map does not fully cover selected area");
 }
 
 async function fetchFlyingSitesForBounds(
@@ -342,20 +425,59 @@ async function fetchFlyingSitesForBounds(
 
 // Use plain URL string as cache key so the service worker's
 // cache.match(event.request.url) lookup finds the same entry.
-async function cacheTileUrl(cache: Cache, url: string): Promise<void> {
+// Returns the number of bytes stored (0 if already cached or on error).
+async function cacheTileUrl(cache: Cache, url: string): Promise<number> {
   const cached = await cache.match(url);
   if (cached !== undefined) {
-    return;
+    return 0;
   }
-  // Cross-origin tiles must be fetched no-cors; same-origin proxy tiles can
-  // use the plain string which defaults to GET with credentials.
+  // All supported offline tile URLs are same-origin proxy URLs.
+  // Keep a no-cors fallback path for any future cross-origin additions.
   const fetchReq = url.startsWith(window.location.origin)
     ? url
     : new Request(url, { mode: "no-cors" });
   const response = await fetch(fetchReq);
   if (response.ok || response.type === "opaque") {
+    const blob = await response.clone().blob();
     await cache.put(url, response.clone());
+    return blob.size;
   }
+  return 0;
+}
+
+// Returns total bytes stored across all tiles.
+async function cacheTileUrlsConcurrently(
+  cache: Cache,
+  urls: string[],
+  concurrency: number,
+  onStored: (done: number, total: number) => void,
+): Promise<number> {
+  if (urls.length === 0) {
+    return 0;
+  }
+
+  const workerCount = Math.max(1, Math.min(concurrency, urls.length));
+  let nextIndex = 0;
+  let done = 0;
+  let totalBytes = 0;
+
+  const runWorker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= urls.length) {
+        return;
+      }
+
+      const bytes = await cacheTileUrl(cache, urls[index]);
+      done += 1;
+      totalBytes += bytes;
+      onStored(done, urls.length);
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+  return totalBytes;
 }
 
 async function verifyTileUrlsCached(
@@ -372,6 +494,114 @@ async function verifyTileUrlsCached(
   return missing;
 }
 
+// ---------------------------------------------------------------------------
+// Tile size estimation
+// ---------------------------------------------------------------------------
+
+// Fallback average tile sizes in bytes, derived from typical Alpine tiles.
+// Used when the network sample cannot be obtained.
+const FALLBACK_TILE_BYTES: Record<OfflineTileLayer, number> = {
+  "OpenTopoMap Proxy": 18_000,
+  OpenStreetMap: 14_000,
+  Satellite: 35_000,
+};
+
+// Per-session cache of sampled average bytes per tile per layer.
+const sampledTileBytes: Partial<Record<OfflineTileLayer, number>> = {};
+
+// Sample tiles near the Alps center (lat≈47, lon≈11) to measure actual byte sizes.
+// We fetch 3 tiles per layer at zoom 13 and return their average size.
+async function sampleLayerTileSize(layer: OfflineTileLayer): Promise<number> {
+  if (sampledTileBytes[layer] !== undefined) {
+    return sampledTileBytes[layer]!;
+  }
+
+  // Alps sample tiles at zoom 13 (x=4315,4316,4317 y=2856)
+  const sampleTiles = [
+    tileProxyUrl(layer, 13, 4315, 2856),
+    tileProxyUrl(layer, 13, 4316, 2856),
+    tileProxyUrl(layer, 15, 17260, 11427),
+  ];
+
+  const sizes: number[] = [];
+  await Promise.all(
+    sampleTiles.map(async (url) => {
+      try {
+        // Check if already in cache first to avoid an extra network request.
+        const tileCache = await caches.open(MAP_TILE_CACHE_NAME);
+        const cached = await tileCache.match(url);
+        const resp = cached ?? (await fetch(url));
+        if (resp.ok) {
+          const blob = await resp.blob();
+          sizes.push(blob.size);
+        }
+      } catch {
+        // Network error — skip this sample.
+      }
+    }),
+  );
+
+  const avg =
+    sizes.length > 0
+      ? sizes.reduce((a, b) => a + b, 0) / sizes.length
+      : FALLBACK_TILE_BYTES[layer];
+  sampledTileBytes[layer] = avg;
+  return avg;
+}
+
+export async function estimateDownloadBytes(
+  tileUrls: string[],
+  tileLayers: OfflineTileLayer[],
+): Promise<number> {
+  if (tileLayers.length === 0 || tileUrls.length === 0) {
+    return 0;
+  }
+  const tilesPerLayer = tileUrls.length / tileLayers.length;
+  const layerAverages = await Promise.all(
+    tileLayers.map(async (layer) => {
+      const avg = await sampleLayerTileSize(layer).catch(
+        () => FALLBACK_TILE_BYTES[layer],
+      );
+      return tilesPerLayer * avg;
+    }),
+  );
+  return layerAverages.reduce((a, b) => a + b, 0);
+}
+
+export async function estimateDownloadByLayer(
+  tileUrls: string[],
+  tileLayers: OfflineTileLayer[],
+): Promise<LayerEstimate[]> {
+  if (tileLayers.length === 0 || tileUrls.length === 0) {
+    return [];
+  }
+
+  const tilesPerLayer = Math.floor(tileUrls.length / tileLayers.length);
+  const estimates = await Promise.all(
+    tileLayers.map(async (layer) => {
+      const avg = await sampleLayerTileSize(layer).catch(
+        () => FALLBACK_TILE_BYTES[layer],
+      );
+      return {
+        layer,
+        tileCount: tilesPerLayer,
+        bytes: tilesPerLayer * avg,
+      } satisfies LayerEstimate;
+    }),
+  );
+  return estimates;
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1_000) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1_000_000) {
+    return `${(bytes / 1_000).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
 export async function requestPersistentStorage(): Promise<boolean> {
   if (
     !("storage" in navigator) ||
@@ -383,9 +613,83 @@ export async function requestPersistentStorage(): Promise<boolean> {
 }
 
 export async function listOfflineDownloads(): Promise<OfflineDownloadRecord[]> {
+  await reconcilePendingOfflineDownloads();
   return withStore(DOWNLOADS_STORE, "readonly", async (store) => {
     return (await promisifyRequest(store.getAll())) as OfflineDownloadRecord[];
   });
+}
+
+async function putDownloadRecord(record: OfflineDownloadRecord): Promise<void> {
+  await withStore(DOWNLOADS_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.put(record));
+    return undefined;
+  });
+}
+
+async function getDownloadRecord(
+  downloadId: string,
+): Promise<OfflineDownloadRecord | undefined> {
+  return withStore(DOWNLOADS_STORE, "readonly", async (store) => {
+    return (await promisifyRequest(store.get(downloadId))) as
+      | OfflineDownloadRecord
+      | undefined;
+  });
+}
+
+async function countCachedTileUrls(urls: string[]): Promise<number> {
+  if (urls.length === 0) return 0;
+  const cache = await caches.open(MAP_TILE_CACHE_NAME);
+  let present = 0;
+  for (const url of urls) {
+    if ((await cache.match(url)) !== undefined) {
+      present += 1;
+    }
+  }
+  return present;
+}
+
+export async function reconcilePendingOfflineDownloads(): Promise<void> {
+  const downloads = await withStore(
+    DOWNLOADS_STORE,
+    "readonly",
+    async (store) => {
+      return (await promisifyRequest(
+        store.getAll(),
+      )) as OfflineDownloadRecord[];
+    },
+  );
+  const pending = downloads.filter(
+    (d) => (d.status ?? "complete") === "pending",
+  );
+  if (pending.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  for (const entry of pending) {
+    const urls = buildTileUrlsForRecord(entry);
+    const cached = await countCachedTileUrls(urls);
+    if (cached >= urls.length) {
+      await putDownloadRecord({
+        ...entry,
+        status: "complete",
+        updatedAt: now,
+        lastError: undefined,
+      });
+      continue;
+    }
+
+    // If a pending download is stale for > 10 minutes and still incomplete,
+    // classify it as failed so users can trigger retry/resume.
+    if (now - (entry.updatedAt ?? entry.createdAt) > 10 * 60 * 1000) {
+      await putDownloadRecord({
+        ...entry,
+        status: "failed",
+        updatedAt: now,
+        lastError: "Background tile download timed out before completion",
+      });
+    }
+  }
 }
 
 export async function getOfflineDownloadForBounds(
@@ -415,13 +719,20 @@ export async function findStoredHeightMap(
   const matches = maps
     .filter(
       (entry) =>
-        entry.gridSize === gridSize &&
+        Math.abs(entry.gridSize - gridSize) <= Math.max(1, gridSize * 0.03) &&
         lat >= entry.bounds[0] &&
         lat <= entry.bounds[2] &&
         lon >= entry.bounds[1] &&
         lon <= entry.bounds[3],
     )
-    .sort((a, b) => area(a.bounds) - area(b.bounds));
+    .sort((a, b) => {
+      const gridDiff =
+        Math.abs(a.gridSize - gridSize) - Math.abs(b.gridSize - gridSize);
+      if (Math.abs(gridDiff) > 0.001) {
+        return gridDiff;
+      }
+      return area(a.bounds) - area(b.bounds);
+    });
 
   return matches[0]?.map;
 }
@@ -485,17 +796,160 @@ export async function getOfflineFlyingSites(
   return Array.from(merged.values());
 }
 
+// ---------------------------------------------------------------------------
+// Service-worker-based tile download
+// ---------------------------------------------------------------------------
+// Dispatches tile downloading to the service worker so it continues even when
+// the page is closed. Falls back to in-page concurrent download if the SW is
+// not available.
+
+export function isServiceWorkerDownloadSupported(): boolean {
+  return (
+    "serviceWorker" in navigator && navigator.serviceWorker.controller !== null
+  );
+}
+
+export async function isBackgroundFetchSupported(): Promise<boolean> {
+  if (!("serviceWorker" in navigator)) {
+    return false;
+  }
+  const registration = await navigator.serviceWorker.ready;
+  const bgFetchCandidate = (
+    registration as ServiceWorkerRegistration & {
+      backgroundFetch?: {
+        fetch?: unknown;
+        getIds?: unknown;
+      };
+    }
+  ).backgroundFetch;
+
+  if (bgFetchCandidate === undefined) {
+    return false;
+  }
+
+  if (
+    typeof bgFetchCandidate.fetch !== "function" ||
+    typeof bgFetchCandidate.getIds !== "function"
+  ) {
+    return false;
+  }
+
+  // Probe capability: some browsers expose stubs but reject all BF usage.
+  try {
+    await bgFetchCandidate.getIds();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Download tiles via the service worker. Returns total bytes stored.
+ * Fires onProgress with (done, total, totalBytes) as tiles are cached.
+ * Falls back to in-page download when SW is unavailable.
+ */
+async function downloadTilesViaSw(
+  downloadId: string,
+  urls: string[],
+  onProgress: (done: number, total: number, totalBytes: number) => void,
+): Promise<number> {
+  if (!isServiceWorkerDownloadSupported()) {
+    // Fallback: download in page
+    const tileCache = await caches.open(MAP_TILE_CACHE_NAME);
+    const concurrency = Math.min(
+      16,
+      Math.max(4, navigator.hardwareConcurrency ?? 8),
+    );
+    let runningBytes = 0;
+    const result = await cacheTileUrlsConcurrently(
+      tileCache,
+      urls,
+      concurrency,
+      (done, tot) => {
+        onProgress(done, tot, runningBytes);
+      },
+    );
+    return result;
+  }
+
+  const sw = navigator.serviceWorker.controller!;
+  const concurrency = Math.min(
+    16,
+    Math.max(4, navigator.hardwareConcurrency ?? 8),
+  );
+  const backgroundFetchAvailable = await isBackgroundFetchSupported().catch(
+    () => false,
+  );
+
+  return new Promise<number>((resolve, reject) => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data as {
+        type: string;
+        downloadId: string;
+        done?: number;
+        total?: number;
+        totalBytes?: number;
+        error?: string;
+      };
+      if (!data || data.downloadId !== downloadId) return;
+
+      if (data.type === "TILE_DOWNLOAD_PROGRESS") {
+        onProgress(
+          data.done ?? 0,
+          data.total ?? urls.length,
+          data.totalBytes ?? 0,
+        );
+      } else if (data.type === "TILE_DOWNLOAD_COMPLETE") {
+        navigator.serviceWorker.removeEventListener("message", handler);
+        resolve(data.totalBytes ?? 0);
+      } else if (data.type === "TILE_DOWNLOAD_FAILED") {
+        navigator.serviceWorker.removeEventListener("message", handler);
+        reject(new Error(data.error ?? "SW download failed"));
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", handler);
+
+    sw.postMessage({
+      type: "START_TILE_DOWNLOAD",
+      downloadId,
+      urls,
+      concurrency,
+      useBackgroundFetch: backgroundFetchAvailable,
+    });
+  });
+}
+
 export async function downloadOfflineWindow(
   bounds: LatLngBounds,
   gridSize: number,
   currentZoom: number,
+  tileLayers: OfflineTileLayer[],
   onProgress: (progress: OfflineDownloadProgress) => void,
 ): Promise<void> {
   const downloadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tileZooms = buildTileZoomLevels(currentZoom);
-  const tileUrls = buildTileUrlsForBounds(bounds, tileZooms);
+  const selectedLayers: OfflineTileLayer[] =
+    tileLayers.length > 0 ? tileLayers : ["OpenTopoMap Proxy"];
+  const tileUrls = buildTileUrlsForBounds(bounds, tileZooms, selectedLayers);
   const totalSteps = tileUrls.length + 3;
   let completed = 0;
+
+  const pendingRecord: OfflineDownloadRecord = {
+    id: downloadId,
+    name: `Window ${new Date().toLocaleString()}`,
+    createdAt: Date.now(),
+    bounds: boundsToTuple(bounds),
+    gridSize,
+    baseLayerName: selectedLayers[0],
+    tileLayers: selectedLayers,
+    tileZooms,
+    tileCount: tileUrls.length,
+    siteCount: 0,
+    status: "pending",
+    updatedAt: Date.now(),
+  };
+  await putDownloadRecord(pendingRecord);
 
   const advance = (label: string) => {
     completed += 1;
@@ -515,70 +969,75 @@ export async function downloadOfflineWindow(
   });
   await requestPersistentStorage();
 
-  const heightMap = await fetchHeightMapForBounds(bounds, gridSize);
-  advance("Height map stored");
+  try {
+    const heightMap = await fetchHeightMapForBounds(bounds, gridSize);
+    advance("Height map stored");
 
-  const flyingSites = await fetchFlyingSitesForBounds(bounds);
-  advance("Flying sites stored");
+    const flyingSites = await fetchFlyingSitesForBounds(bounds);
+    advance("Flying sites stored");
 
-  const tileCache = await caches.open(MAP_TILE_CACHE_NAME);
-  for (const url of tileUrls) {
-    await cacheTileUrl(tileCache, url);
-    advance(`Tiles stored (${completed - 2}/${tileUrls.length})`);
-  }
-  const missingTiles = await verifyTileUrlsCached(tileCache, tileUrls);
-  if (missingTiles > 0) {
-    console.warn(
-      `${missingTiles} of ${tileUrls.length} tiles could not be cached (network errors during download).`,
+    const heightMapRecord: StoredHeightMapRecord = {
+      id: `${downloadId}-height-map`,
+      downloadId,
+      bounds: [
+        heightMap.lat[0],
+        heightMap.lon[0],
+        heightMap.lat[1],
+        heightMap.lon[1],
+      ],
+      gridSize: heightMap.cell_size,
+      map: heightMap,
+      createdAt: Date.now(),
+    };
+
+    const sitesRecord: StoredFlyingSitesRecord = {
+      id: `${downloadId}-sites`,
+      downloadId,
+      bounds: boundsToTuple(bounds),
+      sites: flyingSites,
+      createdAt: Date.now(),
+    };
+
+    await withStore(HEIGHT_MAPS_STORE, "readwrite", async (store) => {
+      await promisifyRequest(store.put(heightMapRecord));
+      return undefined;
+    });
+    await withStore(FLYING_SITES_STORE, "readwrite", async (store) => {
+      await promisifyRequest(store.put(sitesRecord));
+      return undefined;
+    });
+
+    const totalBytes = await downloadTilesViaSw(
+      downloadId,
+      tileUrls,
+      (done, total) => {
+        completed = Math.min(totalSteps - 1, 2 + done);
+        onProgress({
+          active: true,
+          label: `Tiles stored (${done}/${total})`,
+          completed,
+          total: totalSteps,
+        });
+      },
     );
+
+    await putDownloadRecord({
+      ...pendingRecord,
+      siteCount: flyingSites.length,
+      totalBytes,
+      status: "complete",
+      updatedAt: Date.now(),
+      lastError: undefined,
+    });
+  } catch (error: unknown) {
+    await putDownloadRecord({
+      ...pendingRecord,
+      status: "failed",
+      updatedAt: Date.now(),
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-
-  const record: OfflineDownloadRecord = {
-    id: downloadId,
-    name: `Window ${new Date().toLocaleString()}`,
-    createdAt: Date.now(),
-    bounds: boundsToTuple(bounds),
-    gridSize,
-    baseLayerName: "OpenTopoMap Proxy",
-    tileZooms,
-    tileCount: tileUrls.length,
-    siteCount: flyingSites.length,
-  };
-
-  const heightMapRecord: StoredHeightMapRecord = {
-    id: `${downloadId}-height-map`,
-    downloadId,
-    bounds: [
-      heightMap.lat[0],
-      heightMap.lon[0],
-      heightMap.lat[1],
-      heightMap.lon[1],
-    ],
-    gridSize: heightMap.cell_size,
-    map: heightMap,
-    createdAt: Date.now(),
-  };
-
-  const sitesRecord: StoredFlyingSitesRecord = {
-    id: `${downloadId}-sites`,
-    downloadId,
-    bounds: boundsToTuple(bounds),
-    sites: flyingSites,
-    createdAt: Date.now(),
-  };
-
-  await withStore(DOWNLOADS_STORE, "readwrite", async (store) => {
-    await promisifyRequest(store.put(record));
-    return undefined;
-  });
-  await withStore(HEIGHT_MAPS_STORE, "readwrite", async (store) => {
-    await promisifyRequest(store.put(heightMapRecord));
-    return undefined;
-  });
-  await withStore(FLYING_SITES_STORE, "readwrite", async (store) => {
-    await promisifyRequest(store.put(sitesRecord));
-    return undefined;
-  });
 
   onProgress({
     active: false,
@@ -586,6 +1045,73 @@ export async function downloadOfflineWindow(
     completed: totalSteps,
     total: totalSteps,
   });
+}
+
+export async function retryFailedOfflineDownload(
+  downloadId: string,
+  onProgress: (progress: OfflineDownloadProgress) => void,
+): Promise<void> {
+  const record = await getDownloadRecord(downloadId);
+  if (record === undefined) {
+    throw new Error("Download record not found");
+  }
+
+  const tileUrls = buildTileUrlsForRecord(record);
+  const totalSteps = tileUrls.length;
+  let completed = 0;
+
+  await putDownloadRecord({
+    ...record,
+    status: "pending",
+    updatedAt: Date.now(),
+    lastError: undefined,
+  });
+
+  onProgress({
+    active: true,
+    label: "Retrying tile download",
+    completed,
+    total: totalSteps,
+  });
+
+  try {
+    const totalBytes = await downloadTilesViaSw(
+      record.id,
+      tileUrls,
+      (done, total) => {
+        completed = done;
+        onProgress({
+          active: true,
+          label: `Tiles stored (${done}/${total})`,
+          completed: done,
+          total,
+        });
+      },
+    );
+
+    await putDownloadRecord({
+      ...record,
+      status: "complete",
+      updatedAt: Date.now(),
+      lastError: undefined,
+      totalBytes: record.totalBytes ?? totalBytes,
+    });
+
+    onProgress({
+      active: false,
+      label: "Offline download completed",
+      completed: totalSteps,
+      total: totalSteps,
+    });
+  } catch (error: unknown) {
+    await putDownloadRecord({
+      ...record,
+      status: "failed",
+      updatedAt: Date.now(),
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 export async function deleteOfflineDownload(downloadId: string): Promise<void> {

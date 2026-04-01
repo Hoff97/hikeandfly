@@ -381,15 +381,17 @@ async function getHeightMapForLocalCompute(
     }
   }
 
-  const storedHeightMap = await findStoredHeightMap(
-    latLng.lat,
-    latLng.lng,
-    settings.gridSize,
-  );
-  if (storedHeightMap !== undefined) {
-    const terrainHeight = lookupTerrainHeight(storedHeightMap, latLng);
-    const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
-    return cropHeightMap(storedHeightMap, latLng, requiredMargin);
+  if (!navigator.onLine) {
+    const storedHeightMap = await findStoredHeightMap(
+      latLng.lat,
+      latLng.lng,
+      settings.gridSize,
+    );
+    if (storedHeightMap !== undefined) {
+      const terrainHeight = lookupTerrainHeight(storedHeightMap, latLng);
+      const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
+      return cropHeightMap(storedHeightMap, latLng, requiredMargin);
+    }
   }
 
   // Let the backend choose a sufficiently large initial margin and report start height.
@@ -1028,7 +1030,13 @@ export async function doSearchFromLocation(
       alert("Location not yet supported!");
       return;
     }
-    throw error;
+    console.error("Search failed", error);
+    grid.loading = "done";
+    setGrid({ ...grid, loading: "done" });
+    alert(
+      "Failed to load glide area for this location. If you're using offline data, ensure the area is fully downloaded.",
+    );
+    return;
   }
 }
 

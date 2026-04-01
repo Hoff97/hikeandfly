@@ -1,20 +1,32 @@
 import {
   Button,
   Callout,
+  Checkbox,
   Classes,
   Dialog,
   H5,
   HTMLTable,
   ProgressBar,
 } from "@blueprintjs/core";
-import { Download, Trash } from "@blueprintjs/icons";
+import { Draw, Download, Map, SelectionBox, Trash } from "@blueprintjs/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LatLngBounds } from "leaflet";
 import { Rectangle, useMap, useMapEvents } from "react-leaflet";
 import {
   buildTileZoomLevels,
+  buildTileUrlsForBounds,
   clearOfflineDownloads,
   deleteOfflineDownload,
   downloadOfflineWindow,
+  estimateDownloadByLayer,
+  estimateDownloadBytes,
+  formatBytes,
+  isBackgroundFetchSupported,
+  isServiceWorkerDownloadSupported,
+  OFFLINE_TILE_LAYERS,
+  retryFailedOfflineDownload,
+  setOfflineAreaSelectionActive,
+  type OfflineTileLayer,
   type OfflineDownloadProgress,
   type OfflineDownloadRecord,
   getOfflineDownloadForBounds,
@@ -48,14 +60,77 @@ export function OfflineDownloadControl({
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [coveredDownloadId, setCoveredDownloadId] = useState<string | undefined>();
+  const [isDrawMode, setIsDrawMode] = useState(false);
+  const [drawStart, setDrawStart] = useState<{ lat: number; lng: number } | undefined>();
+  const [selectedBounds, setSelectedBounds] = useState<LatLngBounds | undefined>();
+  const [selectedTileLayers, setSelectedTileLayers] = useState<OfflineTileLayer[]>([
+    "OpenTopoMap Proxy",
+  ]);
+  const [estimatedBytes, setEstimatedBytes] = useState<number | undefined>();
+  const [layerEstimates, setLayerEstimates] = useState<Array<{ layer: OfflineTileLayer; tileCount: number; bytes: number }>>([]);
+  const swDownloadSupported = isServiceWorkerDownloadSupported();
+  const [bgFetchSupported, setBgFetchSupported] = useState(false);
   const startupReadyRef = useRef(false);
 
-  const currentBounds = map.getBounds();
+  const currentBounds = selectedBounds ?? map.getBounds();
+  const currentBoundsTuple = [
+    currentBounds.getSouth(),
+    currentBounds.getWest(),
+    currentBounds.getNorth(),
+    currentBounds.getEast(),
+  ] as const;
+  const currentBoundsKey = currentBoundsTuple
+    .map((value) => value.toFixed(6))
+    .join(",");
   const currentZoom = Math.round(map.getZoom());
 
   const tileZoomLabel = useMemo(() => {
     return buildTileZoomLevels(currentZoom).join(", ");
   }, [currentZoom]);
+
+  const tileUrls = useMemo(() => {
+    if (!isDialogOpen) return [];
+    return buildTileUrlsForBounds(
+      currentBounds,
+      buildTileZoomLevels(currentZoom),
+      selectedTileLayers.length > 0 ? selectedTileLayers : ["OpenTopoMap Proxy"],
+    );
+  }, [isDialogOpen, currentBoundsKey, currentZoom, selectedTileLayers]);
+
+  useEffect(() => {
+    void isBackgroundFetchSupported().then(setBgFetchSupported).catch(() => {
+      setBgFetchSupported(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isDialogOpen || tileUrls.length === 0 || selectedTileLayers.length === 0) {
+      setEstimatedBytes(undefined);
+      setLayerEstimates([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      estimateDownloadBytes(tileUrls, selectedTileLayers),
+      estimateDownloadByLayer(tileUrls, selectedTileLayers),
+    ]).then(([bytes, byLayer]) => {
+      if (!cancelled) {
+        setEstimatedBytes(bytes);
+        setLayerEstimates(byLayer);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [isDialogOpen, tileUrls, selectedTileLayers]);
+
+  const formatGridSize = (gridSize: number) => `${Math.round(gridSize)} m`;
+
+  const getDownloadLayersLabel = (download: OfflineDownloadRecord) => {
+    const layers =
+      download.tileLayers && download.tileLayers.length > 0
+        ? download.tileLayers
+        : [download.baseLayerName || "OpenTopoMap Proxy"];
+    return layers.join(", ");
+  };
 
   async function refreshDownloads() {
     const items = await listOfflineDownloads();
@@ -117,19 +192,90 @@ export function OfflineDownloadControl({
     };
   }, [map, onStartupReady]);
 
+  useEffect(() => {
+    setOfflineAreaSelectionActive(isDrawMode);
+    return () => setOfflineAreaSelectionActive(false);
+  }, [isDrawMode]);
+
   useMapEvents({
     moveend() {
       void syncOfflineState();
     },
+    mousedown(e) {
+      if (!isDrawMode) {
+        return;
+      }
+      e.originalEvent.preventDefault();
+      e.originalEvent.stopPropagation();
+      setDrawStart({ lat: e.latlng.lat, lng: e.latlng.lng });
+      setSelectedBounds(new LatLngBounds(e.latlng, e.latlng));
+    },
+    mousemove(e) {
+      if (!isDrawMode || drawStart === undefined) {
+        return;
+      }
+      e.originalEvent.preventDefault();
+      e.originalEvent.stopPropagation();
+      setSelectedBounds(
+        new LatLngBounds([drawStart.lat, drawStart.lng], [e.latlng.lat, e.latlng.lng]),
+      );
+    },
+    mouseup(e) {
+      if (!isDrawMode || drawStart === undefined) {
+        return;
+      }
+      e.originalEvent.preventDefault();
+      e.originalEvent.stopPropagation();
+      setSelectedBounds(
+        new LatLngBounds([drawStart.lat, drawStart.lng], [e.latlng.lat, e.latlng.lng]),
+      );
+      setDrawStart(undefined);
+      setIsDrawMode(false);
+      map.dragging.enable();
+      setIsDialogOpen(true);
+    },
   });
+
+  useEffect(() => {
+    return () => {
+      if (!map.dragging.enabled()) {
+        map.dragging.enable();
+      }
+    };
+  }, [map]);
+
+  const isCurrentSelectionCovered = downloads.some((download) =>
+    currentBoundsTuple[0] >= download.bounds[0] &&
+    currentBoundsTuple[1] >= download.bounds[1] &&
+    currentBoundsTuple[2] <= download.bounds[2] &&
+    currentBoundsTuple[3] <= download.bounds[3],
+  );
+
+  const toggleTileLayer = (layer: OfflineTileLayer, checked: boolean) => {
+    setSelectedTileLayers((prev) => {
+      if (checked) {
+        return prev.includes(layer) ? prev : [...prev, layer];
+      }
+      return prev.filter((entry) => entry !== layer);
+    });
+  };
 
   async function handleDownloadConfirm() {
     setIsDownloading(true);
     try {
+      if (swDownloadSupported && "Notification" in window && Notification.permission === "default") {
+        try {
+          await Notification.requestPermission();
+        } catch {
+          // Ignore permission prompt errors; download still works without notifications.
+        }
+      }
+
       await downloadOfflineWindow(
         currentBounds,
         settings.gridSize,
         currentZoom,
+        selectedTileLayers,
         setProgress,
       );
       await refreshDownloads();
@@ -151,6 +297,20 @@ export function OfflineDownloadControl({
       await syncOfflineState();
     } finally {
       setIsDeleting(false);
+    }
+  }
+
+  async function handleRetryDownload(downloadId: string) {
+    setIsDownloading(true);
+    try {
+      await retryFailedOfflineDownload(downloadId, setProgress);
+      await refreshDownloads();
+      await syncOfflineState();
+      setTimeout(() => {
+        setProgress(EMPTY_PROGRESS);
+      }, 2500);
+    } finally {
+      setIsDownloading(false);
     }
   }
 
@@ -182,6 +342,18 @@ export function OfflineDownloadControl({
           }}
         />
       ))}
+      {selectedBounds !== undefined && (isDialogOpen || isDrawMode) ? (
+        <Rectangle
+          bounds={selectedBounds}
+          pathOptions={{
+            color: "#f39c12",
+            weight: 2,
+            dashArray: "4,6",
+            opacity: 0.9,
+            fillOpacity: 0.06,
+          }}
+        />
+      ) : null}
       <Button
         icon={<Download />}
         text="Offline"
@@ -189,6 +361,10 @@ export function OfflineDownloadControl({
         intent="success"
         onClick={() => {
           refreshDownloads();
+          setSelectedBounds(undefined);
+          setDrawStart(undefined);
+          setIsDrawMode(false);
+          setSelectedTileLayers(["OpenTopoMap Proxy"]);
           setIsDialogOpen(true);
         }}
       />
@@ -197,22 +373,96 @@ export function OfflineDownloadControl({
         onClose={() => setIsDialogOpen(false)}
         title="Download Offline Data"
         className="offlineDialog"
+        enforceFocus={false}
       >
         <div className={Classes.DIALOG_BODY}>
           <Callout>
-            The current viewport will be stored for offline use with height maps at {settings.gridSize} m grid size, flying-site data, and map tiles (OpenTopoMap Proxy) for zoom levels {tileZoomLabel}.
+            Download an area for offline use with height maps at {formatGridSize(settings.gridSize)} grid size, flying-site data, and selected map tiles for zoom levels {tileZoomLabel}.
           </Callout>
-          {coveredDownloadId !== undefined ? (
+          <Callout intent={bgFetchSupported ? "primary" : swDownloadSupported ? "warning" : "warning"} className="offlineCoverageCallout">
+            {bgFetchSupported
+              ? "Tile downloads can continue reliably when the app is closed."
+              : "Downloads continue only while this app is open."}
+          </Callout>
+          {coveredDownloadId !== undefined && selectedBounds === undefined ? (
             <Callout intent="success" className="offlineCoverageCallout">
               The current viewport is already covered by a downloaded area.
             </Callout>
           ) : null}
-          <p>
-            Viewport: {currentBounds.getSouth().toFixed(4)}, {currentBounds.getWest().toFixed(4)} to {currentBounds.getNorth().toFixed(4)}, {currentBounds.getEast().toFixed(4)}
-          </p>
-          <p>
-            Existing downloaded windows: {downloads.length}
-          </p>
+          {isCurrentSelectionCovered ? (
+            <Callout intent="success" className="offlineCoverageCallout">
+              The selected area is already covered by a downloaded area.
+            </Callout>
+          ) : null}
+          <div className="offlineSelectionRow">
+            <Button
+              small
+              icon={isDrawMode ? <SelectionBox /> : <Draw />}
+              intent={isDrawMode ? "primary" : "none"}
+              active={isDrawMode}
+              disabled={isDownloading || isDeleting}
+              onClick={() => {
+                if (isDrawMode) {
+                  setIsDrawMode(false);
+                  setDrawStart(undefined);
+                  setIsDialogOpen(true);
+                  if (!map.dragging.enabled()) {
+                    map.dragging.enable();
+                  }
+                } else {
+                  setIsDrawMode(true);
+                  setDrawStart(undefined);
+                  setSelectedBounds(undefined);
+                  setIsDialogOpen(false);
+                  map.dragging.disable();
+                }
+              }}
+            >
+              {isDrawMode ? "Drawing…" : "Draw area on map"}
+            </Button>
+            {selectedBounds !== undefined ? (
+              <Button
+                small
+                icon={<Map />}
+                minimal
+                disabled={isDownloading || isDeleting}
+                onClick={() => {
+                  setSelectedBounds(undefined);
+                  setDrawStart(undefined);
+                }}
+              >
+                Use viewport instead
+              </Button>
+            ) : null}
+          </div>
+          <div className="offlineLayerSelection">
+            <H5>Map layers to download</H5>
+            <div className="offlineLayerSelectionGrid">
+              {OFFLINE_TILE_LAYERS.map((layer) => (
+                (() => {
+                  const estimate = layerEstimates.find((entry) => entry.layer === layer);
+                  return (
+                    <Checkbox
+                      key={layer}
+                      checked={selectedTileLayers.includes(layer)}
+                      onChange={(e) =>
+                        toggleTileLayer(layer, (e.target as HTMLInputElement).checked)
+                      }
+                      label={layer}
+                      labelElement={
+                        estimate !== undefined ? (
+                          <span className="offlineLayerLabelEstimate">
+                            {` (~${formatBytes(estimate.bytes)})`}
+                          </span>
+                        ) : undefined
+                      }
+                      disabled={isDownloading || isDeleting}
+                    />
+                  );
+                })()
+              ))}
+            </div>
+          </div>
           {downloads.length > 0 ? (
             <>
               <div className="offlineDownloadsHeaderRow">
@@ -226,11 +476,14 @@ export function OfflineDownloadControl({
                   Remove all
                 </Button>
               </div>
-              <HTMLTable condensed striped className="offlineDownloadsTable">
+              <HTMLTable compact striped className="offlineDownloadsTable">
                 <thead>
                   <tr>
+                    <th>Status</th>
                     <th>Grid</th>
+                    <th>Layers</th>
                     <th>Tiles</th>
+                    <th>Size</th>
                     <th>Sites</th>
                     <th>Actions</th>
                   </tr>
@@ -238,8 +491,17 @@ export function OfflineDownloadControl({
                 <tbody>
                   {downloads.map((download) => (
                     <tr key={download.id}>
-                      <td>{download.gridSize} m</td>
+                      <td>
+                        {(download.status ?? "complete") === "pending"
+                          ? "Pending"
+                          : (download.status ?? "complete") === "failed"
+                            ? "Failed"
+                            : "Ready"}
+                      </td>
+                      <td>{formatGridSize(download.gridSize)}</td>
+                      <td>{getDownloadLayersLabel(download)}</td>
                       <td>{download.tileCount}</td>
+                      <td>{download.totalBytes !== undefined ? formatBytes(download.totalBytes) : "—"}</td>
                       <td>{download.siteCount}</td>
                       <td className="offlineDownloadActions">
                         <Button
@@ -265,6 +527,17 @@ export function OfflineDownloadControl({
                         >
                           Delete
                         </Button>
+                        {(download.status ?? "complete") === "failed" ? (
+                          <Button
+                            small
+                            minimal
+                            intent="primary"
+                            onClick={() => handleRetryDownload(download.id)}
+                            disabled={isDownloading || isDeleting}
+                          >
+                            Retry
+                          </Button>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -287,9 +560,9 @@ export function OfflineDownloadControl({
               intent="primary"
               onClick={handleDownloadConfirm}
               loading={isDownloading}
-              disabled={!navigator.onLine || isDeleting}
+              disabled={!navigator.onLine || isDeleting || selectedTileLayers.length === 0}
             >
-              Download current viewport
+              Download selected area
             </Button>
           </div>
         </div>
