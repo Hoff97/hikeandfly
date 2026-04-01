@@ -97,11 +97,22 @@ const bgFetchTotals = new Map<string, number>();
 const bgFetchDone = new Map<string, number>();
 const bgFetchWatchdogs = new Map<string, number>();
 const bgFetchSource = new Map<string, "background-fetch" | "streaming">();
+// Tracks downloads already completed via direct result listeners so the global
+// SW backgroundfetchsuccess/fail handlers (used on SW restart) don't double-fire.
+const bgFetchCompleted = new Set<string>();
+
+type BgFetchRecord = { request: Request; responseReady: Promise<Response> };
+type BgFetchRegistrationLike = {
+  downloaded: number;
+  downloadTotal: number;
+  matchAll?: () => Promise<BgFetchRecord[]>;
+};
 
 function clearBgFetchState(downloadId: string): void {
   bgFetchTotals.delete(downloadId);
   bgFetchDone.delete(downloadId);
   bgFetchSource.delete(downloadId);
+  bgFetchCompleted.add(downloadId);
   const timerId = bgFetchWatchdogs.get(downloadId);
   if (timerId !== undefined) {
     clearTimeout(timerId);
@@ -118,6 +129,104 @@ function fromBgFetchId(id: string): string | undefined {
     return undefined;
   }
   return id.slice(BG_FETCH_PREFIX.length + 1);
+}
+
+async function getMatchedRecordCount(
+  registration: BgFetchRegistrationLike,
+): Promise<number> {
+  if (typeof registration.matchAll !== "function") {
+    return 0;
+  }
+  try {
+    const records = await registration.matchAll();
+    return records.length;
+  } catch {
+    return 0;
+  }
+}
+
+async function emitBackgroundFetchProgress(
+  downloadId: string,
+  registration: BgFetchRegistrationLike,
+): Promise<void> {
+  const total = bgFetchTotals.get(downloadId) ?? 1;
+  const bytesTotal = registration.downloadTotal;
+  const bytesDone = registration.downloaded;
+  const recordsDone = await getMatchedRecordCount(registration);
+  const byteEstimatedDone =
+    bytesTotal > 0
+      ? Math.round((total * bytesDone) / bytesTotal)
+      : (bgFetchDone.get(downloadId) ?? 0) + 1;
+  const done = Math.max(
+    0,
+    Math.min(
+      total,
+      Math.max(
+        recordsDone,
+        byteEstimatedDone,
+        bgFetchDone.get(downloadId) ?? 0,
+      ),
+    ),
+  );
+  bgFetchDone.set(downloadId, done);
+
+  await broadcastToClients({
+    type: "TILE_DOWNLOAD_PROGRESS",
+    downloadId,
+    done,
+    total,
+    totalBytes: bytesDone,
+  });
+}
+
+async function finalizeBackgroundFetchSuccess(
+  downloadId: string,
+  registration: { matchAll: () => Promise<BgFetchRecord[]> },
+): Promise<void> {
+  const cache = await caches.open(MAP_TILE_CACHE_BG);
+  const records = await registration.matchAll();
+  const expectedTotal = bgFetchTotals.get(downloadId) ?? records.length;
+
+  let totalBytes = 0;
+  let successCount = 0;
+  for (const entry of records) {
+    try {
+      const response = await entry.responseReady;
+      if (response.ok) {
+        const size = (await response.clone().blob()).size;
+        totalBytes += size;
+        successCount += 1;
+        await cache.put(entry.request.url, response.clone());
+      }
+    } catch {
+      // Failed entries are counted through successCount check below.
+    }
+  }
+
+  await broadcastToClients({
+    type: "TILE_DOWNLOAD_PROGRESS",
+    downloadId,
+    done: Math.min(expectedTotal, successCount),
+    total: expectedTotal,
+    totalBytes,
+  });
+
+  if (successCount < expectedTotal) {
+    await broadcastToClients({
+      type: "TILE_DOWNLOAD_FAILED",
+      downloadId,
+      error: `Background fetch incomplete (${successCount}/${expectedTotal} tiles succeeded)`,
+    });
+    clearBgFetchState(downloadId);
+    return;
+  }
+
+  await broadcastToClients({
+    type: "TILE_DOWNLOAD_COMPLETE",
+    downloadId,
+    totalBytes,
+  });
+  clearBgFetchState(downloadId);
 }
 
 async function broadcastToClients(msg: TileDownloadMessage): Promise<void> {
@@ -301,46 +410,97 @@ async function runBackgroundFetchDownload(
     totalBytes: 0,
   });
 
-  await reg.backgroundFetch.fetch(toBgFetchId(downloadId), urls, {
-    title: "Downloading offline map",
-    icons: [{ src: "/favicon.ico", sizes: "64x64", type: "image/x-icon" }],
-    downloadTotal: undefined,
+  const rawResult = await reg.backgroundFetch.fetch(
+    toBgFetchId(downloadId),
+    urls,
+    {
+      title: "Downloading offline map",
+      icons: [{ src: "/favicon.ico", sizes: "64x64", type: "image/x-icon" }],
+      downloadTotal: undefined,
+    },
+  );
+
+  // Attach listeners directly to the BackgroundFetchRegistration object.
+  // The global self.addEventListener("backgroundfetchsuccess" / "fail") handlers
+  // below are kept as fallback for SW-restart scenarios only.
+  const bfReg = rawResult as {
+    addEventListener: (type: string, listener: () => void) => void;
+    downloaded: number;
+    downloadTotal: number;
+    matchAll: () => Promise<
+      Array<{ request: Request; responseReady: Promise<Response> }>
+    >;
+  };
+
+  bfReg.addEventListener("progress", () => {
+    if (bgFetchSource.get(downloadId) === "streaming") return;
+
+    // First progress event confirms BF is running — cancel the stall watchdog.
+    const timerId = bgFetchWatchdogs.get(downloadId);
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+      bgFetchWatchdogs.delete(downloadId);
+    }
+
+    void emitBackgroundFetchProgress(downloadId, bfReg);
+  });
+
+  bfReg.addEventListener("fetchsuccess", () => {
+    if (bgFetchSource.get(downloadId) === "streaming") return;
+    void (async () => {
+      try {
+        await finalizeBackgroundFetchSuccess(downloadId, bfReg);
+      } catch (err) {
+        await broadcastToClients({
+          type: "TILE_DOWNLOAD_FAILED",
+          downloadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearBgFetchState(downloadId);
+      }
+    })();
+  });
+
+  bfReg.addEventListener("fetchfail", () => {
+    if (bgFetchSource.get(downloadId) === "streaming") return;
+    void broadcastToClients({
+      type: "TILE_DOWNLOAD_FAILED",
+      downloadId,
+      error: "Background fetch failed",
+    });
+    clearBgFetchState(downloadId);
   });
 }
 
+// ---------------------------------------------------------------------------
+// Global BF events – used as fallback when the SW restarts mid-download and
+// the per-registration listeners above are no longer in memory.
+// bgFetchCompleted guards against double-firing when direct listeners already
+// handled the event in the same SW lifetime.
+// ---------------------------------------------------------------------------
 self.addEventListener("backgroundfetchprogress", (event) => {
   const extendableEvent = event as ExtendableEvent;
   const bfEvent = event as Event & {
-    registration: { id: string; downloaded: number; downloadTotal: number };
+    registration: {
+      id: string;
+      downloaded: number;
+      downloadTotal: number;
+      matchAll?: () => Promise<BgFetchRecord[]>;
+    };
   };
   const downloadId = fromBgFetchId(bfEvent.registration.id);
   if (downloadId === undefined) {
+    return;
+  }
+  if (bgFetchCompleted.has(downloadId)) {
     return;
   }
   if (bgFetchSource.get(downloadId) === "streaming") {
     return;
   }
 
-  const total = bgFetchTotals.get(downloadId) ?? 1;
-  const bytesTotal = bfEvent.registration.downloadTotal;
-  const bytesDone = bfEvent.registration.downloaded;
-  const done =
-    bytesTotal > 0
-      ? Math.max(
-          0,
-          Math.min(total, Math.round((total * bytesDone) / bytesTotal)),
-        )
-      : Math.max(0, Math.min(total, (bgFetchDone.get(downloadId) ?? 0) + 1));
-  bgFetchDone.set(downloadId, done);
-
   extendableEvent.waitUntil(
-    broadcastToClients({
-      type: "TILE_DOWNLOAD_PROGRESS",
-      downloadId,
-      done,
-      total,
-      totalBytes: bytesDone,
-    }),
+    emitBackgroundFetchProgress(downloadId, bfEvent.registration),
   );
 });
 
@@ -358,30 +518,16 @@ self.addEventListener("backgroundfetchsuccess", (event) => {
   if (downloadId === undefined) {
     return;
   }
+  if (bgFetchCompleted.has(downloadId)) {
+    return;
+  }
   if (bgFetchSource.get(downloadId) === "streaming") {
     return;
   }
 
   extendableEvent.waitUntil(
     (async () => {
-      const cache = await caches.open(MAP_TILE_CACHE_BG);
-      const records = await bfEvent.registration.matchAll();
-      let totalBytes = 0;
-      for (const entry of records) {
-        const response = await entry.responseReady;
-        if (response.ok) {
-          const size = (await response.clone().blob()).size;
-          totalBytes += size;
-          await cache.put(entry.request.url, response.clone());
-        }
-      }
-
-      await broadcastToClients({
-        type: "TILE_DOWNLOAD_COMPLETE",
-        downloadId,
-        totalBytes,
-      });
-      clearBgFetchState(downloadId);
+      await finalizeBackgroundFetchSuccess(downloadId, bfEvent.registration);
     })().catch(async (err: unknown) => {
       await broadcastToClients({
         type: "TILE_DOWNLOAD_FAILED",
@@ -398,6 +544,9 @@ self.addEventListener("backgroundfetchfail", (event) => {
   const bfEvent = event as Event & { registration: { id: string } };
   const downloadId = fromBgFetchId(bfEvent.registration.id);
   if (downloadId === undefined) {
+    return;
+  }
+  if (bgFetchCompleted.has(downloadId)) {
     return;
   }
   if (bgFetchSource.get(downloadId) === "streaming") {
