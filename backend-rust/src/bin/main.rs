@@ -292,6 +292,7 @@ struct HeightMapMetaResponse {
     lon: (f32, f32),
     start_ix: GridIx,
     grid_shape: (usize, usize),
+    start_height: f32,
 }
 
 fn build_height_grid(
@@ -316,16 +317,16 @@ fn build_height_grid(
 }
 
 fn height_map_meta_from_grid(grid: &HeightGrid) -> HeightMapMetaResponse {
+    let center_row = grid.heights.shape()[0] / 2;
+    let center_col = grid.heights.shape()[1] / 2;
     HeightMapMetaResponse {
         cell_size: grid.cell_size,
         min_cell_size: grid.min_cell_size,
         lat: grid.latitudes,
         lon: grid.longitudes,
-        start_ix: (
-            (grid.heights.shape()[0] / 2) as u16,
-            (grid.heights.shape()[1] / 2) as u16,
-        ),
+        start_ix: (center_row as u16, center_col as u16),
         grid_shape: (grid.heights.shape()[0], grid.heights.shape()[1]),
+        start_height: grid.heights[(center_row, center_col)] as f32,
     }
 }
 

@@ -23,6 +23,7 @@ interface HeightMapMetaResponse {
   lon: [number, number];
   start_ix: [number, number];
   grid_shape: [number, number];
+  start_height?: number;
 }
 
 interface GeoBounds {
@@ -109,12 +110,16 @@ function getHeightAt(
   return a * 256 + b;
 }
 
-function estimateSearchMarginMeters(settings: Settings): number {
+function estimateSearchMarginMeters(
+  settings: Settings,
+  terrainHeight?: number,
+): number {
   const defaultGroundHeight = 1500;
+  const groundHeight = terrainHeight ?? defaultGroundHeight;
   const estimatedStartHeight =
     settings.startHeight !== undefined
       ? settings.startHeight
-      : defaultGroundHeight + settings.additionalHeight;
+      : groundHeight + settings.additionalHeight;
   const glideRatio = Math.max(1 / settings.glideNumber, 0.01);
   const effectiveSpeedFactor = Math.max(
     (settings.trimSpeed - settings.windSpeed) / Math.max(settings.trimSpeed, 1),
@@ -124,6 +129,11 @@ function estimateSearchMarginMeters(settings: Settings): number {
   const estimatedRange = estimatedStartHeight / effectiveGlideRatio;
 
   return Math.round(Math.max(5000, Math.min(120000, estimatedRange + 2000)));
+}
+
+function lookupTerrainHeight(map: HeightMapResponse, latLng: LatLng): number {
+  const [row, col] = toGridIndex(latLng.lat, latLng.lng, map);
+  return map.heights[row * map.grid_shape[1] + col];
 }
 
 function computeRequiredBounds(latLng: LatLng, marginM: number): GeoBounds {
@@ -224,39 +234,45 @@ function cropHeightMap(
 function getHeightMapMetaUrl(
   latLng: LatLng,
   cellSize: number,
-  marginM: number,
+  marginM?: number,
 ): URL {
   const url = new URL(window.location.origin + "/height_map_meta");
   url.searchParams.set("lat", latLng.lat.toString());
   url.searchParams.set("lon", latLng.lng.toString());
   url.searchParams.set("cell_size", cellSize.toString());
-  url.searchParams.set("margin_m", marginM.toString());
+  if (marginM !== undefined) {
+    url.searchParams.set("margin_m", marginM.toString());
+  }
   return url;
 }
 
 function getHeightMapImageUrl(
   latLng: LatLng,
   cellSize: number,
-  marginM: number,
+  marginM?: number,
 ): URL {
   const url = new URL(window.location.origin + "/height_map_image");
   url.searchParams.set("lat", latLng.lat.toString());
   url.searchParams.set("lon", latLng.lng.toString());
   url.searchParams.set("cell_size", cellSize.toString());
-  url.searchParams.set("margin_m", marginM.toString());
+  if (marginM !== undefined) {
+    url.searchParams.set("margin_m", marginM.toString());
+  }
   return url;
 }
 
 function getHeightMapJsonUrl(
   latLng: LatLng,
   cellSize: number,
-  marginM: number,
+  marginM?: number,
 ): URL {
   const url = new URL(window.location.origin + "/height_map");
   url.searchParams.set("lat", latLng.lat.toString());
   url.searchParams.set("lon", latLng.lng.toString());
   url.searchParams.set("cell_size", cellSize.toString());
-  url.searchParams.set("margin_m", marginM.toString());
+  if (marginM !== undefined) {
+    url.searchParams.set("margin_m", marginM.toString());
+  }
   return url;
 }
 
@@ -292,9 +308,9 @@ async function decodeHeightsFromImageResponse(
 async function fetchHeightMapPngWithMeta(
   latLng: LatLng,
   cellSize: number,
-  marginM: number,
+  marginM: number | undefined,
   signal: AbortSignal,
-): Promise<HeightMapResponse> {
+): Promise<{ map: HeightMapResponse; meta: HeightMapMetaResponse }> {
   const metaUrl = getHeightMapMetaUrl(latLng, cellSize, marginM);
   const imageUrl = getHeightMapImageUrl(latLng, cellSize, marginM);
 
@@ -317,20 +333,23 @@ async function fetchHeightMapPngWithMeta(
   );
 
   return {
-    cell_size: meta.cell_size,
-    min_cell_size: meta.min_cell_size,
-    lat: meta.lat,
-    lon: meta.lon,
-    start_ix: meta.start_ix,
-    grid_shape: meta.grid_shape,
-    heights,
+    map: {
+      cell_size: meta.cell_size,
+      min_cell_size: meta.min_cell_size,
+      lat: meta.lat,
+      lon: meta.lon,
+      start_ix: meta.start_ix,
+      grid_shape: meta.grid_shape,
+      heights,
+    },
+    meta,
   };
 }
 
 async function fetchHeightMapJson(
   latLng: LatLng,
   cellSize: number,
-  marginM: number,
+  marginM: number | undefined,
   signal: AbortSignal,
 ): Promise<HeightMapResponse> {
   const response = await fetch(getHeightMapJsonUrl(latLng, cellSize, marginM), {
@@ -350,15 +369,16 @@ async function getHeightMapForLocalCompute(
   settings: Settings,
   signal: AbortSignal,
 ): Promise<HeightMapResponse> {
-  const normalMargin = estimateSearchMarginMeters(settings);
-  const normalBounds = computeRequiredBounds(latLng, normalMargin);
-
   if (
     cachedLargeHeightMap !== undefined &&
-    Math.abs(cachedLargeHeightMap.cell_size - settings.gridSize) < 0.001 &&
-    mapContainsBounds(cachedLargeHeightMap, normalBounds)
+    Math.abs(cachedLargeHeightMap.cell_size - settings.gridSize) < 0.001
   ) {
-    return cropHeightMap(cachedLargeHeightMap, latLng, normalMargin);
+    const terrainHeight = lookupTerrainHeight(cachedLargeHeightMap, latLng);
+    const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
+    const requiredBounds = computeRequiredBounds(latLng, requiredMargin);
+    if (mapContainsBounds(cachedLargeHeightMap, requiredBounds)) {
+      return cropHeightMap(cachedLargeHeightMap, latLng, requiredMargin);
+    }
   }
 
   const storedHeightMap = await findStoredHeightMap(
@@ -367,17 +387,38 @@ async function getHeightMapForLocalCompute(
     settings.gridSize,
   );
   if (storedHeightMap !== undefined) {
-    return cropHeightMap(storedHeightMap, latLng, normalMargin);
+    const terrainHeight = lookupTerrainHeight(storedHeightMap, latLng);
+    const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
+    return cropHeightMap(storedHeightMap, latLng, requiredMargin);
   }
 
-  const largeMargin = normalMargin * 2;
+  // Let the backend choose a sufficiently large initial margin and report start height.
   try {
-    cachedLargeHeightMap = await fetchHeightMapPngWithMeta(
+    const initial = await fetchHeightMapPngWithMeta(
       latLng,
       settings.gridSize,
-      largeMargin,
+      undefined,
       signal,
     );
+    const terrainHeight =
+      initial.meta.start_height ?? lookupTerrainHeight(initial.map, latLng);
+    const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
+    const requiredBounds = computeRequiredBounds(latLng, requiredMargin);
+
+    if (mapContainsBounds(initial.map, requiredBounds)) {
+      cachedLargeHeightMap = initial.map;
+      return cropHeightMap(initial.map, latLng, requiredMargin);
+    }
+
+    cachedLargeHeightMap = (
+      await fetchHeightMapPngWithMeta(
+        latLng,
+        settings.gridSize,
+        requiredMargin,
+        signal,
+      )
+    ).map;
+    return cropHeightMap(cachedLargeHeightMap, latLng, requiredMargin);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -386,12 +427,24 @@ async function getHeightMapForLocalCompute(
     cachedLargeHeightMap = await fetchHeightMapJson(
       latLng,
       settings.gridSize,
-      largeMargin,
+      undefined,
       signal,
     );
-  }
+    const terrainHeight = lookupTerrainHeight(cachedLargeHeightMap, latLng);
+    const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
+    const requiredBounds = computeRequiredBounds(latLng, requiredMargin);
 
-  return cropHeightMap(cachedLargeHeightMap, latLng, normalMargin);
+    if (!mapContainsBounds(cachedLargeHeightMap, requiredBounds)) {
+      cachedLargeHeightMap = await fetchHeightMapJson(
+        latLng,
+        settings.gridSize,
+        requiredMargin,
+        signal,
+      );
+    }
+
+    return cropHeightMap(cachedLargeHeightMap, latLng, requiredMargin);
+  }
 }
 
 function createAglImageData(
