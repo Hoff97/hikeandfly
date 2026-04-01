@@ -81,14 +81,14 @@ if (navigationHandler !== undefined) {
   registerRoute(
     new NavigationRoute(navigationHandler, {
       denylist: [
-        /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map|agl_image|height_image|kml|search_ws|flying_sites|opentopomap|stats)/,
+        /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map|agl_image|height_image|kml|search_ws|flying_sites|opentopomap|openstreetmap|satellite|stats)/,
       ],
     }),
   );
 }
 
 const API_PATH_PATTERN =
-  /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map|agl_image|height_image|kml|search_ws|flying_sites|opentopomap|stats)/;
+  /^\/(flight_cone|flight_cone_ws|flight_cone_bounds|raw_height_image|height_map|agl_image|height_image|kml|search_ws|flying_sites|opentopomap|openstreetmap|satellite|stats)/;
 
 function isRuntimeDependencyRequest(request: Request, url: URL): boolean {
   if (url.origin !== self.location.origin) {
@@ -165,15 +165,19 @@ self.addEventListener("fetch", (event) => {
 
 const MAP_TILE_CACHE = "map-tiles";
 
-// Only intercept same-origin proxy tile requests (/opentopomap/...).
-// Cross-origin tile providers (opentopomap.org, openstreetmap.org, arcgis)
-// use no-cors mode which produces opaque responses that browsers like Firefox
-// refuse to serve offline. Limiting to the same-origin proxy avoids this.
+// Only intercept same-origin proxy tile requests.
+// Cross-origin tile providers use no-cors mode which produces opaque responses
+// that browsers like Firefox refuse to serve offline. Limiting to same-origin
+// proxy endpoints avoids this.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (
     url.origin !== self.location.origin ||
-    !url.pathname.startsWith("/opentopomap/")
+    !(
+      url.pathname.startsWith("/opentopomap/") ||
+      url.pathname.startsWith("/openstreetmap/") ||
+      url.pathname.startsWith("/satellite/")
+    )
   ) {
     return;
   }

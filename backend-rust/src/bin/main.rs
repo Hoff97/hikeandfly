@@ -1322,6 +1322,40 @@ async fn get_tile(s: String, z: u8, x: u32, y: u32) -> Result<(ContentType, Vec<
     }
 }
 
+async fn get_cached_proxy_tile(
+    provider: &str,
+    z: u8,
+    x: u32,
+    y: u32,
+    extension: &str,
+    upstream_url: String,
+    content_type: ContentType,
+) -> Result<(ContentType, Vec<u8>), Status> {
+    let path = format!("data/tiles_{provider}/{z}/{x}/{y}.{extension}");
+    if let Some(bytes) = load_png_from_disk(path.clone()) {
+        return Result::Ok((content_type, bytes));
+    }
+
+    let response = reqwest_client()
+        .get(&upstream_url)
+        .send()
+        .await
+        .map_err(|e| {
+            println!("{e}");
+            Status::InternalServerError
+        })?;
+    let bytes = response.bytes().await.map_err(|e| {
+        println!("{e}");
+        Status::InternalServerError
+    })?;
+
+    fs::create_dir_all(format!("data/tiles_{provider}/{z}/{x}"))
+        .map_err(|_| Status::InternalServerError)?;
+    fs::write(&path, &bytes).map_err(|_| Status::InternalServerError)?;
+
+    Result::Ok((content_type, bytes.to_vec()))
+}
+
 #[get("/opentopomap/<s>/<z>/<x>/<y_p>")]
 async fn get_opentopomap_tile(
     s: String,
@@ -1332,6 +1366,27 @@ async fn get_opentopomap_tile(
     let y: u32 = y_p.split(".").next().unwrap().parse().unwrap();
 
     get_tile(s, z, x, y).await
+}
+
+#[get("/openstreetmap/<s>/<z>/<x>/<y_p>")]
+async fn get_openstreetmap_tile(
+    s: String,
+    z: u8,
+    x: u32,
+    y_p: String,
+) -> Result<(ContentType, Vec<u8>), Status> {
+    let y: u32 = y_p.split(".").next().unwrap().parse().unwrap();
+    let url = format!("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
+    get_cached_proxy_tile("openstreetmap", z, x, y, "png", url, ContentType::PNG).await
+}
+
+#[get("/satellite/<z>/<y>/<x_p>")]
+async fn get_satellite_tile(z: u8, y: u32, x_p: String) -> Result<(ContentType, Vec<u8>), Status> {
+    let x: u32 = x_p.split(".").next().unwrap().parse().unwrap();
+    let url = format!(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    );
+    get_cached_proxy_tile("satellite", z, x, y, "jpg", url, ContentType::JPEG).await
 }
 
 #[derive(Serialize)]
@@ -1397,6 +1452,8 @@ fn rocket() -> _ {
         .mount("/", routes![get_height_image])
         .mount("/", routes![get_kml])
         .mount("/", routes![get_opentopomap_tile])
+        .mount("/", routes![get_openstreetmap_tile])
+        .mount("/", routes![get_satellite_tile])
         .mount("/", routes![get_stats])
         .mount("/", routes![get_height_map])
         .mount("/", routes![get_height_map_meta])

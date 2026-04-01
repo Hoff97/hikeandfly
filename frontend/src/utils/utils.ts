@@ -1028,7 +1028,13 @@ export async function doSearchFromLocation(
       alert("Location not yet supported!");
       return;
     }
-    throw error;
+    console.error("Search failed", error);
+    grid.loading = "done";
+    setGrid({ ...grid, loading: "done" });
+    alert(
+      "Failed to load glide area for this location. If you're using offline data, ensure the area is fully downloaded.",
+    );
+    return;
   }
 }
 

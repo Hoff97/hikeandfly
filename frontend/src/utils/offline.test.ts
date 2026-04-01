@@ -40,4 +40,17 @@ describe("offline tile coverage", () => {
       true,
     );
   });
+
+  it("generates proxy URLs for all selected layers", () => {
+    const bounds = new LatLngBounds([-1, -1], [1, 1]);
+    const urls = buildTileUrlsForBounds(
+      bounds,
+      [2],
+      ["OpenTopoMap Proxy", "OpenStreetMap", "Satellite"],
+    );
+
+    expect(urls.some((url) => url.includes("/opentopomap/"))).toBe(true);
+    expect(urls.some((url) => url.includes("/openstreetmap/"))).toBe(true);
+    expect(urls.some((url) => url.includes("/satellite/"))).toBe(true);
+  });
 });

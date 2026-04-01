@@ -5,6 +5,7 @@ import { GridState, ImageState, PathAndNode, SetSettings, Settings } from "../ut
 import { Grid } from "./Grid";
 import { StartMarker } from "./StartMarker";
 import { useEffect } from "react";
+import { isOfflineAreaSelectionActive } from "../utils/offline";
 
 interface SearchComponentProps {
     setImageState: (state: ImageState | undefined) => void;
@@ -24,6 +25,9 @@ function abortableClassList(e: any) {
 }
 
 function abortEvent(e: LeafletMouseEvent) {
+    if (isOfflineAreaSelectionActive()) {
+        return true;
+    }
     return abortableClassList(e.originalEvent.target) ||
         ("parentElement" in (e.originalEvent.target as any) && abortableClassList((e.originalEvent.target as any).parentElement));
 }

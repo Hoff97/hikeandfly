@@ -10,6 +10,17 @@ const FLYING_SITES_STORE = "flyingSites";
 
 export const MAP_TILE_CACHE_NAME = "map-tiles";
 
+export type OfflineTileLayer =
+  | "OpenTopoMap Proxy"
+  | "OpenStreetMap"
+  | "Satellite";
+
+export const OFFLINE_TILE_LAYERS: OfflineTileLayer[] = [
+  "OpenTopoMap Proxy",
+  "OpenStreetMap",
+  "Satellite",
+];
+
 export type BoundsTuple = [number, number, number, number];
 
 export interface OfflineDownloadRecord {
@@ -19,6 +30,7 @@ export interface OfflineDownloadRecord {
   bounds: BoundsTuple;
   gridSize: number;
   baseLayerName: string;
+  tileLayers?: OfflineTileLayer[];
   tileZooms: number[];
   tileCount: number;
   siteCount: number;
@@ -55,6 +67,16 @@ interface HeightMapMetaResponse {
   lon: [number, number];
   start_ix: [number, number];
   grid_shape: [number, number];
+}
+
+let offlineAreaSelectionActive = false;
+
+export function setOfflineAreaSelectionActive(active: boolean): void {
+  offlineAreaSelectionActive = active;
+}
+
+export function isOfflineAreaSelectionActive(): boolean {
+  return offlineAreaSelectionActive;
 }
 
 function promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
@@ -164,11 +186,22 @@ function clampTileY(y: number, zoom: number): number {
   return Math.max(0, Math.min(max, y));
 }
 
-// Only the same-origin proxy layer is supported for offline tile caching.
+// Use same-origin proxy tile endpoints for all offline-cached layers.
 // Cross-origin tile providers return opaque (no-cors) responses which
 // Firefox and some other browsers refuse to serve from a service worker
 // while offline.
-function tileProxyUrl(zoom: number, x: number, y: number): string {
+function tileProxyUrl(
+  layer: OfflineTileLayer,
+  zoom: number,
+  x: number,
+  y: number,
+): string {
+  if (layer === "OpenStreetMap") {
+    return `${window.location.origin}/openstreetmap/${getSubdomain(x, y)}/${zoom}/${x}/${y}.png`;
+  }
+  if (layer === "Satellite") {
+    return `${window.location.origin}/satellite/${zoom}/${y}/${x}.jpg`;
+  }
   return `${window.location.origin}/opentopomap/${getSubdomain(x, y)}/${zoom}/${x}/${y}.png`;
 }
 
@@ -205,6 +238,7 @@ function buildTileRange(
 export function buildTileUrlsForBounds(
   bounds: LatLngBounds,
   zoomLevels: number[],
+  tileLayers: OfflineTileLayer[] = ["OpenTopoMap Proxy"],
 ): string[] {
   const urls = new Set<string>();
   for (const zoom of zoomLevels) {
@@ -212,7 +246,9 @@ export function buildTileUrlsForBounds(
 
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
-        urls.add(tileProxyUrl(zoom, x, y));
+        for (const layer of tileLayers) {
+          urls.add(tileProxyUrl(layer, zoom, x, y));
+        }
       }
     }
   }
@@ -220,7 +256,11 @@ export function buildTileUrlsForBounds(
 }
 
 function buildTileUrlsForRecord(record: OfflineDownloadRecord): string[] {
-  return buildTileUrlsForBounds(tupleToBounds(record.bounds), record.tileZooms);
+  return buildTileUrlsForBounds(
+    tupleToBounds(record.bounds),
+    record.tileZooms,
+    record.tileLayers ?? ["OpenTopoMap Proxy"],
+  );
 }
 
 async function decodeHeightMapFromBlob(
@@ -278,47 +318,79 @@ function computeViewportMarginMeters(bounds: LatLngBounds): number {
   return Math.ceil(Math.max(latHalfSpanMeters, lonHalfSpanMeters));
 }
 
+function mapCoversBounds(
+  map: HeightMapResponse,
+  bounds: LatLngBounds,
+): boolean {
+  const latMin = Math.min(map.lat[0], map.lat[1]);
+  const latMax = Math.max(map.lat[0], map.lat[1]);
+  const lonMin = Math.min(map.lon[0], map.lon[1]);
+  const lonMax = Math.max(map.lon[0], map.lon[1]);
+
+  return (
+    bounds.getSouth() >= latMin &&
+    bounds.getNorth() <= latMax &&
+    bounds.getWest() >= lonMin &&
+    bounds.getEast() <= lonMax
+  );
+}
+
 async function fetchHeightMapForBounds(
   bounds: LatLngBounds,
   gridSize: number,
 ): Promise<HeightMapResponse> {
   const center = bounds.getCenter();
-  const marginMeters = computeViewportMarginMeters(bounds);
+  // Include a small buffer to avoid off-by-one/grid rounding misses at bounds edges.
+  let marginMeters =
+    computeViewportMarginMeters(bounds) +
+    Math.max(500, Math.round(gridSize * 8));
 
-  const metaUrl = new URL(window.location.origin + "/height_map_meta");
-  metaUrl.search = new URLSearchParams({
-    lat: center.lat.toString(),
-    lon: center.lng.toString(),
-    cell_size: gridSize.toString(),
-    margin_m: marginMeters.toString(),
-  }).toString();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const metaUrl = new URL(window.location.origin + "/height_map_meta");
+    metaUrl.search = new URLSearchParams({
+      lat: center.lat.toString(),
+      lon: center.lng.toString(),
+      cell_size: gridSize.toString(),
+      margin_m: marginMeters.toString(),
+    }).toString();
 
-  const imageUrl = new URL(window.location.origin + "/height_map_image");
-  imageUrl.search = metaUrl.search;
+    const imageUrl = new URL(window.location.origin + "/height_map_image");
+    imageUrl.search = metaUrl.search;
 
-  const [metaResponse, imageResponse] = await Promise.all([
-    fetch(metaUrl),
-    fetch(imageUrl),
-  ]);
-  if (!metaResponse.ok || !imageResponse.ok) {
-    throw new Error("Failed to download height map data");
+    const [metaResponse, imageResponse] = await Promise.all([
+      fetch(metaUrl),
+      fetch(imageUrl),
+    ]);
+    if (!metaResponse.ok || !imageResponse.ok) {
+      throw new Error("Failed to download height map data");
+    }
+
+    const meta = (await metaResponse.json()) as HeightMapMetaResponse;
+    const heights = await decodeHeightMapFromBlob(
+      await imageResponse.blob(),
+      meta.grid_shape,
+    );
+
+    const map: HeightMapResponse = {
+      cell_size: meta.cell_size,
+      min_cell_size: meta.min_cell_size,
+      lat: meta.lat,
+      lon: meta.lon,
+      start_ix: meta.start_ix,
+      grid_shape: meta.grid_shape,
+      heights,
+    };
+
+    if (mapCoversBounds(map, bounds)) {
+      return map;
+    }
+
+    marginMeters = Math.round(
+      marginMeters * 1.35 + Math.max(500, gridSize * 6),
+    );
   }
 
-  const meta = (await metaResponse.json()) as HeightMapMetaResponse;
-  const heights = await decodeHeightMapFromBlob(
-    await imageResponse.blob(),
-    meta.grid_shape,
-  );
-
-  return {
-    cell_size: meta.cell_size,
-    min_cell_size: meta.min_cell_size,
-    lat: meta.lat,
-    lon: meta.lon,
-    start_ix: meta.start_ix,
-    grid_shape: meta.grid_shape,
-    heights,
-  };
+  throw new Error("Downloaded height map does not fully cover selected area");
 }
 
 async function fetchFlyingSitesForBounds(
@@ -347,8 +419,8 @@ async function cacheTileUrl(cache: Cache, url: string): Promise<void> {
   if (cached !== undefined) {
     return;
   }
-  // Cross-origin tiles must be fetched no-cors; same-origin proxy tiles can
-  // use the plain string which defaults to GET with credentials.
+  // All supported offline tile URLs are same-origin proxy URLs.
+  // Keep a no-cors fallback path for any future cross-origin additions.
   const fetchReq = url.startsWith(window.location.origin)
     ? url
     : new Request(url, { mode: "no-cors" });
@@ -356,6 +428,37 @@ async function cacheTileUrl(cache: Cache, url: string): Promise<void> {
   if (response.ok || response.type === "opaque") {
     await cache.put(url, response.clone());
   }
+}
+
+async function cacheTileUrlsConcurrently(
+  cache: Cache,
+  urls: string[],
+  concurrency: number,
+  onStored: (done: number, total: number) => void,
+): Promise<void> {
+  if (urls.length === 0) {
+    return;
+  }
+
+  const workerCount = Math.max(1, Math.min(concurrency, urls.length));
+  let nextIndex = 0;
+  let done = 0;
+
+  const runWorker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= urls.length) {
+        return;
+      }
+
+      await cacheTileUrl(cache, urls[index]);
+      done += 1;
+      onStored(done, urls.length);
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
 }
 
 async function verifyTileUrlsCached(
@@ -415,13 +518,20 @@ export async function findStoredHeightMap(
   const matches = maps
     .filter(
       (entry) =>
-        entry.gridSize === gridSize &&
+        Math.abs(entry.gridSize - gridSize) <= Math.max(1, gridSize * 0.03) &&
         lat >= entry.bounds[0] &&
         lat <= entry.bounds[2] &&
         lon >= entry.bounds[1] &&
         lon <= entry.bounds[3],
     )
-    .sort((a, b) => area(a.bounds) - area(b.bounds));
+    .sort((a, b) => {
+      const gridDiff =
+        Math.abs(a.gridSize - gridSize) - Math.abs(b.gridSize - gridSize);
+      if (Math.abs(gridDiff) > 0.001) {
+        return gridDiff;
+      }
+      return area(a.bounds) - area(b.bounds);
+    });
 
   return matches[0]?.map;
 }
@@ -489,11 +599,14 @@ export async function downloadOfflineWindow(
   bounds: LatLngBounds,
   gridSize: number,
   currentZoom: number,
+  tileLayers: OfflineTileLayer[],
   onProgress: (progress: OfflineDownloadProgress) => void,
 ): Promise<void> {
   const downloadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tileZooms = buildTileZoomLevels(currentZoom);
-  const tileUrls = buildTileUrlsForBounds(bounds, tileZooms);
+  const selectedLayers: OfflineTileLayer[] =
+    tileLayers.length > 0 ? tileLayers : ["OpenTopoMap Proxy"];
+  const tileUrls = buildTileUrlsForBounds(bounds, tileZooms, selectedLayers);
   const totalSteps = tileUrls.length + 3;
   let completed = 0;
 
@@ -522,10 +635,18 @@ export async function downloadOfflineWindow(
   advance("Flying sites stored");
 
   const tileCache = await caches.open(MAP_TILE_CACHE_NAME);
-  for (const url of tileUrls) {
-    await cacheTileUrl(tileCache, url);
-    advance(`Tiles stored (${completed - 2}/${tileUrls.length})`);
-  }
+  const tileDownloadConcurrency = Math.min(
+    16,
+    Math.max(4, navigator.hardwareConcurrency ?? 8),
+  );
+  await cacheTileUrlsConcurrently(
+    tileCache,
+    tileUrls,
+    tileDownloadConcurrency,
+    (done, total) => {
+      advance(`Tiles stored (${done}/${total})`);
+    },
+  );
   const missingTiles = await verifyTileUrlsCached(tileCache, tileUrls);
   if (missingTiles > 0) {
     console.warn(
@@ -539,7 +660,8 @@ export async function downloadOfflineWindow(
     createdAt: Date.now(),
     bounds: boundsToTuple(bounds),
     gridSize,
-    baseLayerName: "OpenTopoMap Proxy",
+    baseLayerName: selectedLayers[0],
+    tileLayers: selectedLayers,
     tileZooms,
     tileCount: tileUrls.length,
     siteCount: flyingSites.length,
