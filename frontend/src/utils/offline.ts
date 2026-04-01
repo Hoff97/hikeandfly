@@ -34,6 +34,17 @@ export interface OfflineDownloadRecord {
   tileZooms: number[];
   tileCount: number;
   siteCount: number;
+  status?: "pending" | "complete" | "failed";
+  lastError?: string;
+  updatedAt?: number;
+  /** Total bytes stored (tiles only). Undefined for records created before this field was added. */
+  totalBytes?: number;
+}
+
+export interface LayerEstimate {
+  layer: OfflineTileLayer;
+  tileCount: number;
+  bytes: number;
 }
 
 interface StoredHeightMapRecord {
@@ -414,10 +425,11 @@ async function fetchFlyingSitesForBounds(
 
 // Use plain URL string as cache key so the service worker's
 // cache.match(event.request.url) lookup finds the same entry.
-async function cacheTileUrl(cache: Cache, url: string): Promise<void> {
+// Returns the number of bytes stored (0 if already cached or on error).
+async function cacheTileUrl(cache: Cache, url: string): Promise<number> {
   const cached = await cache.match(url);
   if (cached !== undefined) {
-    return;
+    return 0;
   }
   // All supported offline tile URLs are same-origin proxy URLs.
   // Keep a no-cors fallback path for any future cross-origin additions.
@@ -426,23 +438,28 @@ async function cacheTileUrl(cache: Cache, url: string): Promise<void> {
     : new Request(url, { mode: "no-cors" });
   const response = await fetch(fetchReq);
   if (response.ok || response.type === "opaque") {
+    const blob = await response.clone().blob();
     await cache.put(url, response.clone());
+    return blob.size;
   }
+  return 0;
 }
 
+// Returns total bytes stored across all tiles.
 async function cacheTileUrlsConcurrently(
   cache: Cache,
   urls: string[],
   concurrency: number,
   onStored: (done: number, total: number) => void,
-): Promise<void> {
+): Promise<number> {
   if (urls.length === 0) {
-    return;
+    return 0;
   }
 
   const workerCount = Math.max(1, Math.min(concurrency, urls.length));
   let nextIndex = 0;
   let done = 0;
+  let totalBytes = 0;
 
   const runWorker = async () => {
     while (true) {
@@ -452,13 +469,15 @@ async function cacheTileUrlsConcurrently(
         return;
       }
 
-      await cacheTileUrl(cache, urls[index]);
+      const bytes = await cacheTileUrl(cache, urls[index]);
       done += 1;
+      totalBytes += bytes;
       onStored(done, urls.length);
     }
   };
 
   await Promise.all(Array.from({ length: workerCount }, runWorker));
+  return totalBytes;
 }
 
 async function verifyTileUrlsCached(
@@ -475,6 +494,114 @@ async function verifyTileUrlsCached(
   return missing;
 }
 
+// ---------------------------------------------------------------------------
+// Tile size estimation
+// ---------------------------------------------------------------------------
+
+// Fallback average tile sizes in bytes, derived from typical Alpine tiles.
+// Used when the network sample cannot be obtained.
+const FALLBACK_TILE_BYTES: Record<OfflineTileLayer, number> = {
+  "OpenTopoMap Proxy": 18_000,
+  OpenStreetMap: 14_000,
+  Satellite: 35_000,
+};
+
+// Per-session cache of sampled average bytes per tile per layer.
+const sampledTileBytes: Partial<Record<OfflineTileLayer, number>> = {};
+
+// Sample tiles near the Alps center (lat≈47, lon≈11) to measure actual byte sizes.
+// We fetch 3 tiles per layer at zoom 13 and return their average size.
+async function sampleLayerTileSize(layer: OfflineTileLayer): Promise<number> {
+  if (sampledTileBytes[layer] !== undefined) {
+    return sampledTileBytes[layer]!;
+  }
+
+  // Alps sample tiles at zoom 13 (x=4315,4316,4317 y=2856)
+  const sampleTiles = [
+    tileProxyUrl(layer, 13, 4315, 2856),
+    tileProxyUrl(layer, 13, 4316, 2856),
+    tileProxyUrl(layer, 15, 17260, 11427),
+  ];
+
+  const sizes: number[] = [];
+  await Promise.all(
+    sampleTiles.map(async (url) => {
+      try {
+        // Check if already in cache first to avoid an extra network request.
+        const tileCache = await caches.open(MAP_TILE_CACHE_NAME);
+        const cached = await tileCache.match(url);
+        const resp = cached ?? (await fetch(url));
+        if (resp.ok) {
+          const blob = await resp.blob();
+          sizes.push(blob.size);
+        }
+      } catch {
+        // Network error — skip this sample.
+      }
+    }),
+  );
+
+  const avg =
+    sizes.length > 0
+      ? sizes.reduce((a, b) => a + b, 0) / sizes.length
+      : FALLBACK_TILE_BYTES[layer];
+  sampledTileBytes[layer] = avg;
+  return avg;
+}
+
+export async function estimateDownloadBytes(
+  tileUrls: string[],
+  tileLayers: OfflineTileLayer[],
+): Promise<number> {
+  if (tileLayers.length === 0 || tileUrls.length === 0) {
+    return 0;
+  }
+  const tilesPerLayer = tileUrls.length / tileLayers.length;
+  const layerAverages = await Promise.all(
+    tileLayers.map(async (layer) => {
+      const avg = await sampleLayerTileSize(layer).catch(
+        () => FALLBACK_TILE_BYTES[layer],
+      );
+      return tilesPerLayer * avg;
+    }),
+  );
+  return layerAverages.reduce((a, b) => a + b, 0);
+}
+
+export async function estimateDownloadByLayer(
+  tileUrls: string[],
+  tileLayers: OfflineTileLayer[],
+): Promise<LayerEstimate[]> {
+  if (tileLayers.length === 0 || tileUrls.length === 0) {
+    return [];
+  }
+
+  const tilesPerLayer = Math.floor(tileUrls.length / tileLayers.length);
+  const estimates = await Promise.all(
+    tileLayers.map(async (layer) => {
+      const avg = await sampleLayerTileSize(layer).catch(
+        () => FALLBACK_TILE_BYTES[layer],
+      );
+      return {
+        layer,
+        tileCount: tilesPerLayer,
+        bytes: tilesPerLayer * avg,
+      } satisfies LayerEstimate;
+    }),
+  );
+  return estimates;
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1_000) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1_000_000) {
+    return `${(bytes / 1_000).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
 export async function requestPersistentStorage(): Promise<boolean> {
   if (
     !("storage" in navigator) ||
@@ -486,9 +613,83 @@ export async function requestPersistentStorage(): Promise<boolean> {
 }
 
 export async function listOfflineDownloads(): Promise<OfflineDownloadRecord[]> {
+  await reconcilePendingOfflineDownloads();
   return withStore(DOWNLOADS_STORE, "readonly", async (store) => {
     return (await promisifyRequest(store.getAll())) as OfflineDownloadRecord[];
   });
+}
+
+async function putDownloadRecord(record: OfflineDownloadRecord): Promise<void> {
+  await withStore(DOWNLOADS_STORE, "readwrite", async (store) => {
+    await promisifyRequest(store.put(record));
+    return undefined;
+  });
+}
+
+async function getDownloadRecord(
+  downloadId: string,
+): Promise<OfflineDownloadRecord | undefined> {
+  return withStore(DOWNLOADS_STORE, "readonly", async (store) => {
+    return (await promisifyRequest(store.get(downloadId))) as
+      | OfflineDownloadRecord
+      | undefined;
+  });
+}
+
+async function countCachedTileUrls(urls: string[]): Promise<number> {
+  if (urls.length === 0) return 0;
+  const cache = await caches.open(MAP_TILE_CACHE_NAME);
+  let present = 0;
+  for (const url of urls) {
+    if ((await cache.match(url)) !== undefined) {
+      present += 1;
+    }
+  }
+  return present;
+}
+
+export async function reconcilePendingOfflineDownloads(): Promise<void> {
+  const downloads = await withStore(
+    DOWNLOADS_STORE,
+    "readonly",
+    async (store) => {
+      return (await promisifyRequest(
+        store.getAll(),
+      )) as OfflineDownloadRecord[];
+    },
+  );
+  const pending = downloads.filter(
+    (d) => (d.status ?? "complete") === "pending",
+  );
+  if (pending.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  for (const entry of pending) {
+    const urls = buildTileUrlsForRecord(entry);
+    const cached = await countCachedTileUrls(urls);
+    if (cached >= urls.length) {
+      await putDownloadRecord({
+        ...entry,
+        status: "complete",
+        updatedAt: now,
+        lastError: undefined,
+      });
+      continue;
+    }
+
+    // If a pending download is stale for > 10 minutes and still incomplete,
+    // classify it as failed so users can trigger retry/resume.
+    if (now - (entry.updatedAt ?? entry.createdAt) > 10 * 60 * 1000) {
+      await putDownloadRecord({
+        ...entry,
+        status: "failed",
+        updatedAt: now,
+        lastError: "Background tile download timed out before completion",
+      });
+    }
+  }
 }
 
 export async function getOfflineDownloadForBounds(
@@ -595,6 +796,130 @@ export async function getOfflineFlyingSites(
   return Array.from(merged.values());
 }
 
+// ---------------------------------------------------------------------------
+// Service-worker-based tile download
+// ---------------------------------------------------------------------------
+// Dispatches tile downloading to the service worker so it continues even when
+// the page is closed. Falls back to in-page concurrent download if the SW is
+// not available.
+
+export function isServiceWorkerDownloadSupported(): boolean {
+  return (
+    "serviceWorker" in navigator && navigator.serviceWorker.controller !== null
+  );
+}
+
+export async function isBackgroundFetchSupported(): Promise<boolean> {
+  if (!("serviceWorker" in navigator)) {
+    return false;
+  }
+  const registration = await navigator.serviceWorker.ready;
+  const bgFetchCandidate = (
+    registration as ServiceWorkerRegistration & {
+      backgroundFetch?: {
+        fetch?: unknown;
+        getIds?: unknown;
+      };
+    }
+  ).backgroundFetch;
+
+  if (bgFetchCandidate === undefined) {
+    return false;
+  }
+
+  if (
+    typeof bgFetchCandidate.fetch !== "function" ||
+    typeof bgFetchCandidate.getIds !== "function"
+  ) {
+    return false;
+  }
+
+  // Probe capability: some browsers expose stubs but reject all BF usage.
+  try {
+    await bgFetchCandidate.getIds();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Download tiles via the service worker. Returns total bytes stored.
+ * Fires onProgress with (done, total, totalBytes) as tiles are cached.
+ * Falls back to in-page download when SW is unavailable.
+ */
+async function downloadTilesViaSw(
+  downloadId: string,
+  urls: string[],
+  onProgress: (done: number, total: number, totalBytes: number) => void,
+): Promise<number> {
+  if (!isServiceWorkerDownloadSupported()) {
+    // Fallback: download in page
+    const tileCache = await caches.open(MAP_TILE_CACHE_NAME);
+    const concurrency = Math.min(
+      16,
+      Math.max(4, navigator.hardwareConcurrency ?? 8),
+    );
+    let runningBytes = 0;
+    const result = await cacheTileUrlsConcurrently(
+      tileCache,
+      urls,
+      concurrency,
+      (done, tot) => {
+        onProgress(done, tot, runningBytes);
+      },
+    );
+    return result;
+  }
+
+  const sw = navigator.serviceWorker.controller!;
+  const concurrency = Math.min(
+    16,
+    Math.max(4, navigator.hardwareConcurrency ?? 8),
+  );
+  const backgroundFetchAvailable = await isBackgroundFetchSupported().catch(
+    () => false,
+  );
+
+  return new Promise<number>((resolve, reject) => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data as {
+        type: string;
+        downloadId: string;
+        done?: number;
+        total?: number;
+        totalBytes?: number;
+        error?: string;
+      };
+      if (!data || data.downloadId !== downloadId) return;
+
+      if (data.type === "TILE_DOWNLOAD_PROGRESS") {
+        onProgress(
+          data.done ?? 0,
+          data.total ?? urls.length,
+          data.totalBytes ?? 0,
+        );
+      } else if (data.type === "TILE_DOWNLOAD_COMPLETE") {
+        navigator.serviceWorker.removeEventListener("message", handler);
+        resolve(data.totalBytes ?? 0);
+      } else if (data.type === "TILE_DOWNLOAD_FAILED") {
+        navigator.serviceWorker.removeEventListener("message", handler);
+        reject(new Error(data.error ?? "SW download failed"));
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", handler);
+
+    sw.postMessage({
+      type: "START_TILE_DOWNLOAD",
+      downloadId,
+      urls,
+      concurrency,
+      useBackgroundFetch: backgroundFetchAvailable,
+    });
+  });
+}
+
 export async function downloadOfflineWindow(
   bounds: LatLngBounds,
   gridSize: number,
@@ -609,6 +934,22 @@ export async function downloadOfflineWindow(
   const tileUrls = buildTileUrlsForBounds(bounds, tileZooms, selectedLayers);
   const totalSteps = tileUrls.length + 3;
   let completed = 0;
+
+  const pendingRecord: OfflineDownloadRecord = {
+    id: downloadId,
+    name: `Window ${new Date().toLocaleString()}`,
+    createdAt: Date.now(),
+    bounds: boundsToTuple(bounds),
+    gridSize,
+    baseLayerName: selectedLayers[0],
+    tileLayers: selectedLayers,
+    tileZooms,
+    tileCount: tileUrls.length,
+    siteCount: 0,
+    status: "pending",
+    updatedAt: Date.now(),
+  };
+  await putDownloadRecord(pendingRecord);
 
   const advance = (label: string) => {
     completed += 1;
@@ -628,79 +969,75 @@ export async function downloadOfflineWindow(
   });
   await requestPersistentStorage();
 
-  const heightMap = await fetchHeightMapForBounds(bounds, gridSize);
-  advance("Height map stored");
+  try {
+    const heightMap = await fetchHeightMapForBounds(bounds, gridSize);
+    advance("Height map stored");
 
-  const flyingSites = await fetchFlyingSitesForBounds(bounds);
-  advance("Flying sites stored");
+    const flyingSites = await fetchFlyingSitesForBounds(bounds);
+    advance("Flying sites stored");
 
-  const tileCache = await caches.open(MAP_TILE_CACHE_NAME);
-  const tileDownloadConcurrency = Math.min(
-    16,
-    Math.max(4, navigator.hardwareConcurrency ?? 8),
-  );
-  await cacheTileUrlsConcurrently(
-    tileCache,
-    tileUrls,
-    tileDownloadConcurrency,
-    (done, total) => {
-      advance(`Tiles stored (${done}/${total})`);
-    },
-  );
-  const missingTiles = await verifyTileUrlsCached(tileCache, tileUrls);
-  if (missingTiles > 0) {
-    console.warn(
-      `${missingTiles} of ${tileUrls.length} tiles could not be cached (network errors during download).`,
+    const heightMapRecord: StoredHeightMapRecord = {
+      id: `${downloadId}-height-map`,
+      downloadId,
+      bounds: [
+        heightMap.lat[0],
+        heightMap.lon[0],
+        heightMap.lat[1],
+        heightMap.lon[1],
+      ],
+      gridSize: heightMap.cell_size,
+      map: heightMap,
+      createdAt: Date.now(),
+    };
+
+    const sitesRecord: StoredFlyingSitesRecord = {
+      id: `${downloadId}-sites`,
+      downloadId,
+      bounds: boundsToTuple(bounds),
+      sites: flyingSites,
+      createdAt: Date.now(),
+    };
+
+    await withStore(HEIGHT_MAPS_STORE, "readwrite", async (store) => {
+      await promisifyRequest(store.put(heightMapRecord));
+      return undefined;
+    });
+    await withStore(FLYING_SITES_STORE, "readwrite", async (store) => {
+      await promisifyRequest(store.put(sitesRecord));
+      return undefined;
+    });
+
+    const totalBytes = await downloadTilesViaSw(
+      downloadId,
+      tileUrls,
+      (done, total) => {
+        completed = Math.min(totalSteps - 1, 2 + done);
+        onProgress({
+          active: true,
+          label: `Tiles stored (${done}/${total})`,
+          completed,
+          total: totalSteps,
+        });
+      },
     );
+
+    await putDownloadRecord({
+      ...pendingRecord,
+      siteCount: flyingSites.length,
+      totalBytes,
+      status: "complete",
+      updatedAt: Date.now(),
+      lastError: undefined,
+    });
+  } catch (error: unknown) {
+    await putDownloadRecord({
+      ...pendingRecord,
+      status: "failed",
+      updatedAt: Date.now(),
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-
-  const record: OfflineDownloadRecord = {
-    id: downloadId,
-    name: `Window ${new Date().toLocaleString()}`,
-    createdAt: Date.now(),
-    bounds: boundsToTuple(bounds),
-    gridSize,
-    baseLayerName: selectedLayers[0],
-    tileLayers: selectedLayers,
-    tileZooms,
-    tileCount: tileUrls.length,
-    siteCount: flyingSites.length,
-  };
-
-  const heightMapRecord: StoredHeightMapRecord = {
-    id: `${downloadId}-height-map`,
-    downloadId,
-    bounds: [
-      heightMap.lat[0],
-      heightMap.lon[0],
-      heightMap.lat[1],
-      heightMap.lon[1],
-    ],
-    gridSize: heightMap.cell_size,
-    map: heightMap,
-    createdAt: Date.now(),
-  };
-
-  const sitesRecord: StoredFlyingSitesRecord = {
-    id: `${downloadId}-sites`,
-    downloadId,
-    bounds: boundsToTuple(bounds),
-    sites: flyingSites,
-    createdAt: Date.now(),
-  };
-
-  await withStore(DOWNLOADS_STORE, "readwrite", async (store) => {
-    await promisifyRequest(store.put(record));
-    return undefined;
-  });
-  await withStore(HEIGHT_MAPS_STORE, "readwrite", async (store) => {
-    await promisifyRequest(store.put(heightMapRecord));
-    return undefined;
-  });
-  await withStore(FLYING_SITES_STORE, "readwrite", async (store) => {
-    await promisifyRequest(store.put(sitesRecord));
-    return undefined;
-  });
 
   onProgress({
     active: false,
@@ -708,6 +1045,73 @@ export async function downloadOfflineWindow(
     completed: totalSteps,
     total: totalSteps,
   });
+}
+
+export async function retryFailedOfflineDownload(
+  downloadId: string,
+  onProgress: (progress: OfflineDownloadProgress) => void,
+): Promise<void> {
+  const record = await getDownloadRecord(downloadId);
+  if (record === undefined) {
+    throw new Error("Download record not found");
+  }
+
+  const tileUrls = buildTileUrlsForRecord(record);
+  const totalSteps = tileUrls.length;
+  let completed = 0;
+
+  await putDownloadRecord({
+    ...record,
+    status: "pending",
+    updatedAt: Date.now(),
+    lastError: undefined,
+  });
+
+  onProgress({
+    active: true,
+    label: "Retrying tile download",
+    completed,
+    total: totalSteps,
+  });
+
+  try {
+    const totalBytes = await downloadTilesViaSw(
+      record.id,
+      tileUrls,
+      (done, total) => {
+        completed = done;
+        onProgress({
+          active: true,
+          label: `Tiles stored (${done}/${total})`,
+          completed: done,
+          total,
+        });
+      },
+    );
+
+    await putDownloadRecord({
+      ...record,
+      status: "complete",
+      updatedAt: Date.now(),
+      lastError: undefined,
+      totalBytes: record.totalBytes ?? totalBytes,
+    });
+
+    onProgress({
+      active: false,
+      label: "Offline download completed",
+      completed: totalSteps,
+      total: totalSteps,
+    });
+  } catch (error: unknown) {
+    await putDownloadRecord({
+      ...record,
+      status: "failed",
+      updatedAt: Date.now(),
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 export async function deleteOfflineDownload(downloadId: string): Promise<void> {

@@ -220,6 +220,15 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     margin-top: 12px;
 }
 
+.offlineSizeEstimate {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.offlineSizePlaceholder {
+    color: #5f6b7a;
+}
+
 .offlineLayerSelection {
     margin-top: 12px;
 }
@@ -232,6 +241,10 @@ div.restrictedSlider > .bp5-slider-track > .bp5-slider-progress:first-child {
     display: grid;
     grid-template-columns: repeat(2, minmax(180px, 1fr));
     gap: 4px 12px;
+}
+
+.offlineLayerLabelEstimate {
+    color: #738091;
 }
 
 .offlineDownloadActions {

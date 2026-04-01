@@ -1,3 +1,5 @@
+/// <reference lib="webworker" />
+
 import { clientsClaim } from "workbox-core";
 import {
   cleanupOutdatedCaches,
@@ -48,6 +50,405 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+// ---------------------------------------------------------------------------
+// Background tile download
+// ---------------------------------------------------------------------------
+
+// Types for our download message protocol.
+interface StartTileDownloadMessage {
+  type: "START_TILE_DOWNLOAD";
+  downloadId: string;
+  urls: string[];
+  concurrency: number;
+  useBackgroundFetch?: boolean;
+}
+
+interface TileDownloadProgressMessage {
+  type: "TILE_DOWNLOAD_PROGRESS";
+  downloadId: string;
+  done: number;
+  total: number;
+  totalBytes: number;
+}
+
+interface TileDownloadCompleteMessage {
+  type: "TILE_DOWNLOAD_COMPLETE";
+  downloadId: string;
+  totalBytes: number;
+}
+
+interface TileDownloadFailedMessage {
+  type: "TILE_DOWNLOAD_FAILED";
+  downloadId: string;
+  error: string;
+}
+
+export type TileDownloadMessage =
+  | TileDownloadProgressMessage
+  | TileDownloadCompleteMessage
+  | TileDownloadFailedMessage;
+
+const MAP_TILE_CACHE_BG = "map-tiles";
+const BG_FETCH_PREFIX = "offline-tiles";
+const BG_FETCH_STALL_TIMEOUT_MS = 8_000;
+
+const bgFetchTotals = new Map<string, number>();
+const bgFetchDone = new Map<string, number>();
+const bgFetchWatchdogs = new Map<string, number>();
+const bgFetchSource = new Map<string, "background-fetch" | "streaming">();
+
+function clearBgFetchState(downloadId: string): void {
+  bgFetchTotals.delete(downloadId);
+  bgFetchDone.delete(downloadId);
+  bgFetchSource.delete(downloadId);
+  const timerId = bgFetchWatchdogs.get(downloadId);
+  if (timerId !== undefined) {
+    clearTimeout(timerId);
+    bgFetchWatchdogs.delete(downloadId);
+  }
+}
+
+function toBgFetchId(downloadId: string): string {
+  return `${BG_FETCH_PREFIX}:${downloadId}`;
+}
+
+function fromBgFetchId(id: string): string | undefined {
+  if (!id.startsWith(`${BG_FETCH_PREFIX}:`)) {
+    return undefined;
+  }
+  return id.slice(BG_FETCH_PREFIX.length + 1);
+}
+
+async function broadcastToClients(msg: TileDownloadMessage): Promise<void> {
+  const clients = await self.clients.matchAll({ includeUncontrolled: true });
+  for (const client of clients) {
+    client.postMessage(msg);
+  }
+}
+
+async function isPageVisible(): Promise<boolean> {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  return clients.some((c) => (c as WindowClient).visibilityState === "visible");
+}
+
+async function cacheTileInSw(cache: Cache, url: string): Promise<number> {
+  const cached = await cache.match(url);
+  if (cached !== undefined) {
+    return 0;
+  }
+  try {
+    const response = await fetch(url);
+    if (response.ok) {
+      const blob = await response.clone().blob();
+      await cache.put(url, response);
+      return blob.size;
+    }
+  } catch {
+    // Network error — skip this tile silently.
+  }
+  return 0;
+}
+
+async function runTileDownload(
+  downloadId: string,
+  urls: string[],
+  concurrency: number,
+): Promise<void> {
+  const cache = await caches.open(MAP_TILE_CACHE_BG);
+  const total = urls.length;
+  let done = 0;
+  let totalBytes = 0;
+  let lastNotifiedPercent = -1;
+
+  const updateNotification = async (label: string) => {
+    if (!("Notification" in self) || Notification.permission !== "granted") {
+      return;
+    }
+    if (await isPageVisible()) {
+      return;
+    }
+    // Show progress notification only when page is hidden.
+    const reg = await self.registration;
+    await reg.showNotification("Hike & Fly — Downloading offline map", {
+      body: label,
+      tag: `offline-download-${downloadId}`,
+      renotify: false,
+      silent: true,
+    } as NotificationOptions);
+  };
+
+  const onTileDone = async (bytes: number) => {
+    done += 1;
+    totalBytes += bytes;
+
+    const progress: TileDownloadProgressMessage = {
+      type: "TILE_DOWNLOAD_PROGRESS",
+      downloadId,
+      done,
+      total,
+      totalBytes,
+    };
+    await broadcastToClients(progress);
+
+    // Throttle notifications to avoid flooding, update every 5%.
+    const percent = Math.floor((done / total) * 100);
+    if (percent >= lastNotifiedPercent + 5) {
+      lastNotifiedPercent = percent;
+      await updateNotification(`${percent}% complete (${done}/${total} tiles)`);
+    }
+  };
+
+  let nextIndex = 0;
+  const runWorker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= urls.length) return;
+      const bytes = await cacheTileInSw(cache, urls[index]);
+      await onTileDone(bytes);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, urls.length) }, runWorker),
+  );
+
+  const complete: TileDownloadCompleteMessage = {
+    type: "TILE_DOWNLOAD_COMPLETE",
+    downloadId,
+    totalBytes,
+  };
+  await broadcastToClients(complete);
+
+  // Show completion notification if page is in background.
+  if ("Notification" in self && Notification.permission === "granted") {
+    if (!(await isPageVisible())) {
+      const reg = await self.registration;
+      await reg.showNotification("Hike & Fly — Offline map ready", {
+        body: "Your offline area has been downloaded successfully.",
+        tag: `offline-download-${downloadId}`,
+        renotify: true,
+        silent: false,
+      } as NotificationOptions);
+    }
+  }
+}
+
+async function runBackgroundFetchDownload(
+  downloadId: string,
+  urls: string[],
+  concurrency: number,
+): Promise<void> {
+  const reg = self.registration as ServiceWorkerRegistration & {
+    backgroundFetch?: {
+      fetch: (
+        id: string,
+        requests: Array<string | Request>,
+        options?: Record<string, unknown>,
+      ) => Promise<unknown>;
+      getIds?: () => Promise<string[]>;
+    };
+  };
+
+  if (reg.backgroundFetch === undefined) {
+    throw new Error("Background Fetch API is not available");
+  }
+
+  if (typeof reg.backgroundFetch.fetch !== "function") {
+    throw new Error("Background Fetch API is not functional");
+  }
+
+  // Probe API health first; some engines expose the shape but reject usage.
+  if (typeof reg.backgroundFetch.getIds === "function") {
+    await reg.backgroundFetch.getIds();
+  }
+
+  bgFetchTotals.set(downloadId, urls.length);
+  bgFetchDone.set(downloadId, 1);
+  bgFetchSource.set(downloadId, "background-fetch");
+
+  // Some browsers expose backgroundFetch but never dispatch progress/success
+  // events. If that happens, automatically fall back to streaming mode.
+  const watchdog = setTimeout(() => {
+    if (bgFetchSource.get(downloadId) !== "background-fetch") {
+      return;
+    }
+    bgFetchSource.set(downloadId, "streaming");
+    void runTileDownload(downloadId, urls, concurrency).catch(
+      async (err: unknown) => {
+        await broadcastToClients({
+          type: "TILE_DOWNLOAD_FAILED",
+          downloadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearBgFetchState(downloadId);
+      },
+    );
+  }, BG_FETCH_STALL_TIMEOUT_MS);
+  bgFetchWatchdogs.set(downloadId, watchdog);
+
+  // Emit a first progress message immediately so UI does not appear stuck
+  // while the browser schedules and starts background fetch internals.
+  await broadcastToClients({
+    type: "TILE_DOWNLOAD_PROGRESS",
+    downloadId,
+    done: 1,
+    total: Math.max(1, urls.length),
+    totalBytes: 0,
+  });
+
+  await reg.backgroundFetch.fetch(toBgFetchId(downloadId), urls, {
+    title: "Downloading offline map",
+    icons: [{ src: "/favicon.ico", sizes: "64x64", type: "image/x-icon" }],
+    downloadTotal: undefined,
+  });
+}
+
+self.addEventListener("backgroundfetchprogress", (event) => {
+  const extendableEvent = event as ExtendableEvent;
+  const bfEvent = event as Event & {
+    registration: { id: string; downloaded: number; downloadTotal: number };
+  };
+  const downloadId = fromBgFetchId(bfEvent.registration.id);
+  if (downloadId === undefined) {
+    return;
+  }
+  if (bgFetchSource.get(downloadId) === "streaming") {
+    return;
+  }
+
+  const total = bgFetchTotals.get(downloadId) ?? 1;
+  const bytesTotal = bfEvent.registration.downloadTotal;
+  const bytesDone = bfEvent.registration.downloaded;
+  const done =
+    bytesTotal > 0
+      ? Math.max(
+          0,
+          Math.min(total, Math.round((total * bytesDone) / bytesTotal)),
+        )
+      : Math.max(0, Math.min(total, (bgFetchDone.get(downloadId) ?? 0) + 1));
+  bgFetchDone.set(downloadId, done);
+
+  extendableEvent.waitUntil(
+    broadcastToClients({
+      type: "TILE_DOWNLOAD_PROGRESS",
+      downloadId,
+      done,
+      total,
+      totalBytes: bytesDone,
+    }),
+  );
+});
+
+self.addEventListener("backgroundfetchsuccess", (event) => {
+  const extendableEvent = event as ExtendableEvent;
+  const bfEvent = event as Event & {
+    registration: {
+      id: string;
+      matchAll: () => Promise<
+        Array<{ request: Request; responseReady: Promise<Response> }>
+      >;
+    };
+  };
+  const downloadId = fromBgFetchId(bfEvent.registration.id);
+  if (downloadId === undefined) {
+    return;
+  }
+  if (bgFetchSource.get(downloadId) === "streaming") {
+    return;
+  }
+
+  extendableEvent.waitUntil(
+    (async () => {
+      const cache = await caches.open(MAP_TILE_CACHE_BG);
+      const records = await bfEvent.registration.matchAll();
+      let totalBytes = 0;
+      for (const entry of records) {
+        const response = await entry.responseReady;
+        if (response.ok) {
+          const size = (await response.clone().blob()).size;
+          totalBytes += size;
+          await cache.put(entry.request.url, response.clone());
+        }
+      }
+
+      await broadcastToClients({
+        type: "TILE_DOWNLOAD_COMPLETE",
+        downloadId,
+        totalBytes,
+      });
+      clearBgFetchState(downloadId);
+    })().catch(async (err: unknown) => {
+      await broadcastToClients({
+        type: "TILE_DOWNLOAD_FAILED",
+        downloadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      clearBgFetchState(downloadId);
+    }),
+  );
+});
+
+self.addEventListener("backgroundfetchfail", (event) => {
+  const extendableEvent = event as ExtendableEvent;
+  const bfEvent = event as Event & { registration: { id: string } };
+  const downloadId = fromBgFetchId(bfEvent.registration.id);
+  if (downloadId === undefined) {
+    return;
+  }
+  if (bgFetchSource.get(downloadId) === "streaming") {
+    return;
+  }
+  extendableEvent.waitUntil(
+    (async () => {
+      await broadcastToClients({
+        type: "TILE_DOWNLOAD_FAILED",
+        downloadId,
+        error: "Background fetch failed",
+      });
+      clearBgFetchState(downloadId);
+    })(),
+  );
+});
+
+self.addEventListener("message", (event) => {
+  const data = event.data as StartTileDownloadMessage | { type: string };
+  if (data?.type !== "START_TILE_DOWNLOAD") {
+    return;
+  }
+  const msg = data as StartTileDownloadMessage;
+
+  event.waitUntil(
+    (async () => {
+      if (msg.useBackgroundFetch) {
+        try {
+          await runBackgroundFetchDownload(
+            msg.downloadId,
+            msg.urls,
+            msg.concurrency,
+          );
+          return;
+        } catch {
+          // Fall back immediately to in-SW streaming download so downloads
+          // still start on browsers with partial/buggy Background Fetch support.
+        }
+      }
+
+      await runTileDownload(msg.downloadId, msg.urls, msg.concurrency);
+      clearBgFetchState(msg.downloadId);
+    })().catch(async (err: unknown) => {
+      const failed: TileDownloadFailedMessage = {
+        type: "TILE_DOWNLOAD_FAILED",
+        downloadId: msg.downloadId,
+        error: err instanceof Error ? err.message : String(err),
+      };
+      await broadcastToClients(failed);
+    }),
+  );
 });
 
 // Precache all static assets emitted by Vite.
