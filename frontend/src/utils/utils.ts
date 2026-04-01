@@ -381,15 +381,17 @@ async function getHeightMapForLocalCompute(
     }
   }
 
-  const storedHeightMap = await findStoredHeightMap(
-    latLng.lat,
-    latLng.lng,
-    settings.gridSize,
-  );
-  if (storedHeightMap !== undefined) {
-    const terrainHeight = lookupTerrainHeight(storedHeightMap, latLng);
-    const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
-    return cropHeightMap(storedHeightMap, latLng, requiredMargin);
+  if (!navigator.onLine) {
+    const storedHeightMap = await findStoredHeightMap(
+      latLng.lat,
+      latLng.lng,
+      settings.gridSize,
+    );
+    if (storedHeightMap !== undefined) {
+      const terrainHeight = lookupTerrainHeight(storedHeightMap, latLng);
+      const requiredMargin = estimateSearchMarginMeters(settings, terrainHeight);
+      return cropHeightMap(storedHeightMap, latLng, requiredMargin);
+    }
   }
 
   // Let the backend choose a sufficiently large initial margin and report start height.
